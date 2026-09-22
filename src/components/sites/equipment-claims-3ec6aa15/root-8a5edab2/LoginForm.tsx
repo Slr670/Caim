@@ -2,16 +2,19 @@
 
 import * as React from "react"
 import Image from "next/image"
-import { useSearchParams } from "next/navigation"
-import { CircleAlert, Eye, EyeOff, Loader2 } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { CircleAlert, Eye, EyeOff, KeyRound, Loader2, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 export function LoginForm() {
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const next = searchParams.get("next") ?? ""
+  const next = searchParams.get("next") ?? "/dashboard"
 
+  const [email, setEmail] = React.useState("")
+  const [password, setPassword] = React.useState("")
   const [showPassword, setShowPassword] = React.useState(false)
   const [isPending, setIsPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -23,29 +26,33 @@ export function LoginForm() {
     }
   }, [error])
 
+  function fillDemoCredentials() {
+    setEmail("admin@forth.co.th")
+    setPassword("123456")
+    setError(null)
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setIsPending(true)
     setError(null)
 
-    const formData = new FormData(e.currentTarget)
-    const email = formData.get("email") as string
-    const password = formData.get("password") as string
-
-    // Simulate login server action
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    // Simulate authentication verification
+    await new Promise((resolve) => setTimeout(resolve, 600))
     setIsPending(false)
 
-    // Demonstration validation logic
-    if (!email || !password) {
-      setError("กรุณากรอกอีเมลและรหัสผ่าน")
-    } else if (!email.includes("@")) {
-      setError("รูปแบบอีเมลไม่ถูกต้อง")
-    } else if (password.length < 6) {
-      setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง")
+    // Mock Authentication Logic
+    const cleanEmail = email.trim().toLowerCase()
+    if (cleanEmail === "admin@forth.co.th" && password === "123456") {
+      router.push(next || "/dashboard")
     } else {
-      // Valid mock login
-      setError("ระบบสาธิต (Demo): บัญชีผู้ใช้นี้ยังไม่ได้เปิดใช้งานในระบบจริง")
+      if (!cleanEmail || !password) {
+        setError("กรุณากรอกอีเมลและรหัสผ่าน")
+      } else if (!cleanEmail.includes("@")) {
+        setError("รูปแบบอีเมลไม่ถูกต้อง")
+      } else {
+        setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง (ทดสอบด้วย: admin@forth.co.th / 123456)")
+      }
     }
   }
 
@@ -67,6 +74,26 @@ export function LoginForm() {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
             เข้าสู่ระบบ
           </h1>
+        </div>
+      </div>
+
+      {/* Demo helper card */}
+      <div className="flex flex-col gap-2 rounded-lg border border-brand/20 bg-brand/5 p-3 text-xs text-foreground">
+        <div className="flex items-center justify-between font-medium text-brand">
+          <span className="inline-flex items-center gap-1.5">
+            <KeyRound className="size-3.5" /> บัญชีทดสอบระบบ
+          </span>
+          <button
+            type="button"
+            onClick={fillDemoCredentials}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand hover:underline"
+          >
+            <Sparkles className="size-3" /> กรอกอัตโนมัติ
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between text-muted-foreground">
+          <span>อีเมล: <code className="font-mono text-foreground font-semibold">admin@forth.co.th</code></span>
+          <span>รหัสผ่าน: <code className="font-mono text-foreground font-semibold">123456</code></span>
         </div>
       </div>
 
@@ -95,7 +122,9 @@ export function LoginForm() {
             autoComplete="email"
             spellCheck={false}
             autoCapitalize="none"
-            placeholder=""
+            placeholder="admin@forth.co.th"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             required
             aria-invalid={!!error}
             className="h-10"
@@ -110,7 +139,9 @@ export function LoginForm() {
               name="password"
               type={showPassword ? "text" : "password"}
               autoComplete="current-password"
-              placeholder=""
+              placeholder="••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
               aria-invalid={!!error}
               className="h-10 pr-10"

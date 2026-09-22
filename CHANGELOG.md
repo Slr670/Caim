@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-22
+
+### Added
+- Demo authentication credentials (`admin@forth.co.th` / `123456`) with 1-click auto-fill helper
+- Equipment Claims Dashboard (`/dashboard`) featuring summary stats, ticket search, status filters, claim details modal, and new claim creation dialog
+- Navigation flow between Login and Dashboard with session routing
+
 ## [0.6.0] - 2026-09-22
 
 ### Added
