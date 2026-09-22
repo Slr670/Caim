@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-22
+
+### Added
+- Cloned Equipment Claims (ระบบบริหารงานเคลมอุปกรณ์) login page from `https://equipment-claims.vercel.app/`
+- Custom design tokens, IBM Plex Sans and Sarabun fonts, and Forth Corporation brand assets
+- LoginForm component with responsive layout and interactive demo validation
+
 ### Security
 - Update Next.js and eslint-config-next to 16.3.5 with exact version pins, and refresh vulnerable transitive dependencies. Thanks to @atahan150 for the report in [#117](https://github.com/JCodesMore/ai-website-cloner-template/issues/117) and proposed fix in [#118](https://github.com/JCodesMore/ai-website-cloner-template/pull/118).
 
