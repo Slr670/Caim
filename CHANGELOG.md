@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-22
+
+### Added
+- Complete reverse-engineered internal authenticated pages from `https://equipment-claims.vercel.app/`:
+  - Shared navigation shell (`AppShell`) with collapsible sidebar, active route indicators, user profile display, and mobile responsive drawer
+  - Dashboard (`/dashboard`) with real KPI metrics, status cards, 7-day weekly overview, and vendor performance table
+  - Claims Tickets list (`/tickets`) with interactive search, tab filters, pagination, and status badges
+  - New Claim creation form (`/tickets/new`) with multi-step fields, warranty status, vendor selection, and deadline estimation
+  - Overseas RMA tracking (`/repairs/overseas`) with international shipment status and search
+  - Equipment Asset registry (`/assets`) with category chips, serial numbers, and maintenance history
+  - Base Station directory (`/stations`) covering 50+ nationwide radio stations and regional filter
+  - Staff user manual (`/manual`) with system guidelines, warranty SLA workflows, and export notes
+- Login credential support for provided account `indykantanat@gmail.com` with quick auto-fill helper
+
 ## [0.7.0] - 2026-09-22
 
 ### Added

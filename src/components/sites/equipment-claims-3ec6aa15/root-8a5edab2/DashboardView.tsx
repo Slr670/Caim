@@ -1,582 +1,384 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import {
-  CheckCircle2,
-  Clock,
-  LogOut,
-  Plus,
-  Search,
-  Wrench,
-  X,
-  Building2,
-  FileText
+  ChartPie,
+  ChevronRight,
+  House
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-
-interface ClaimItem {
-  id: string
-  ticketNo: string
-  equipmentName: string
-  model: string
-  serialNo: string
-  siteLocation: string
-  reporter: string
-  date: string
-  status: "pending" | "repairing" | "ready" | "completed"
-  priority: "normal" | "urgent"
-  symptom: string
-}
-
-const INITIAL_CLAIMS: ClaimItem[] = [
-  {
-    id: "1",
-    ticketNo: "CLM-2026-0042",
-    equipmentName: "Base Station Repeater",
-    model: "MOTOTRBO SLR 5500 VHF",
-    serialNo: "SN-8839210",
-    siteLocation: "สถานีเขายายเที่ยง (นครราชสีมา)",
-    reporter: "สมชาย วงศ์สวัสดิ์",
-    date: "21 ก.ย. 2026",
-    status: "pending",
-    priority: "urgent",
-    symptom: "ภาคส่งสัญญาณ (TX) กำลังส่งตกเหลือต่ำกว่า 5W และมีสัญญาณเตือน VSWR สูง"
-  },
-  {
-    id: "2",
-    ticketNo: "CLM-2026-0041",
-    equipmentName: "DMR Digital Mobile Radio",
-    model: "Forth D-TETRA Transceiver 50W",
-    serialNo: "SN-7721094",
-    siteLocation: "สถานีเขาค้อ (เพชรบูรณ์)",
-    reporter: "ประสิทธิ์ จันทร์ดี",
-    date: "20 ก.ย. 2026",
-    status: "repairing",
-    priority: "normal",
-    symptom: "จอ LCD ด้านหน้าแสดงผลผิดปกติและเสียงลำโพงแตก"
-  },
-  {
-    id: "3",
-    ticketNo: "CLM-2026-0040",
-    equipmentName: "Power Amplifier Module",
-    model: "Forth PA-150W VHF Band",
-    serialNo: "SN-6548911",
-    siteLocation: "ศูนย์ควบคุมบางซื่อ (กรุงเทพฯ)",
-    reporter: "วิชัย มงคลพร",
-    date: "19 ก.ย. 2026",
-    status: "repairing",
-    priority: "urgent",
-    symptom: "ไฟแสดงสถานะ Overheat ตลอดเวลา โมดูลตัดการทำงานอัตโนมัติ"
-  },
-  {
-    id: "4",
-    ticketNo: "CLM-2026-0039",
-    equipmentName: "Telecom Power Supply Unit",
-    model: "Forth PSU-48V 30A DC",
-    serialNo: "SN-4412098",
-    siteLocation: "สถานีดอยสุเทพ (เชียงใหม่)",
-    reporter: "ธีระ ศรีสุข",
-    date: "17 ก.ย. 2026",
-    status: "ready",
-    priority: "normal",
-    symptom: "เปลี่ยน Capacitor และ Calibrate แรงดันไฟขาออก 48V เรียบร้อยแล้ว พร้อมส่งมอบ"
-  },
-  {
-    id: "5",
-    ticketNo: "CLM-2026-0038",
-    equipmentName: "Duplexer VHF Filter",
-    model: "VHF 6-Cavity Duplexer 136-174MHz",
-    serialNo: "SN-3398412",
-    siteLocation: "สถานีเขาใหญ่ (ปราจีนบุรี)",
-    reporter: "กิตติพงษ์ แก้วดี",
-    date: "15 ก.ย. 2026",
-    status: "completed",
-    priority: "normal",
-    symptom: "จูนความถี่และตรวจเช็ค Insertion Loss ผ่านเกณฑ์ ส่งคืนสถานีติดตั้งแล้ว"
-  },
-  {
-    id: "6",
-    ticketNo: "CLM-2026-0037",
-    equipmentName: "Antenna Lightning Protector",
-    model: "Surge Protector DC-1000MHz",
-    serialNo: "SN-2219083",
-    siteLocation: "สถานีเกาะสมุย (สุราษฎร์ธานี)",
-    reporter: "นพดล ภักดี",
-    date: "12 ก.ย. 2026",
-    status: "completed",
-    priority: "normal",
-    symptom: "ตรวจพบร่องรอยฟ้าผ่า เปลี่ยน Gas Tube Element และทดสอบความต้านทานดินเรียบร้อย"
-  }
-]
 
 export function DashboardView() {
-  const router = useRouter()
-  const [claims, setClaims] = React.useState<ClaimItem[]>(INITIAL_CLAIMS)
-  const [searchQuery, setSearchQuery] = React.useState("")
-  const [selectedStatus, setSelectedStatus] = React.useState<string>("all")
-  const [selectedClaim, setSelectedClaim] = React.useState<ClaimItem | null>(null)
-  const [isNewTicketOpen, setIsNewTicketOpen] = React.useState(false)
-
-  // New ticket form state
-  const [newModel, setNewModel] = React.useState("")
-  const [newSerial, setNewSerial] = React.useState("")
-  const [newLocation, setNewLocation] = React.useState("")
-  const [newSymptom, setNewSymptom] = React.useState("")
-
-  function handleLogout() {
-    router.push("/login")
-  }
-
-  function handleCreateClaim(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newModel || !newSerial || !newLocation) return
-
-    const newTicket: ClaimItem = {
-      id: Date.now().toString(),
-      ticketNo: `CLM-2026-${String(claims.length + 43).padStart(4, "0")}`,
-      equipmentName: newModel.split(" ")[0] || "อุปกรณ์วิทยุสื่อสาร",
-      model: newModel,
-      serialNo: newSerial,
-      siteLocation: newLocation,
-      reporter: "ผู้ดูแลระบบ (admin@forth.co.th)",
-      date: "วันนี้",
-      status: "pending",
-      priority: "normal",
-      symptom: newSymptom || "รอการตรวจสอบอาการเสียโดยละเอียดจากศูนย์ซ่อม"
-    }
-
-    setClaims([newTicket, ...claims])
-    setIsNewTicketOpen(false)
-    setNewModel("")
-    setNewSerial("")
-    setNewLocation("")
-    setNewSymptom("")
-  }
-
-  const filteredClaims = claims.filter((item) => {
-    const matchesSearch =
-      item.ticketNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.serialNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.siteLocation.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesStatus = selectedStatus === "all" || item.status === selectedStatus
-    return matchesSearch && matchesStatus
-  })
-
-  // Stats calculation
-  const totalCount = claims.length + 122 // baseline realistic volume
-  const pendingCount = claims.filter((c) => c.status === "pending").length + 12
-  const repairingCount = claims.filter((c) => c.status === "repairing").length + 26
-  const completedCount = claims.filter((c) => c.status === "ready" || c.status === "completed").length + 84
-
   return (
-    <div className="min-h-screen bg-secondary/40 text-foreground flex flex-col">
-      {/* Top Navigation */}
-      <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur shadow-xs">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="flex items-center gap-3">
-              <Image
-                src="/images/logo-forth-07_8-mobile.png"
-                alt="Forth Corporation"
-                width={282}
-                height={84}
-                priority
-                className="h-8 w-auto"
-              />
-              <div className="hidden sm:block border-l border-border pl-3">
-                <p className="text-xs font-semibold text-foreground tracking-tight">
-                  ระบบบริหารงานเคลมอุปกรณ์
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  โครงข่ายวิทยุสื่อสาร Forth Telecom
-                </p>
-              </div>
-            </Link>
-          </div>
+    <main id="main" className="flex-1 bg-background">
+      <div className="mx-auto flex max-w-350 flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6">
+        {/* Breadcrumb and Header */}
+        <div className="flex flex-col gap-4">
+          <nav aria-label="breadcrumb">
+            <ol className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+              <li className="inline-flex items-center gap-1">
+                <Link
+                  href="/dashboard"
+                  aria-label="หน้าแรก"
+                  className="transition-colors hover:text-foreground"
+                >
+                  <House className="size-4" />
+                </Link>
+              </li>
+              <li className="flex items-center text-muted-foreground/60">
+                <ChevronRight className="size-3.5" />
+              </li>
+              <li className="inline-flex items-center gap-1">
+                <span className="font-normal text-foreground">แดชบอร์ด</span>
+              </li>
+            </ol>
+          </nav>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2 rounded-full border border-border bg-muted/60 px-3 py-1.5 text-xs text-muted-foreground">
-              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="font-medium text-foreground">admin@forth.co.th</span>
-              <span className="text-[11px] text-muted-foreground">(ผู้ดูแลระบบ)</span>
+          <div className="flex items-center gap-3.5">
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-brand-navy text-white shadow-xs">
+              <ChartPie className="size-6" />
+            </span>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                ภาพรวมงานเคลมอุปกรณ์
+              </h1>
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                สรุปสถานะการเคลมอุปกรณ์โครงข่ายวิทยุสื่อสาร
+              </p>
             </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleLogout}
-              className="gap-1.5 text-xs text-muted-foreground hover:text-destructive hover:border-destructive/30"
-            >
-              <LogOut className="size-3.5" />
-              <span className="hidden sm:inline">ออกจากระบบ</span>
-            </Button>
           </div>
         </div>
-      </header>
 
-      {/* Main Content Area */}
-      <main className="mx-auto flex-1 w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8 flex flex-col gap-8">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              แดชบอร์ดงานเคลมอุปกรณ์
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              ภาพรวมสถานะอุปกรณ์ส่งซ่อม สถิติการตรวจเช็ค และติดตามใบงานเคลมแบบเรียลไทม์
+        {/* 4 Main Summary Cards */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Card 1: Total */}
+          <div className="flex flex-col justify-between rounded-xl border border-border bg-card p-5 shadow-xs">
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground">เคสทั้งหมด</p>
+                <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  Total
+                </span>
+              </div>
+              <p className="tabular mt-3 text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+                5
+              </p>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">รวมทุกสถานะในระบบ</p>
+          </div>
+
+          {/* Card 2: In Progress */}
+          <div className="flex flex-col justify-between rounded-xl border border-border bg-card p-5 shadow-xs">
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground">อยู่ระหว่างดำเนินการ</p>
+                <span className="rounded-md bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
+                  In Progress
+                </span>
+              </div>
+              <p className="tabular mt-3 text-4xl font-semibold tracking-tight text-brand sm:text-5xl">
+                3
+              </p>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">60% ของเคสทั้งหมด</p>
+          </div>
+
+          {/* Card 3: Closed */}
+          <div className="flex flex-col justify-between rounded-xl border border-border bg-card p-5 shadow-xs">
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground">เคลมสำเร็จ / ปิดเคส</p>
+                <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
+                  Closed
+                </span>
+              </div>
+              <p className="tabular mt-3 text-4xl font-semibold tracking-tight text-emerald-600 sm:text-5xl">
+                1
+              </p>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">20% ของเคสทั้งหมด</p>
+          </div>
+
+          {/* Card 4: Rejected */}
+          <div className="flex flex-col justify-between rounded-xl border border-border bg-card p-5 shadow-xs">
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground">ปฏิเสธเคลม</p>
+                <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                  Rejected
+                </span>
+              </div>
+              <p className="tabular mt-3 text-4xl font-semibold tracking-tight text-destructive sm:text-5xl">
+                1
+              </p>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">20% ของเคสทั้งหมด</p>
+          </div>
+        </div>
+
+        {/* Operational Metrics Section */}
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+          <div className="border-b border-border pb-3">
+            <h2 className="text-base font-semibold text-foreground">ตัวชี้วัดการทำงาน</h2>
+            <p className="text-xs sm:text-sm text-muted-foreground">
+              ความเร็วและการตรงต่อกำหนดของงานเคลม
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              ตัวเลขคิดจากข้อมูลทั้งหมดในระบบ ลูกศรเทียบ 30 วันล่าสุดกับ 30 วันก่อนหน้า · ตัวเลขที่เป็นภาพรวม ณ วันนี้ (อายุงานค้าง เกินกำหนด) เทียบย้อนหลังไม่ได้ เพราะระบบไม่ได้เก็บภาพรวมรายวันไว้
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <Button
-              onClick={() => setIsNewTicketOpen(true)}
-              className="gap-2 bg-brand text-white hover:bg-brand-dark shadow-xs"
-            >
-              <Plus className="size-4" />
-              <span>แจ้งเคลมอุปกรณ์ใหม่</span>
-            </Button>
+          <div className="grid grid-cols-1 gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg bg-muted/40 p-3.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold tracking-tight text-foreground">12 วัน</span>
+                <span className="text-xs text-muted-foreground">n=3</span>
+              </div>
+              <p className="mt-1 text-xs font-medium text-foreground">อายุงานค้างกลาง</p>
+              <p className="text-[11px] text-muted-foreground">จากงานค้าง 3 เคส · ณ วันนี้</p>
+            </div>
+
+            <div className="rounded-lg bg-destructive/5 p-3.5 border border-destructive/20">
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold tracking-tight text-destructive">1</span>
+                <span className="text-xs text-destructive/80 font-medium">33%</span>
+              </div>
+              <p className="mt-1 text-xs font-medium text-destructive">เกินกำหนด</p>
+              <p className="text-[11px] text-muted-foreground">ไม่รวมเคสส่งซ่อมต่างประเทศ</p>
+            </div>
+
+            <div className="rounded-lg bg-muted/40 p-3.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold tracking-tight text-muted-foreground">—</span>
+              </div>
+              <p className="mt-1 text-xs font-medium text-foreground">ปิดทันกำหนด</p>
+              <p className="text-[11px] text-muted-foreground">ยังไม่มีเคสในประเทศที่ปิดแล้ว</p>
+            </div>
+
+            <div className="rounded-lg bg-muted/40 p-3.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold tracking-tight text-foreground">19 วัน</span>
+                <span className="text-xs text-muted-foreground">n=1</span>
+              </div>
+              <p className="mt-1 text-xs font-medium text-foreground">เวลาปิดงานกลาง</p>
+              <p className="text-[11px] text-muted-foreground">จากเคสที่ปิดแล้ว 1 เคส</p>
+            </div>
           </div>
         </div>
 
-        {/* Overview Stats Cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Card 1: Total */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs transition-all hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">งานเคลมทั้งหมด</p>
-              <div className="rounded-lg bg-brand/10 p-2 text-brand">
-                <FileText className="size-4" />
+        {/* Status Breakdown & Weekly Overview Grid */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Status Breakdown */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">สถานะงาน</h2>
+                  <p className="text-xs text-muted-foreground">ทั้งหมด 5 เคสในระบบ</p>
+                </div>
               </div>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight text-foreground">{totalCount}</span>
-              <span className="text-xs font-medium text-emerald-600">+12% จากเดือนก่อน</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">รวมอุปกรณ์ทุกสถานีฐานทั่วประเทศ</p>
-          </div>
 
-          {/* Card 2: Pending */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs transition-all hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">รอรับเรื่อง / ตรวจสอบ</p>
-              <div className="rounded-lg bg-amber-500/10 p-2 text-amber-600">
-                <Clock className="size-4" />
-              </div>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight text-amber-600">{pendingCount}</span>
-              <span className="text-xs font-medium text-muted-foreground">รายการ</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">รอฝ่ายช่างเทคนิควิเคราะห์อาการเสีย</p>
-          </div>
-
-          {/* Card 3: Repairing */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs transition-all hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">อยู่ระหว่างซ่อมแซม</p>
-              <div className="rounded-lg bg-brand/10 p-2 text-brand">
-                <Wrench className="size-4" />
-              </div>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight text-brand">{repairingCount}</span>
-              <span className="text-xs font-medium text-muted-foreground">รายการ</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">ส่งศูนย์ซ่อม Forth และผู้ผลิต</p>
-          </div>
-
-          {/* Card 4: Completed */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs transition-all hover:shadow-md">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">เสร็จสิ้น / ส่งมอบแล้ว</p>
-              <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-600">
-                <CheckCircle2 className="size-4" />
-              </div>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-3xl font-bold tracking-tight text-emerald-600">{completedCount}</span>
-              <span className="text-xs font-medium text-emerald-600">94.8% SLA</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">ผ่านเกณฑ์ทดสอบและส่งคืนสถานี</p>
-          </div>
-        </div>
-
-        {/* Table & Filtering Section */}
-        <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden flex flex-col">
-          {/* Controls Bar */}
-          <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between bg-card">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="ค้นหาด้วยเลขที่ใบเคลม, Serial No, หรือสถานีฐาน..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 h-9 text-xs"
-              />
-            </div>
-
-            {/* Status Filter Tabs */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-              {[
-                { key: "all", label: "ทั้งหมด" },
-                { key: "pending", label: "รอตรวจสอบ" },
-                { key: "repairing", label: "กำลังซ่อม" },
-                { key: "ready", label: "พร้อมส่งมอบ" },
-                { key: "completed", label: "เสร็จสิ้น" }
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setSelectedStatus(tab.key)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                    selectedStatus === tab.key
-                      ? "bg-brand text-white"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
+              <div className="flex flex-col gap-2.5 pt-4">
+                <Link
+                  href="/tickets?status=1"
+                  className="flex items-center justify-between rounded-lg border border-border/70 p-3 hover:bg-muted/40 transition-colors"
                 >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
+                  <div className="flex items-center gap-2.5 text-xs font-medium text-foreground">
+                    <span className="size-2 rounded-full bg-amber-500" />
+                    <span>รับแจ้ง / รอตรวจสภาพ</span>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-foreground">1</span>
+                </Link>
 
-          {/* Claims Data Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground">
-                <tr>
-                  <th className="py-3 px-4 sm:px-6">เลขที่ใบเคลม</th>
-                  <th className="py-3 px-4">อุปกรณ์ / รุ่น</th>
-                  <th className="py-3 px-4">Serial Number</th>
-                  <th className="py-3 px-4">สถานีติดตั้ง</th>
-                  <th className="py-3 px-4">วันที่แจ้ง</th>
-                  <th className="py-3 px-4">สถานะ</th>
-                  <th className="py-3 px-4 text-right">การจัดการ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filteredClaims.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="py-12 text-center text-muted-foreground text-sm">
-                      ไม่พบข้อมูลใบเคลมที่ตรงกับการค้นหา
-                    </td>
-                  </tr>
-                ) : (
-                  filteredClaims.map((claim) => (
-                    <tr
-                      key={claim.id}
-                      className="hover:bg-muted/30 transition-colors group"
+                <Link
+                  href="/tickets?status=2"
+                  className="flex items-center justify-between rounded-lg border border-border/70 p-3 hover:bg-muted/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5 text-xs font-medium text-foreground">
+                    <span className="size-2 rounded-full bg-brand" />
+                    <span>ส่งศูนย์บริการแล้ว</span>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-foreground">2</span>
+                </Link>
+
+                <Link
+                  href="/tickets?status=3"
+                  className="flex items-center justify-between rounded-lg border border-border/70 p-3 hover:bg-muted/40 transition-colors opacity-70"
+                >
+                  <div className="flex items-center gap-2.5 text-xs font-medium text-muted-foreground">
+                    <span className="size-2 rounded-full bg-purple-500" />
+                    <span>รออะไหล่ / กำลังซ่อม</span>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-muted-foreground">0</span>
+                </Link>
+
+                <Link
+                  href="/tickets?status=4"
+                  className="flex items-center justify-between rounded-lg border border-border/70 p-3 hover:bg-muted/40 transition-colors opacity-70"
+                >
+                  <div className="flex items-center gap-2.5 text-xs font-medium text-muted-foreground">
+                    <span className="size-2 rounded-full bg-teal-500" />
+                    <span>ซ่อมเสร็จ / รอส่งมอบ</span>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-muted-foreground">0</span>
+                </Link>
+
+                <div className="mt-2 pt-2 border-t border-border">
+                  <p className="text-[11px] font-medium text-muted-foreground mb-2">ปิดงานแล้ว</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Link
+                      href="/tickets?status=5"
+                      className="flex items-center justify-between rounded-lg bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-400"
                     >
-                      <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-brand text-xs">
-                        {claim.ticketNo}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <div className="font-medium text-foreground text-xs">{claim.model}</div>
-                        <div className="text-[11px] text-muted-foreground">{claim.equipmentName}</div>
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-xs text-muted-foreground">
-                        {claim.serialNo}
-                      </td>
-                      <td className="py-3.5 px-4 text-xs text-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <Building2 className="size-3.5 text-muted-foreground shrink-0" />
-                          <span>{claim.siteLocation}</span>
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-xs text-muted-foreground whitespace-nowrap">
-                        {claim.date}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {claim.status === "pending" && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                            <span className="size-1.5 rounded-full bg-amber-500" />
-                            รอตรวจสอบ
-                          </span>
-                        )}
-                        {claim.status === "repairing" && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-[11px] font-medium text-brand">
-                            <span className="size-1.5 rounded-full bg-brand" />
-                            กำลังส่งซ่อม
-                          </span>
-                        )}
-                        {claim.status === "ready" && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 px-2.5 py-0.5 text-[11px] font-medium text-teal-700 dark:text-teal-400">
-                            <span className="size-1.5 rounded-full bg-teal-500" />
-                            พร้อมส่งมอบ
-                          </span>
-                        )}
-                        {claim.status === "completed" && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-                            <span className="size-1.5 rounded-full bg-emerald-500" />
-                            ปิดงานเรียบร้อย
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          onClick={() => setSelectedClaim(claim)}
-                          className="text-xs"
-                        >
-                          ดูรายละเอียด
-                        </Button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Table Footer */}
-          <div className="border-t border-border px-4 py-3 sm:px-6 bg-card flex items-center justify-between text-xs text-muted-foreground">
-            <span>แสดง {filteredClaims.length} จาก {claims.length} รายการ</span>
-            <span>ระบบโครงข่ายวิทยุสื่อสาร Forth Corporation</span>
-          </div>
-        </div>
-      </main>
-
-      {/* Claim Detail Modal */}
-      {selectedClaim && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in">
-          <div className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-xl ring-1 ring-border flex flex-col gap-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="font-mono text-xs font-semibold text-brand">{selectedClaim.ticketNo}</span>
-                <h3 className="mt-1 text-lg font-bold text-foreground">{selectedClaim.model}</h3>
-                <p className="text-xs text-muted-foreground">{selectedClaim.equipmentName}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedClaim(null)}
-                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="rounded-lg border border-border bg-muted/30 p-3">
-                <span className="text-muted-foreground block">Serial Number</span>
-                <span className="font-mono font-medium text-foreground">{selectedClaim.serialNo}</span>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 p-3">
-                <span className="text-muted-foreground block">สถานีฐานที่ติดตั้ง</span>
-                <span className="font-medium text-foreground">{selectedClaim.siteLocation}</span>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 p-3">
-                <span className="text-muted-foreground block">ผู้บันทึกแจ้งเคลม</span>
-                <span className="font-medium text-foreground">{selectedClaim.reporter}</span>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 p-3">
-                <span className="text-muted-foreground block">วันที่แจ้งเรื่อง</span>
-                <span className="font-medium text-foreground">{selectedClaim.date}</span>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border p-3.5 bg-card">
-              <p className="text-xs font-semibold text-foreground mb-1">รายละเอียดและอาการเสียที่พบ:</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">{selectedClaim.symptom}</p>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-border">
-              <Button variant="outline" size="sm" onClick={() => setSelectedClaim(null)}>
-                ปิดหน้าต่าง
-              </Button>
-              <Button size="sm" className="bg-brand text-white hover:bg-brand-dark">
-                พิมพ์ใบส่งซ่อม
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* New Ticket Modal */}
-      {isNewTicketOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in">
-          <form
-            onSubmit={handleCreateClaim}
-            className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-xl ring-1 ring-border flex flex-col gap-4"
-          >
-            <div className="flex items-start justify-between border-b border-border pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-foreground">แจ้งส่งเคลมอุปกรณ์ใหม่</h3>
-                <p className="text-xs text-muted-foreground">บันทึกข้อมูลอุปกรณ์ส่งซ่อมเข้าสู่ระบบ</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsNewTicketOpen(false)}
-                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-3 text-xs">
-              <div className="flex flex-col gap-1.5">
-                <label className="font-medium text-foreground">ชื่อรุ่นอุปกรณ์ (Equipment Model)</label>
-                <Input
-                  required
-                  placeholder="เช่น Forth D-TETRA Base Station 50W"
-                  value={newModel}
-                  onChange={(e) => setNewModel(e.target.value)}
-                  className="h-9"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-medium text-foreground">Serial Number</label>
-                  <Input
-                    required
-                    placeholder="เช่น SN-9982314"
-                    value={newSerial}
-                    onChange={(e) => setNewSerial(e.target.value)}
-                    className="h-9"
-                  />
+                      <span>ปิดเคส (รับคืนแล้ว)</span>
+                      <span className="font-mono font-bold">1</span>
+                    </Link>
+                    <Link
+                      href="/tickets?status=6"
+                      className="flex items-center justify-between rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive"
+                    >
+                      <span>ปฏิเสธเคลม</span>
+                      <span className="font-mono font-bold">1</span>
+                    </Link>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-medium text-foreground">สถานีติดตั้ง (Site)</label>
-                  <Input
-                    required
-                    placeholder="เช่น สถานีเขาเขียว (ชลบุรี)"
-                    value={newLocation}
-                    onChange={(e) => setNewLocation(e.target.value)}
-                    className="h-9"
-                  />
+              </div>
+            </div>
+          </div>
+
+          {/* Weekly Overview */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">ภาพรวมรายสัปดาห์</h2>
+                  <p className="text-xs text-muted-foreground">เคสรับแจ้ง 7 วันล่าสุด</p>
+                </div>
+                <span className="font-mono text-xs font-bold text-emerald-600">-100% WoW</span>
+              </div>
+
+              <div className="pt-4">
+                {/* Bar chart mockup */}
+                <div className="flex h-32 items-end justify-between gap-2 border-b border-border pb-2 pt-4">
+                  {["พ.", "พฤ.", "ศ.", "ส.", "อา.", "จ.", "อ."].map((day) => (
+                    <div key={day} className="flex flex-1 flex-col items-center gap-1.5">
+                      <div className="w-full max-w-6 rounded-t bg-muted h-2 transition-all hover:bg-brand" />
+                      <span className="text-[10px] text-muted-foreground">{day}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-4 text-center">
+                  <div className="rounded-lg bg-muted/40 p-2.5">
+                    <p className="text-[11px] text-muted-foreground">รับแจ้งสัปดาห์นี้</p>
+                    <p className="font-mono text-lg font-bold text-foreground">0</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-2.5">
+                    <p className="text-[11px] text-muted-foreground">ซ่อมเสร็จ</p>
+                    <p className="font-mono text-lg font-bold text-foreground">0</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-2.5">
+                    <p className="text-[11px] text-muted-foreground">ปิดเคส</p>
+                    <p className="font-mono text-lg font-bold text-foreground">0</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Process Bottlenecks & Service Centers */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Bottlenecks */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+            <div className="border-b border-border pb-3">
+              <h2 className="text-base font-semibold text-foreground">คอขวดของกระบวนการ</h2>
+              <p className="text-xs text-muted-foreground">เคสค้างอยู่ในขั้นไหนนานที่สุด</p>
+            </div>
+
+            <div className="flex flex-col gap-3 pt-4 text-xs">
+              <div className="rounded-lg border border-border/70 p-3">
+                <div className="flex justify-between font-medium">
+                  <span className="text-foreground">1. รับแจ้ง / รอตรวจสภาพ</span>
+                  <span className="text-amber-600 font-bold">ค้างอยู่ 9 วัน (1 เคส)</span>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  ค่าเฉลี่ยปกติ: จบแล้วใน 1 วัน (n=4)
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border/70 p-3">
+                <div className="flex justify-between font-medium">
+                  <span className="text-foreground">2. ส่งศูนย์บริการแล้ว</span>
+                  <span className="text-brand font-bold">ค้างอยู่ 11 วัน (2 เคส · นานสุด 12 วัน)</span>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  ค่าเฉลี่ยปกติ: จบแล้วใน 1 วัน (n=1)
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border/70 p-3 opacity-60">
+                <div className="flex justify-between font-medium">
+                  <span className="text-muted-foreground">3. รออะไหล่ / กำลังซ่อม</span>
+                  <span className="text-muted-foreground">ไม่มีเคสค้าง</span>
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="font-medium text-foreground">อาการเสีย / รายละเอียด</label>
-                <textarea
-                  rows={3}
-                  placeholder="ระบุอาการผิดปกติหรือสาเหตุที่ส่งเคลม..."
-                  value={newSymptom}
-                  onChange={(e) => setNewSymptom(e.target.value)}
-                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                />
+              <div className="rounded-lg border border-border/70 p-3 opacity-60">
+                <div className="flex justify-between font-medium">
+                  <span className="text-muted-foreground">4. ซ่อมเสร็จ / รอส่งมอบ</span>
+                  <span className="text-muted-foreground">ไม่มีเคสค้าง</span>
+                </div>
               </div>
             </div>
+          </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-border">
-              <Button type="button" variant="outline" size="sm" onClick={() => setIsNewTicketOpen(false)}>
-                ยกเลิก
-              </Button>
-              <Button type="submit" size="sm" className="bg-brand text-white hover:bg-brand-dark">
-                บันทึกการส่งเคลม
-              </Button>
+          {/* Service Centers Table */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
+            <div className="border-b border-border pb-3">
+              <h2 className="text-base font-semibold text-foreground">ระยะเวลาที่งานอยู่กับศูนย์บริการ</h2>
+              <p className="text-xs text-muted-foreground">นับเฉพาะช่วงที่เคสอยู่กับศูนย์บริการ</p>
             </div>
-          </form>
+
+            <div className="overflow-x-auto pt-3">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="pb-2 font-medium">ศูนย์บริการ</th>
+                    <th className="pb-2 font-medium">ทั้งหมด</th>
+                    <th className="pb-2 font-medium">อยู่ที่ศูนย์</th>
+                    <th className="pb-2 font-medium">ค้างนานสุด</th>
+                    <th className="pb-2 font-medium text-destructive">เกินกำหนด</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60 font-mono">
+                  <tr className="hover:bg-muted/30">
+                    <td className="py-2.5 font-sans font-medium text-foreground">Huawei</td>
+                    <td className="py-2.5">3</td>
+                    <td className="py-2.5 text-brand font-bold">1</td>
+                    <td className="py-2.5">10 วัน</td>
+                    <td className="py-2.5 text-destructive font-bold">1</td>
+                  </tr>
+                  <tr className="hover:bg-muted/30">
+                    <td className="py-2.5 font-sans font-medium text-foreground">Hytera</td>
+                    <td className="py-2.5">1</td>
+                    <td className="py-2.5 text-muted-foreground">—</td>
+                    <td className="py-2.5 text-muted-foreground">—</td>
+                    <td className="py-2.5 text-muted-foreground">—</td>
+                  </tr>
+                  <tr className="hover:bg-muted/30">
+                    <td className="py-2.5 font-sans font-medium text-foreground">ยังไม่ระบุศูนย์</td>
+                    <td className="py-2.5">1</td>
+                    <td className="py-2.5 text-brand font-bold">1</td>
+                    <td className="py-2.5">12 วัน</td>
+                    <td className="py-2.5 text-muted-foreground">—</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+    </main>
   )
 }

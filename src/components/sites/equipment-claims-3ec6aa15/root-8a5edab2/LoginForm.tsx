@@ -27,8 +27,8 @@ export function LoginForm() {
   }, [error])
 
   function fillDemoCredentials() {
-    setEmail("admin@forth.co.th")
-    setPassword("123456")
+    setEmail("indykantanat@gmail.com")
+    setPassword("Claim-U8yIjast-2569")
     setError(null)
   }
 
@@ -43,7 +43,11 @@ export function LoginForm() {
 
     // Mock Authentication Logic
     const cleanEmail = email.trim().toLowerCase()
-    if (cleanEmail === "admin@forth.co.th" && password === "123456") {
+    const isAuthorized =
+      (cleanEmail === "indykantanat@gmail.com" && password === "Claim-U8yIjast-2569") ||
+      (cleanEmail === "admin@forth.co.th" && password === "123456")
+
+    if (isAuthorized) {
       router.push(next || "/dashboard")
     } else {
       if (!cleanEmail || !password) {
@@ -51,7 +55,7 @@ export function LoginForm() {
       } else if (!cleanEmail.includes("@")) {
         setError("รูปแบบอีเมลไม่ถูกต้อง")
       } else {
-        setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง (ทดสอบด้วย: admin@forth.co.th / 123456)")
+        setError("อีเมลหรือรหัสผ่านไม่ถูกต้อง (ทดสอบด้วย: indykantanat@gmail.com / Claim-U8yIjast-2569)")
       }
     }
   }
@@ -81,7 +85,7 @@ export function LoginForm() {
       <div className="flex flex-col gap-2 rounded-lg border border-brand/20 bg-brand/5 p-3 text-xs text-foreground">
         <div className="flex items-center justify-between font-medium text-brand">
           <span className="inline-flex items-center gap-1.5">
-            <KeyRound className="size-3.5" /> บัญชีทดสอบระบบ
+            <KeyRound className="size-3.5" /> บัญชีเข้าใช้งานระบบ
           </span>
           <button
             type="button"
@@ -91,9 +95,9 @@ export function LoginForm() {
             <Sparkles className="size-3" /> กรอกอัตโนมัติ
           </button>
         </div>
-        <div className="flex flex-wrap items-center justify-between text-muted-foreground">
-          <span>อีเมล: <code className="font-mono text-foreground font-semibold">admin@forth.co.th</code></span>
-          <span>รหัสผ่าน: <code className="font-mono text-foreground font-semibold">123456</code></span>
+        <div className="flex flex-col gap-1 text-muted-foreground text-[11px]">
+          <div>อีเมล: <code className="font-mono text-foreground font-semibold">indykantanat@gmail.com</code></div>
+          <div>รหัสผ่าน: <code className="font-mono text-foreground font-semibold">Claim-U8yIjast-2569</code></div>
         </div>
       </div>
 

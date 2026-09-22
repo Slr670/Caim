@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { AppShell } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/AppShell"
 import { DashboardView } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/DashboardView"
 
 export const metadata: Metadata = {
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 }
 
 export default function DashboardPage() {
-  return <DashboardView />
+  return (
+    <AppShell>
+      <DashboardView />
+    </AppShell>
+  )
 }
