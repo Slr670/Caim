@@ -11,30 +11,44 @@ import {
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 
+interface Station {
+  name: string
+  code: string
+  area: string
+  subdistrict: string
+  district: string
+  province: string
+}
+
+const STATIONS: Station[] = [
+  { name: "BS คลองป่าหมู", code: "BS-014", area: "ภาคตะวันออกเฉียงเหนือ", subdistrict: "วังกะทะ", district: "ปากช่อง", province: "นครราชสีมา" },
+  { name: "BS คลองพลู", code: "BS-022", area: "ภาคตะวันออก", subdistrict: "คลองพลู", district: "เขาคิชฌกูฏ", province: "จันทบุรี" },
+  { name: "BS ช่อง", code: "BS-031", area: "ภาคใต้", subdistrict: "ช่อง", district: "นาโยง", province: "ตรัง" },
+  { name: "BS ปางใหม่พัฒนา", code: "BS-045", area: "ภาคเหนือ", subdistrict: "ปางตาไว", district: "ปางศิลาทอง", province: "กำแพงเพชร" },
+  { name: "BS วังงิ้ว", code: "BS-058", area: "ภาคกลาง", subdistrict: "วังงิ้ว", district: "ดงเจริญ", province: "พิจิตร" },
+  { name: "BS วัดบางอุดม", code: "BS-064", area: "ภาคใต้", subdistrict: "ขนาบนาก", district: "ปากพนัง", province: "นครศรีธรรมราช" },
+  { name: "BS ศรีสุขสำราญ", code: "BS-071", area: "ภาคตะวันออกเฉียงเหนือ", subdistrict: "ศรีสุขสำราญ", district: "อุบลรัตน์", province: "ขอนแก่น" },
+  { name: "BS หนองนกแก้ว", code: "BS-083", area: "ภาคตะวันตก", subdistrict: "หนองนกแก้ว", district: "เลาขวัญ", province: "กาญจนบุรี" },
+  { name: "ที่ว่าการอำเภอเขาคิชฌกูฏ", code: "GOV-01", area: "ภาคตะวันออก", subdistrict: "พลวง", district: "เขาคิชฌกูฏ", province: "จันทบุรี" },
+  { name: "ที่ว่าการอำเภอเขาสวนกวาง", code: "GOV-02", area: "ภาคตะวันออกเฉียงเหนือ", subdistrict: "คำม่วง", district: "เขาสวนกวาง", province: "ขอนแก่น" },
+  { name: "ที่ว่าการอำเภอคลองลาน", code: "GOV-03", area: "ภาคเหนือ", subdistrict: "คลองน้ำไหล", district: "คลองลาน", province: "กำแพงเพชร" },
+  { name: "ที่ว่าการอำเภอดงเจริญ", code: "GOV-04", area: "ภาคกลาง", subdistrict: "วังงิ้วใต้", district: "ดงเจริญ", province: "พิจิตร" }
+]
+
 export function StationsView() {
   const [searchQuery, setSearchQuery] = React.useState("")
+  const deferredQuery = React.useDeferredValue(searchQuery)
 
-  const stations = [
-    { name: "BS คลองป่าหมู", code: "BS-014", area: "ภาคตะวันออกเฉียงเหนือ", subdistrict: "วังกะทะ", district: "ปากช่อง", province: "นครราชสีมา" },
-    { name: "BS คลองพลู", code: "BS-022", area: "ภาคตะวันออก", subdistrict: "คลองพลู", district: "เขาคิชฌกูฏ", province: "จันทบุรี" },
-    { name: "BS ช่อง", code: "BS-031", area: "ภาคใต้", subdistrict: "ช่อง", district: "นาโยง", province: "ตรัง" },
-    { name: "BS ปางใหม่พัฒนา", code: "BS-045", area: "ภาคเหนือ", subdistrict: "ปางตาไว", district: "ปางศิลาทอง", province: "กำแพงเพชร" },
-    { name: "BS วังงิ้ว", code: "BS-058", area: "ภาคกลาง", subdistrict: "วังงิ้ว", district: "ดงเจริญ", province: "พิจิตร" },
-    { name: "BS วัดบางอุดม", code: "BS-064", area: "ภาคใต้", subdistrict: "ขนาบนาก", district: "ปากพนัง", province: "นครศรีธรรมราช" },
-    { name: "BS ศรีสุขสำราญ", code: "BS-071", area: "ภาคตะวันออกเฉียงเหนือ", subdistrict: "ศรีสุขสำราญ", district: "อุบลรัตน์", province: "ขอนแก่น" },
-    { name: "BS หนองนกแก้ว", code: "BS-083", area: "ภาคตะวันตก", subdistrict: "หนองนกแก้ว", district: "เลาขวัญ", province: "กาญจนบุรี" },
-    { name: "ที่ว่าการอำเภอเขาคิชฌกูฏ", code: "GOV-01", area: "ภาคตะวันออก", subdistrict: "พลวง", district: "เขาคิชฌกูฏ", province: "จันทบุรี" },
-    { name: "ที่ว่าการอำเภอเขาสวนกวาง", code: "GOV-02", area: "ภาคตะวันออกเฉียงเหนือ", subdistrict: "คำม่วง", district: "เขาสวนกวาง", province: "ขอนแก่น" },
-    { name: "ที่ว่าการอำเภอคลองลาน", code: "GOV-03", area: "ภาคเหนือ", subdistrict: "คลองน้ำไหล", district: "คลองลาน", province: "กำแพงเพชร" },
-    { name: "ที่ว่าการอำเภอดงเจริญ", code: "GOV-04", area: "ภาคกลาง", subdistrict: "วังงิ้วใต้", district: "ดงเจริญ", province: "พิจิตร" }
-  ]
-
-  const filtered = stations.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.province.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.district.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filtered = React.useMemo(() => {
+    const q = deferredQuery.trim().toLowerCase()
+    if (!q) return STATIONS
+    return STATIONS.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.province.toLowerCase().includes(q) ||
+        s.district.toLowerCase().includes(q)
+    )
+  }, [deferredQuery])
 
   return (
     <main id="main" className="flex-1 bg-background">

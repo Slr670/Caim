@@ -34,11 +34,12 @@ export default function HomePage() {
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
       <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-[118%]">
         <Image
-          src="/images/IMG_8154_enhanced_2x.png"
+          src="/images/IMG_8154_enhanced_2x.webp"
           alt=""
           fill
           priority
           sizes="100vw"
+          quality={80}
           className="object-cover object-bottom"
         />
       </div>

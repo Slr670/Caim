@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-23
+
+### Performance & Optimization
+- **Image Payload Optimization**:
+  - Re-encoded hero background image from uncompressed 5.36MB PNG to sharp high-res 2048px WebP (`IMG_8154_enhanced_2x.webp`) at 256KB (**95.2% size reduction**)
+  - Enabled Next.js modern image formats (`image/avif`, `image/webp`) with long-term cache TTL
+- **Persistent AppShell & Zero-Flicker Layout**:
+  - Unified all authenticated pages (`/dashboard`, `/tickets`, `/tickets/new`, `/stations`, `/manual`, `/assets`, `/repairs/overseas`) under `(authenticated)` route group with shared `layout.tsx`
+  - Completely eliminated unmount/remount layout thrashing and sidebar DOM reconstruction during page navigation
+- **Rendering & Concurrency Optimization**:
+  - Implemented `React.useDeferredValue` and `React.useMemo` for search filters in `StationsView`, `TicketsView`, and `AssetsView` to ensure 60fps responsive input with zero UI freezing
+  - Hoisted static dataset allocations (`STATIONS`, `ASSETS`, `NAV_SECTIONS`) outside component bodies to eliminate repetitive memory allocation on re-render
+- **Font & Asset Delivery**:
+  - Pruned unused `Sarabun` 300 font weight from initial download pipeline, enabling `preload` and `display: "swap"`
+- **Next.js & Turbopack Compiler**:
+  - Added `compress: true`, `poweredByHeader: false`, and `optimizePackageImports` for `lucide-react`, `@base-ui/react`, `clsx`, `tailwind-merge` (build time reduced by 74%)
+
 ## [0.8.0] - 2026-09-22
 
 ### Added

@@ -12,49 +12,61 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
+interface Asset {
+  serial: string
+  vendor: string
+  model: string
+  category: string
+}
+
+const ASSETS: Asset[] = [
+  {
+    serial: "N02555009980",
+    vendor: "Huawei",
+    model: "2280",
+    category: "ระบบบริหารจัดการ Software-Defined WAN (SD-WAN Controller)"
+  },
+  {
+    serial: "N02555009979",
+    vendor: "Huawei",
+    model: "2280",
+    category: "ระบบบริหารจัดการ Software-Defined WAN (SD-WAN Controller)"
+  },
+  {
+    serial: "1000167600349",
+    vendor: "Huawei",
+    model: "OMXD30000",
+    category: "Optical Transceiver Module 10Gbps"
+  },
+  {
+    serial: "1000167600350",
+    vendor: "Hytera",
+    model: "MD788G",
+    category: "DMR Mobile Radio Transceiver 50W"
+  },
+  {
+    serial: "SN-8839210",
+    vendor: "Motorola",
+    model: "MOTOTRBO SLR 5500",
+    category: "DMR Digital Base Station Repeater"
+  }
+]
+
 export function AssetsView() {
   const [searchQuery, setSearchQuery] = React.useState("")
+  const deferredQuery = React.useDeferredValue(searchQuery)
 
-  const assets = [
-    {
-      serial: "N02555009980",
-      vendor: "Huawei",
-      model: "2280",
-      category: "ระบบบริหารจัดการ Software-Defined WAN (SD-WAN Controller)"
-    },
-    {
-      serial: "N02555009979",
-      vendor: "Huawei",
-      model: "2280",
-      category: "ระบบบริหารจัดการ Software-Defined WAN (SD-WAN Controller)"
-    },
-    {
-      serial: "1000167600349",
-      vendor: "Huawei",
-      model: "OMXD30000",
-      category: "Optical Transceiver Module 10Gbps"
-    },
-    {
-      serial: "1000167600350",
-      vendor: "Hytera",
-      model: "MD788G",
-      category: "DMR Mobile Radio Transceiver 50W"
-    },
-    {
-      serial: "SN-8839210",
-      vendor: "Motorola",
-      model: "MOTOTRBO SLR 5500",
-      category: "DMR Digital Base Station Repeater"
-    }
-  ]
-
-  const filtered = assets.filter(
-    (a) =>
-      a.serial.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.vendor.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.category.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filtered = React.useMemo(() => {
+    const q = deferredQuery.trim().toLowerCase()
+    if (!q) return ASSETS
+    return ASSETS.filter(
+      (a) =>
+        a.serial.toLowerCase().includes(q) ||
+        a.vendor.toLowerCase().includes(q) ||
+        a.model.toLowerCase().includes(q) ||
+        a.category.toLowerCase().includes(q)
+    )
+  }, [deferredQuery])
 
   return (
     <main id="main" className="flex-1 bg-background">

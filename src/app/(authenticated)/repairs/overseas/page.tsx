@@ -1,5 +1,4 @@
 import type { Metadata } from "next"
-import { AppShell } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/AppShell"
 import { OverseasView } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/OverseasView"
 
 export const metadata: Metadata = {
@@ -8,9 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function OverseasPage() {
-  return (
-    <AppShell>
-      <OverseasView />
-    </AppShell>
-  )
+  return <OverseasView />
 }

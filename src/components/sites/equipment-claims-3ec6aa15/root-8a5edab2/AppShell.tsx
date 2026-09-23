@@ -24,6 +24,65 @@ interface AppShellProps {
   children: React.ReactNode
 }
 
+interface NavItem {
+  label: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+}
+
+interface NavSection {
+  title: string
+  items: NavItem[]
+}
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    title: "ภาพรวม",
+    items: [
+      {
+        label: "หน้าหลัก",
+        href: "/dashboard",
+        icon: LayoutDashboard,
+      },
+    ],
+  },
+  {
+    title: "งานเคลม",
+    items: [
+      {
+        label: "รายการงานเคลม",
+        href: "/tickets",
+        icon: Radar,
+      },
+      {
+        label: "แจ้งเคลม",
+        href: "/tickets/new",
+        icon: Wrench,
+      },
+      {
+        label: "ส่งเคลมต่างประเทศ",
+        href: "/repairs/overseas",
+        icon: PlaneTakeoff,
+      },
+    ],
+  },
+  {
+    title: "จัดการข้อมูล",
+    items: [
+      {
+        label: "ข้อมูลอุปกรณ์",
+        href: "/assets",
+        icon: HardDrive,
+      },
+      {
+        label: "ข้อมูลสถานี",
+        href: "/stations",
+        icon: MapPin,
+      },
+    ],
+  },
+]
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -31,63 +90,25 @@ export function AppShell({ children }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
   const [userDropdownOpen, setUserDropdownOpen] = React.useState(false)
 
-  const navSections = [
-    {
-      title: "ภาพรวม",
-      items: [
-        {
-          label: "หน้าหลัก",
-          href: "/dashboard",
-          icon: LayoutDashboard,
-          active: pathname === "/dashboard" || pathname === "/"
-        }
-      ]
-    },
-    {
-      title: "งานเคลม",
-      items: [
-        {
-          label: "รายการงานเคลม",
-          href: "/tickets",
-          icon: Radar,
-          active: pathname === "/tickets"
-        },
-        {
-          label: "แจ้งเคลม",
-          href: "/tickets/new",
-          icon: Wrench,
-          active: pathname === "/tickets/new"
-        },
-        {
-          label: "ส่งเคลมต่างประเทศ",
-          href: "/repairs/overseas",
-          icon: PlaneTakeoff,
-          active: pathname === "/repairs/overseas"
-        }
-      ]
-    },
-    {
-      title: "จัดการข้อมูล",
-      items: [
-        {
-          label: "ข้อมูลอุปกรณ์",
-          href: "/assets",
-          icon: HardDrive,
-          active: pathname === "/assets"
-        },
-        {
-          label: "ข้อมูลสถานี",
-          href: "/stations",
-          icon: MapPin,
-          active: pathname === "/stations"
-        }
-      ]
-    }
-  ]
+  // Auto close mobile drawer on navigation
+  React.useEffect(() => {
+    setMobileMenuOpen(false)
+    setUserDropdownOpen(false)
+  }, [pathname])
 
-  function handleLogout() {
+  const isItemActive = React.useCallback(
+    (href: string) => {
+      if (href === "/dashboard") {
+        return pathname === "/dashboard" || pathname === "/"
+      }
+      return pathname === href || pathname?.startsWith(`${href}/`)
+    },
+    [pathname]
+  )
+
+  const handleLogout = React.useCallback(() => {
     router.push("/login")
-  }
+  }, [router])
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -141,7 +162,7 @@ export function AppShell({ children }: AppShellProps) {
             aria-label="เมนูหลัก"
             className="flex flex-1 flex-col gap-5 overflow-y-auto py-4 px-3"
           >
-            {navSections.map((sec, sIdx) => (
+            {NAV_SECTIONS.map((sec, sIdx) => (
               <div key={sIdx} className="flex flex-col gap-1">
                 {sidebarOpen && (
                   <p className="px-3 pb-1 text-[11px] font-medium text-muted-foreground tracking-wider uppercase">
@@ -150,13 +171,14 @@ export function AppShell({ children }: AppShellProps) {
                 )}
                 {sec.items.map((item) => {
                   const Icon = item.icon
+                  const active = isItemActive(item.href)
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
                       onClick={() => setMobileMenuOpen(false)}
                       className={`flex items-center rounded-lg text-sm font-medium transition-colors h-10 gap-2.5 px-3 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none ${
-                        item.active
+                        active
                           ? "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-sidebar-border"
                           : "text-muted-foreground hover:bg-white/70 hover:text-foreground dark:hover:bg-sidebar-accent/50"
                       }`}
@@ -164,7 +186,7 @@ export function AppShell({ children }: AppShellProps) {
                     >
                       <Icon
                         className={`size-4.5 shrink-0 ${
-                          item.active ? "text-sidebar-primary" : ""
+                          active ? "text-sidebar-primary" : ""
                         }`}
                         aria-hidden="true"
                       />

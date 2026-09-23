@@ -96,14 +96,26 @@ export function TicketsView() {
   const [searchSn, setSearchSn] = React.useState("")
   const [searchVendor, setSearchVendor] = React.useState("all")
   const [onlyOverdue, setOnlyOverdue] = React.useState(false)
+  const deferredSn = React.useDeferredValue(searchSn)
 
-  const filtered = tickets.filter((t) => {
-    if (searchStatus !== "all" && String(t.statusCode) !== searchStatus) return false
-    if (searchVendor !== "all" && t.vendor !== searchVendor) return false
-    if (searchSn && !t.serialNo.includes(searchSn) && !t.title.includes(searchSn)) return false
-    if (onlyOverdue && !t.isOverdue) return false
-    return true
-  })
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      const st = params.get("status")
+      if (st) setSearchStatus(st)
+    }
+  }, [])
+
+  const filtered = React.useMemo(() => {
+    const snQuery = deferredSn.trim()
+    return tickets.filter((t) => {
+      if (searchStatus !== "all" && String(t.statusCode) !== searchStatus) return false
+      if (searchVendor !== "all" && t.vendor !== searchVendor) return false
+      if (snQuery && !t.serialNo.includes(snQuery) && !t.title.includes(snQuery)) return false
+      if (onlyOverdue && !t.isOverdue) return false
+      return true
+    })
+  }, [tickets, searchStatus, searchVendor, deferredSn, onlyOverdue])
 
   return (
     <main id="main" className="flex-1 bg-background">
