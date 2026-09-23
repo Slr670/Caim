@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-23
+
+### Added
+- **Equipment Claim Dashboard UI (1:1 Reference Replication)**:
+  - Rebuilt `/dashboard` view strictly according to reference screenshots (`image_3.png`, `image_4.png`, `image_5.png`):
+    - **Header**: Breadcrumb (`[Home Icon] > แดชบอร์ด`), navy badge with white clock icon, title `ภาพรวมงานเคลมอุปกรณ์`, and subtitle `สรุปสถานะการเคลมอุปกรณ์โครงข่ายวิทยุสื่อสาร`.
+    - **Top Summary Cards**: 4 cards with exact color-coding and icons:
+      - `เคสทั้งหมด` (Total: 5, soft blue, clipboard icon, `รวมทุกสถานะในระบบ`)
+      - `อยู่ระหว่างดำเนินการ` (In Progress: 3, amber, radiant sun icon, 60% progress bar, `60% ของเคสทั้งหมด`)
+      - `เคลมสำเร็จ / ปิดเคส` (Closed: 1, soft green, check circle icon, 20% progress bar, `20% ของเคสทั้งหมด`)
+      - `ปฏิเสธเคลม` (Rejected: 1, soft pink, ban icon, 20% progress bar, `20% ของเคสทั้งหมด`)
+    - **Core Performance Widgets**: `ตัวชี้วัดการทำงาน` with 4 metric cards:
+      - `อายุงานค้างกลาง`: 13 วัน n=3 with hourglass icon
+      - `เกินกำหนด`: 1 in bold red with alarm clock icon in alert badge
+      - `ปิดทันกำหนด`: — with calendar check icon
+      - `เวลาปิดงานกลาง`: 19 วัน n=1 with timer icon
+    - **Work Status Widget (`สถานะงาน`)**: 6 stages with color-coded horizontal bars and counters (`รับแจ้ง/รอตรวจสภาพ`, `ส่งศูนย์บริการแล้ว`, `รออะไหล่/กำลังซ่อม`, `ซ่อมเสร็จ/รอส่งมอบ`, `ปิดเคส (รับคืนเรียบร้อย)`, `ปฏิเสธเคลม (นอกเงื่อนไข)`).
+    - **Weekly Overview Widget (`ภาพรวมรายสัปดาห์`)**: Main metric `0`, trend `-100%` with downward trend icon, weekday calendar labels (`พฤ. ศ. ส. อา. จ. อ. พ.`), and 3 summary stat boxes (`รับแจ้ง`, `ซ่อมเสร็จ รอส่งมอบ`, `ปิดเคส`).
+    - **Process Bottlenecks Widget (`คอขวดของกระบวนการ`)**: 4 stages with `จบแล้ว` and `ค้างอยู่` dual progress bars and exact day metrics.
+    - **Service Center Statistics Table (`ระยะเวลาที่งานอยู่กับศูนย์บริการ`)**: Metrics for `Huawei`, `Hytera`, and `ยังไม่ระบุศูนย์` with case counts, time at center, overdue, and longest delay.
+
 ## [0.9.0] - 2026-09-23
 
 ### Added
