@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-23
+
+### Added
+- **Claim Detail Page (`/tickets/[id]`)**:
+  - Implemented 1:1 pixel-perfect Claim Detail UI based on the reference design:
+    - **Header & Summary Cards**: Breadcrumbs (`Home > งานเคลม > หัวข้อเลขที่เคลม`), clipboard icon header with case title & subtitle, and 2 top stat cards (`อายุงาน: 10 วัน`, `สถานะประกัน: อยู่ในประกัน`)
+    - **Main Status Tracker**: 5-stage horizontal lifecycle stepper (1: รับแจ้ง, 2: ส่งศูนย์, 3: รออะไหล่, 4: รอส่งมอบ, 5: ปิดเคส) with active stage badges and interactive action buttons (`แก้ไข` and `เปลี่ยนสถานะ`)
+    - **Left Column**: Issue description (`อาการเสีย / ปัญหาที่พบ`), repair notes (`ผลการซ่อม / การแก้ไข`), remarks (`หมายเหตุ`), vertical timeline events (`ลำดับเหตุการณ์`), and device case history list (`ประวัติเคสอื่นของอุปกรณ์ชิ้นนี้`)
+    - **Right Column (Sidebar Widgets)**: Circular progress countdown card showing remaining days (`กำหนดแล้วเสร็จ: เหลืออีก 50 วัน`), hardware specs detail list (`อุปกรณ์`), and case metadata key-value list (`ข้อมูลเคส`)
+    - **Interactive Modals**: In-place edit modal for claim details and change status modal that appends timeline milestones dynamically
+  - Linked table action "ดู" and ticket titles from `/tickets` to navigate directly to the detail view
+
 ## [0.8.2] - 2026-09-23
 
 ### Fixed

@@ -109,12 +109,6 @@ export function TicketsView() {
   const [editForm, setEditForm] = React.useState<Ticket | null>(null)
   const [saveSuccess, setSaveSuccess] = React.useState(false)
 
-  const handleView = React.useCallback((ticket: Ticket) => {
-    setSelectedTicket(ticket)
-    setEditForm({ ...ticket })
-    setModalMode("view")
-    setSaveSuccess(false)
-  }, [])
 
   const handleEdit = React.useCallback((ticket: Ticket) => {
     setSelectedTicket(ticket)
@@ -370,14 +364,13 @@ export function TicketsView() {
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <div className="inline-flex items-center gap-1.5 text-brand font-medium">
-                        <button
-                          type="button"
-                          onClick={() => handleView(item)}
+                        <Link
+                          href={`/tickets/${item.id}`}
                           className="hover:underline hover:text-brand-dark focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded px-1 py-0.5 cursor-pointer"
                           aria-label={`ดูรายละเอียดเคส ${item.title}`}
                         >
                           ดู
-                        </button>
+                        </Link>
                         <span className="text-muted-foreground/60 select-none">/</span>
                         <button
                           type="button"
