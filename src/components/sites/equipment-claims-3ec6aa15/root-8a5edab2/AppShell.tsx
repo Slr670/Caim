@@ -101,6 +101,12 @@ export function AppShell({ children }: AppShellProps) {
       if (href === "/dashboard") {
         return pathname === "/dashboard" || pathname === "/"
       }
+      if (href === "/tickets") {
+        return (
+          pathname === "/tickets" ||
+          (pathname?.startsWith("/tickets/") && !pathname?.startsWith("/tickets/new"))
+        )
+      }
       return pathname === href || pathname?.startsWith(`${href}/`)
     },
     [pathname]

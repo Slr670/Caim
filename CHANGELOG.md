@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-23
+
+### Added
+- **Create New Claim (`เปิดเคสใหม่`) Form Layout & Dynamic Summary Widget (1:1 Reference Replication)**:
+  - Rebuilt `/tickets/new` view strictly matching the reference screenshot:
+    - **Header**: Breadcrumbs (`[Home Icon] > งานเคลม > เปิดเคสใหม่`), dark navy badge (`#0c1a30`) with white add-file icon, title `เปิดเคสใหม่`, and subtitle `กรอกเลขที่เคลมเองในฟอร์มด้านล่าง`.
+    - **Sidebar Navigation**: Fixed `isItemActive` in `AppShell` so visiting `/tickets/new` highlights ONLY `แจ้งเคลม`.
+    - **Two-Column Card Layout**:
+      - **Left Column (Claim Input Form)**:
+        - `อุปกรณ์`: Dropdown select for registered devices (`เลือกอุปกรณ์จากทะเบียน ⬍`).
+        - `ข้อมูลเคส`: `เลขที่เคลม` input with duplicate validation note, `วันและเวลาที่รับแจ้ง` datetime input, `สถานะการรับประกัน` dropdown, and `อาการเสีย / ปัญหาที่พบ` textarea.
+        - `กำหนดการและศูนย์บริการ`: `ศูนย์บริการ / ผู้รับงาน` dropdown, `วันและเวลาที่ส่งศูนย์บริการ` datetime input, and `กำหนดแล้วเสร็จ` input with auto-fill helper note.
+        - `ผู้เกี่ยวข้อง`: `ผู้แจ้ง / เจ้าของเครื่อง` input, `ผู้รับผิดชอบเคส` input, and `หมายเหตุ` textarea.
+      - **Right Column (Sidebar Summary Card)**:
+        - Circular countdown widget: Blue ring with `60 / วัน`, `เหลืออีก 60 วัน`, and `ครบกำหนด 22 พ.ย. 2569`.
+        - Live case summary (`สรุปเคส`): Real-time reflection of entered `เลขที่เคส` and selected `อุปกรณ์ที่เลือก`.
+        - Full-width dark navy submit button (`เปิดเคส`) and secondary outline cancel button (`ยกเลิก`).
+
 ## [0.12.0] - 2026-09-23
 
 ### Added
