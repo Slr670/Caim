@@ -5,129 +5,1005 @@ import Link from "next/link"
 import {
   PlaneTakeoff,
   ChevronRight,
-  House
+  House,
+  Search,
+  Plus,
+  Pencil,
+  Trash2,
+  X,
+  Check,
+  Calendar,
+  History,
+  Clock,
+  ChevronDown,
+  ChevronLeft
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
+interface RmaItem {
+  id: string
+  rmaNo: string
+  caseName: string
+  serialNo: string
+  vendor: string
+  model: string
+  currentStageNumber: number
+  totalStages: number
+  currentStageName: string
+  stageWaitDays: string
+  openDate: string
+  totalDays: string
+  statusBadge: "in_progress" | "returned"
+  statusBadgeText: string
+  penaltyDays: string
+  penaltyStandard: string
+  isOverduePenalty?: boolean
+}
+
+const INITIAL_RMA_ITEMS: RmaItem[] = [
+  {
+    id: "1",
+    rmaNo: "TEST20",
+    caseName: "ทดสอบระบบ",
+    serialNo: "200426",
+    vendor: "Hytera",
+    model: "DIB-R5 outdoor",
+    currentStageNumber: 6,
+    totalStages: 8,
+    currentStageName: "6. จีน — ซ่อม",
+    stageWaitDays: "ค้างมา 0 วัน",
+    openDate: "11 ก.ย. 2569",
+    totalDays: "11 วัน",
+    statusBadge: "in_progress",
+    statusBadgeText: "กำลังดำเนินการ",
+    penaltyDays: "0 วัน",
+    penaltyStandard: "จาก 14 วัน",
+    isOverduePenalty: false,
+  },
+  {
+    id: "2",
+    rmaNo: "test14",
+    caseName: "ไม่ผูกเคส",
+    serialNo: "1000167600349",
+    vendor: "Huawei",
+    model: "OMXD30000",
+    currentStageNumber: 8,
+    totalStages: 8,
+    currentStageName: "8. เคลียร์ศุลกากร",
+    stageWaitDays: "ค้างมา 0 วัน",
+    openDate: "11 ก.ย. 2569",
+    totalDays: "66 วัน",
+    statusBadge: "returned",
+    statusBadgeText: "ของกลับถึงแล้ว",
+    penaltyDays: "เกิน 7 วัน",
+    penaltyStandard: "จาก 14 วัน · ซ่อมเสร็จแล้ว",
+    isOverduePenalty: true,
+  },
+]
+
 export function OverseasView() {
-  const [searchRma, setSearchRma] = React.useState("")
+  const [rmaList, setRmaList] = React.useState<RmaItem[]>(INITIAL_RMA_ITEMS)
+
+  // Filters
+  const [searchQuery, setSearchQuery] = React.useState("")
+  const [stageFilter, setStageFilter] = React.useState("all")
+  const [statusFilter, setStatusFilter] = React.useState("all")
+  const [vendorFilter, setVendorFilter] = React.useState("all")
+  const [onlyOverduePenalty, setOnlyOverduePenalty] = React.useState(false)
+
+  // Applied Filter
+  const [appliedFilters, setAppliedFilters] = React.useState({
+    query: "",
+    stage: "all",
+    status: "all",
+    vendor: "all",
+    onlyOverdue: false,
+  })
+
+  // Selected item for timeline modal
+  const [timelineItem, setTimelineItem] = React.useState<RmaItem | null>(null)
+
+  // New RMA Modal state
+  const [newRmaModalOpen, setNewRmaModalOpen] = React.useState(false)
+  const [newRmaForm, setNewRmaForm] = React.useState({
+    rmaNo: "",
+    caseName: "",
+    serialNo: "",
+    vendor: "Hytera",
+    model: "",
+  })
+
+  // Edit RMA state
+  const [editingItem, setEditingItem] = React.useState<RmaItem | null>(null)
+
+  // Success Alert Toast
+  const [toastMessage, setToastMessage] = React.useState<string | null>(null)
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg)
+    setTimeout(() => setToastMessage(null), 3000)
+  }
+
+  const handleSearch = React.useCallback(() => {
+    setAppliedFilters({
+      query: searchQuery.trim(),
+      stage: stageFilter,
+      status: statusFilter,
+      vendor: vendorFilter,
+      onlyOverdue: onlyOverduePenalty,
+    })
+  }, [searchQuery, stageFilter, statusFilter, vendorFilter, onlyOverduePenalty])
+
+  const filteredItems = React.useMemo(() => {
+    return rmaList.filter((item) => {
+      if (appliedFilters.query) {
+        const q = appliedFilters.query.toLowerCase()
+        const match =
+          item.rmaNo.toLowerCase().includes(q) ||
+          item.caseName.toLowerCase().includes(q) ||
+          item.serialNo.toLowerCase().includes(q) ||
+          item.vendor.toLowerCase().includes(q)
+        if (!match) return false
+      }
+      if (appliedFilters.status !== "all" && item.statusBadge !== appliedFilters.status) {
+        return false
+      }
+      if (appliedFilters.vendor !== "all" && item.vendor !== appliedFilters.vendor) {
+        return false
+      }
+      if (appliedFilters.onlyOverdue && !item.isOverduePenalty) {
+        return false
+      }
+      return true
+    })
+  }, [rmaList, appliedFilters])
+
+  const handleDeleteItem = (id: string) => {
+    if (confirm("คุณแน่ใจว่าต้องการลบใบส่งซ่อมนี้ใช่หรือไม่?")) {
+      setRmaList((prev) => prev.filter((item) => item.id !== id))
+      showToast("ลบใบส่งซ่อมเรียบร้อยแล้ว")
+    }
+  }
+
+  const handleCreateRma = (e: React.FormEvent) => {
+    e.preventDefault()
+    const newItem: RmaItem = {
+      id: String(Date.now()),
+      rmaNo: newRmaForm.rmaNo || `RMA-${Math.floor(Math.random() * 9000 + 1000)}`,
+      caseName: newRmaForm.caseName || "เคสทั่วไป",
+      serialNo: newRmaForm.serialNo || "S/N-PENDING",
+      vendor: newRmaForm.vendor,
+      model: newRmaForm.model || "อุปกรณ์สื่อสาร",
+      currentStageNumber: 1,
+      totalStages: 8,
+      currentStageName: "1. ระบบใบ RMA",
+      stageWaitDays: "ค้างมา 0 วัน",
+      openDate: "23 ก.ย. 2569",
+      totalDays: "1 วัน",
+      statusBadge: "in_progress",
+      statusBadgeText: "กำลังดำเนินการ",
+      penaltyDays: "0 วัน",
+      penaltyStandard: "จาก 14 วัน",
+      isOverduePenalty: false,
+    }
+    setRmaList((prev) => [newItem, ...prev])
+    setNewRmaModalOpen(false)
+    setNewRmaForm({ rmaNo: "", caseName: "", serialNo: "", vendor: "Hytera", model: "" })
+    showToast("เปิดใบส่งซ่อมต่างประเทศใหม่เรียบร้อยแล้ว")
+  }
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingItem) return
+    setRmaList((prev) => prev.map((item) => (item.id === editingItem.id ? editingItem : item)))
+    setEditingItem(null)
+    showToast("บันทึกข้อมูลใบส่งซ่อมเรียบร้อยแล้ว")
+  }
 
   return (
-    <main id="main" className="flex-1 bg-background">
-      <div className="mx-auto flex max-w-350 flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6">
-        {/* Breadcrumb and Header */}
-        <div className="flex flex-col gap-4">
+    <main id="main" className="flex-1 bg-slate-50/50 py-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
+        {/* Toast Alert */}
+        {toastMessage && (
+          <div className="fixed top-5 right-5 z-50 flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-xs font-semibold text-white shadow-xl animate-in slide-in-from-top-2">
+            <Check className="size-4" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+
+        {/* =========================================================================
+            1. HEADER & BREADCRUMB
+           ========================================================================= */}
+        <div className="flex flex-col gap-3">
+          {/* Breadcrumb */}
           <nav aria-label="breadcrumb">
-            <ol className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-              <li className="inline-flex items-center gap-1">
-                <Link href="/dashboard" aria-label="หน้าแรก" className="hover:text-foreground">
-                  <House className="size-4" />
+            <ol className="flex items-center gap-1.5 text-xs text-slate-500">
+              <li className="inline-flex items-center">
+                <Link
+                  href="/dashboard"
+                  aria-label="หน้าแรก"
+                  className="transition-colors hover:text-slate-900"
+                >
+                  <House className="size-3.5 text-slate-500" />
                 </Link>
               </li>
-              <li className="flex items-center text-muted-foreground/60">
-                <ChevronRight className="size-3.5" />
+              <li className="flex items-center text-slate-400">
+                <ChevronRight className="size-3" />
               </li>
-              <li className="inline-flex items-center gap-1">
-                <span className="font-normal text-foreground">ส่งเคลมต่างประเทศ</span>
+              <li className="inline-flex items-center">
+                <span className="font-normal text-slate-700">ส่งเคลมต่างประเทศ</span>
               </li>
             </ol>
           </nav>
 
-          <div className="flex items-center gap-3.5">
-            <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-brand-navy text-white shadow-xs">
-              <PlaneTakeoff className="size-6" />
-            </span>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-                ส่งเคลมต่างประเทศ
-              </h1>
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                ติดตามอุปกรณ์ที่ส่งเคลมไปต่างประเทศทีละขั้น พร้อมนาฬิกาบทปรับของผู้ขาย
-              </p>
+          {/* Title & Action Button */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#0c1a30] text-white shadow-xs">
+                <PlaneTakeoff className="size-5.5 text-white" />
+              </span>
+              <div>
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                  ส่งเคลมต่างประเทศ
+                </h1>
+                <p className="text-xs text-slate-500 sm:text-sm">
+                  ติดตามอุปกรณ์ที่ส่งเคลมไปต่างประเทศทีละขั้น พร้อมนาฬิกาบทปรับของผู้ขาย
+                </p>
+              </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setNewRmaModalOpen(true)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#0c1a30] px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1e293b] cursor-pointer"
+            >
+              <Plus className="size-4" />
+              <span>เปิดใบส่งซ่อม</span>
+            </button>
           </div>
         </div>
 
-        {/* Filter Card */}
-        <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-xs">
+        {/* =========================================================================
+            2. FILTER & SEARCH PANEL
+           ========================================================================= */}
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs sm:p-6">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {/* ค้นหา */}
             <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-muted-foreground">ค้นหาเลขที่ RMA / เคส</label>
+              <label className="text-xs font-normal text-slate-700">ค้นหา</label>
               <Input
-                placeholder="เช่น RMA-2026-..."
-                value={searchRma}
-                onChange={(e) => setSearchRma(e.target.value)}
-                className="h-9 text-xs"
+                placeholder="เลขใบ RMA, เลขที่เคส, S/N, ยี่ห้อ.."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 rounded-lg border-slate-200 bg-white text-xs text-slate-700 placeholder:text-slate-400 shadow-none focus-visible:ring-1 focus-visible:ring-blue-500"
               />
             </div>
+
+            {/* ขั้นตอน */}
             <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-muted-foreground">ขั้นตอนปัจจุบัน</label>
-              <select className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none">
-                <option value="all">ทุกขั้นตอน</option>
-                <option value="shipping">กำลังขนส่งไปต่างประเทศ</option>
-                <option value="factory">ศูนย์ผู้ผลิตกำลังซ่อม</option>
-                <option value="return">กำลังส่งกลับไทย</option>
-              </select>
+              <label className="text-xs font-normal text-slate-700">ขั้นตอน</label>
+              <div className="relative">
+                <select
+                  value={stageFilter}
+                  onChange={(e) => setStageFilter(e.target.value)}
+                  className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="all">ทุกขั้นตอน</option>
+                  <option value="1">1. ระบบใบ RMA</option>
+                  <option value="2">2. Forth ตรวจสอบ</option>
+                  <option value="3">3. กสทช. ตรวจสอบ</option>
+                  <option value="4">4. ส่งออก</option>
+                  <option value="5">5. ถึงศูนย์ต่างประเทศ</option>
+                  <option value="6">6. จีน เข้ากระบวนการซ่อม</option>
+                  <option value="7">7. ส่งกลับเครื่องบิน</option>
+                  <option value="8">8. เคลียร์ศุลกากร</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+              </div>
             </div>
+
+            {/* สถานะใบ */}
             <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-muted-foreground">ศูนย์บริการ / ผู้ผลิต</label>
-              <select className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none">
-                <option value="all">ทุกศูนย์บริการ</option>
-                <option value="huawei">Huawei Global TAC</option>
-                <option value="hytera">Hytera HQ Service</option>
-                <option value="motorola">Motorola Solutions Depot</option>
-              </select>
+              <label className="text-xs font-normal text-slate-700">สถานะใบ</label>
+              <div className="relative">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="all">ทุกสถานะ</option>
+                  <option value="in_progress">กำลังดำเนินการ</option>
+                  <option value="returned">ของกลับถึงแล้ว</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+              </div>
             </div>
+
+            {/* ศูนย์บริการ */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-normal text-slate-700">ศูนย์บริการ</label>
+              <div className="relative">
+                <select
+                  value={vendorFilter}
+                  onChange={(e) => setVendorFilter(e.target.value)}
+                  className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="all">ทุกศูนย์บริการ</option>
+                  <option value="Huawei">Huawei</option>
+                  <option value="Hytera">Hytera</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+              </div>
+            </div>
+
+            {/* เฉพาะที่เกินบทปรับ Toggle */}
+            <div className="flex flex-col justify-end">
+              <button
+                type="button"
+                onClick={() => setOnlyOverduePenalty((v) => !v)}
+                className={`flex h-9 items-center justify-center rounded-lg border text-xs font-normal transition-all cursor-pointer ${
+                  onlyOverduePenalty
+                    ? "border-red-400 bg-red-50 text-red-700 shadow-2xs"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <span>เฉพาะที่เกินบทปรับ</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search Button */}
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={handleSearch}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#0c1a30] px-4.5 text-xs font-medium text-white shadow-xs transition-colors hover:bg-[#1e293b] cursor-pointer"
+            >
+              <Search className="size-3.5" />
+              <span>ค้นหา</span>
+            </button>
           </div>
         </div>
 
-        {/* Table */}
-        <div className="rounded-xl border border-border bg-card shadow-xs overflow-hidden">
+        {/* =========================================================================
+            3. RMA DATA TABLE & SEGMENTED PROGRESS BARS
+           ========================================================================= */}
+        <div className="rounded-2xl border border-slate-200/80 bg-white shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="border-b border-border bg-muted/40 font-semibold text-muted-foreground">
+              <thead className="border-b border-slate-200/80 bg-white text-slate-600">
                 <tr>
-                  <th className="py-3 px-4 sm:px-6">ใบ RMA / เคส</th>
-                  <th className="py-3 px-4">อุปกรณ์</th>
-                  <th className="py-3 px-4">ขั้นตอนปัจจุบัน</th>
-                  <th className="py-3 px-4">เปิดใบ</th>
-                  <th className="py-3 px-4">รวมระยะเวลา</th>
-                  <th className="py-3 px-4 text-right">บทปรับผู้ขาย</th>
+                  <th className="px-5 py-3.5 font-medium">ใบ RMA / เคส</th>
+                  <th className="px-4 py-3.5 font-medium">อุปกรณ์</th>
+                  <th className="px-4 py-3.5 font-medium">ขั้นตอนปัจจุบัน</th>
+                  <th className="px-4 py-3.5 font-medium">เปิดใบ</th>
+                  <th className="px-4 py-3.5 font-medium">รวม</th>
+                  <th className="px-4 py-3.5 font-medium">บทปรับผู้ขาย</th>
+                  <th className="px-4 py-3.5 text-right font-medium"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/70">
-                <tr className="hover:bg-muted/30 transition-colors">
-                  <td className="py-3.5 px-4 sm:px-6 font-mono font-medium text-brand">
-                    RMA-2026-0012
-                    <span className="block text-[11px] text-muted-foreground font-sans">เคส: TEST20</span>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <p className="font-semibold text-foreground">Huawei / OMXD30000</p>
-                    <p className="font-mono text-[11px] text-muted-foreground">S/N 1000167600349</p>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 font-medium text-brand">
-                      โรงงานกำลังซ่อม (Vendor Depot)
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 text-muted-foreground whitespace-nowrap">
-                    2 ก.ย. 2569
-                  </td>
-                  <td className="py-3.5 px-4 text-foreground font-medium">
-                    20 วัน
-                  </td>
-                  <td className="py-3.5 px-4 text-right">
-                    <span className="font-mono font-semibold text-muted-foreground">0.00 บาท (ยังไม่เกินกำหนด)</span>
-                  </td>
-                </tr>
+              <tbody className="divide-y divide-slate-100">
+                {filteredItems.map((item) => {
+                  const isOverdue = item.isOverduePenalty
+
+                  return (
+                    <tr
+                      key={item.id}
+                      className={`transition-colors ${
+                        isOverdue
+                          ? "bg-[#fff5f5] hover:bg-[#ffebeb]"
+                          : "hover:bg-slate-50/70"
+                      }`}
+                    >
+                      {/* ใบ RMA / เคส */}
+                      <td className="px-5 py-3.5">
+                        <p className="font-bold text-slate-800 text-xs">
+                          {item.rmaNo}
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {item.caseName}
+                        </p>
+                      </td>
+
+                      {/* อุปกรณ์ */}
+                      <td className="px-4 py-3.5">
+                        <p className="font-mono text-xs text-slate-800">
+                          {item.serialNo}
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {item.vendor} / {item.model}
+                        </p>
+                      </td>
+
+                      {/* ขั้นตอนปัจจุบัน (Segmented Progress Bars) */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: item.totalStages }).map((_, idx) => {
+                            const step = idx + 1
+                            let color = "bg-slate-200"
+                            if (step < item.currentStageNumber) {
+                              color = "bg-emerald-500"
+                            } else if (step === item.currentStageNumber) {
+                              color =
+                                item.currentStageNumber === item.totalStages
+                                  ? "bg-emerald-500"
+                                  : "bg-blue-600"
+                            }
+                            return (
+                              <span
+                                key={idx}
+                                className={`h-1.5 w-3.5 rounded-full ${color}`}
+                              />
+                            )
+                          })}
+                          <span className="ml-1.5 text-[11px] text-slate-400 font-medium">
+                            {item.currentStageNumber === 8 ? "8/8" : "5/8"}
+                          </span>
+                        </div>
+                        <div className="mt-1.5">
+                          <p className="font-semibold text-slate-800 text-xs">
+                            {item.currentStageName}
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {item.stageWaitDays}
+                          </p>
+                        </div>
+                      </td>
+
+                      {/* เปิดใบ */}
+                      <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap">
+                        {item.openDate}
+                      </td>
+
+                      {/* รวม (Elapsed Days & Status Badge) */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <p className="text-slate-700 text-xs font-medium">
+                          {item.totalDays}
+                        </p>
+                        {item.statusBadge === "in_progress" ? (
+                          <span className="mt-1 inline-block rounded-full border border-blue-200/60 bg-[#eff6ff] px-2 py-0.5 text-[10px] font-medium text-[#2563eb]">
+                            {item.statusBadgeText}
+                          </span>
+                        ) : (
+                          <span className="mt-1 inline-block rounded-full border border-emerald-200/60 bg-[#ecfdf5] px-2 py-0.5 text-[10px] font-medium text-[#059669]">
+                            {item.statusBadgeText}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* บทปรับผู้ขาย */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {isOverdue ? (
+                          <div>
+                            <p className="font-bold text-[#dc2626] text-xs">
+                              {item.penaltyDays}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              {item.penaltyStandard}
+                            </p>
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-slate-700 text-xs font-medium">
+                              {item.penaltyDays}
+                            </p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {item.penaltyStandard}
+                            </p>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Action Links */}
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setTimelineItem(item)}
+                            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer transition-colors"
+                            title="ดูไทม์ไลน์กระบวนการ"
+                            aria-label="ดูไทม์ไลน์"
+                          >
+                            <History className="size-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingItem({ ...item })}
+                            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600 cursor-pointer transition-colors"
+                            title="แก้ไข"
+                            aria-label="แก้ไข"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteItem(item.id)}
+                            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600 cursor-pointer transition-colors"
+                            title="ลบ"
+                            aria-label="ลบ"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
-          <div className="border-t border-border px-4 py-3 bg-muted/20 text-xs text-muted-foreground flex justify-between">
-            <span>แสดง 1 รายการ</span>
-            <span>ระบบติดตามงานเคลมต่างประเทศ</span>
+
+          {/* Pagination & Footer */}
+          <div className="flex flex-col gap-3 border-t border-slate-200/80 bg-white px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between text-xs text-slate-600">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <button
+                  type="button"
+                  className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700 shadow-2xs hover:bg-slate-50 cursor-pointer"
+                >
+                  <span>แถวต่อหน้า 20</span>
+                  <ChevronDown className="size-3.5 text-slate-400" />
+                </button>
+              </div>
+              <span className="text-slate-500">
+                แสดง 1–{filteredItems.length} จาก {filteredItems.length} ใบ
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 text-xs text-slate-400 cursor-not-allowed"
+              >
+                <ChevronLeft className="size-3.5" />
+                <span>ก่อนหน้า</span>
+              </button>
+
+              <span className="px-2 text-xs font-normal text-slate-700">
+                หน้า 1/1
+              </span>
+
+              <button
+                type="button"
+                disabled
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 text-xs text-slate-400 cursor-not-allowed"
+              >
+                <span>ถัดไป</span>
+                <ChevronRight className="size-3.5" />
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* =========================================================================
+            4. TIMELINE TRACKING MODAL (ใบ TEST20)
+           ========================================================================= */}
+        {timelineItem && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
+            onClick={() => setTimelineItem(null)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="relative w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-start justify-between border-b border-slate-200/80 px-6 py-4 bg-white">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    ใบ {timelineItem.rmaNo}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    S/N {timelineItem.serialNo} · เคส {timelineItem.caseName} · {timelineItem.vendor} Hongkong
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTimelineItem(null)}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer"
+                  aria-label="ปิดหน้าต่าง"
+                >
+                  <X className="size-4.5" />
+                </button>
+              </div>
+
+              {/* Modal Timeline Content (Scrollable) */}
+              <div className="flex-1 overflow-y-auto px-6 py-5">
+                <div className="relative pl-6 space-y-6 before:absolute before:left-3 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-200">
+                  {/* Step 1: ระบบใบ RMA */}
+                  <div className="relative flex items-start justify-between text-xs">
+                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
+                      ✓
+                    </span>
+                    <div className="pl-3">
+                      <p className="font-semibold text-slate-900 text-xs">ระบบใบ RMA</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 2 วัน</p>
+                    </div>
+                    <div className="text-right text-slate-500 text-xs">
+                      11 ก.ย. 2569 → 11 ก.ย. 2569 (0 วัน)
+                    </div>
+                  </div>
+
+                  {/* Step 2: Forth (ส่งตรวจสอบภายใน) */}
+                  <div className="relative flex items-start justify-between text-xs">
+                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
+                      ✓
+                    </span>
+                    <div className="pl-3">
+                      <p className="font-semibold text-slate-900 text-xs">Forth (ส่งตรวจสอบภายใน)</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 7 วัน</p>
+                    </div>
+                    <div className="text-right text-xs">
+                      <span className="text-slate-500">9 ก.ย. 2569 → 18 ก.ย. 2569 </span>
+                      <span className="font-bold text-[#ea580c]">(8 วัน)</span>
+                    </div>
+                  </div>
+
+                  {/* Step 3: กสทช. (ตรวจสอบ / อนุมัติ) */}
+                  <div className="relative flex items-start justify-between text-xs">
+                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
+                      ✓
+                    </span>
+                    <div className="pl-3">
+                      <p className="font-semibold text-slate-900 text-xs">กสทช. (ตรวจสอบ / อนุมัติ)</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 5 วัน</p>
+                    </div>
+                    <div className="text-right text-slate-500 text-xs">
+                      21 ก.ย. 2569 → 24 ก.ย. 2569 (3 วัน)
+                    </div>
+                  </div>
+
+                  {/* Step 4: ส่งออก */}
+                  <div className="relative flex items-start justify-between text-xs">
+                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
+                      ✓
+                    </span>
+                    <div className="pl-3">
+                      <p className="font-semibold text-slate-900 text-xs">ส่งออก</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 3 วัน</p>
+                    </div>
+                    <div className="text-right text-xs">
+                      <span className="text-slate-500">25 ก.ย. 2569 → 29 ก.ย. 2569 </span>
+                      <span className="font-bold text-[#ea580c]">(4 วัน)</span>
+                    </div>
+                  </div>
+
+                  {/* Step 5: Hytera Hongkong */}
+                  <div className="relative flex items-start justify-between text-xs">
+                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
+                      ✓
+                    </span>
+                    <div className="pl-3">
+                      <p className="font-semibold text-slate-900 text-xs">Hytera Hongkong</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 21 วัน</p>
+                    </div>
+                    <div className="text-right text-slate-500 text-xs">
+                      29 ก.ย. 2569 → 1 ต.ค. 2569 (2 วัน)
+                    </div>
+                  </div>
+
+                  {/* Step 6 (Active): จีน (เข้ากระบวนการซ่อม) */}
+                  <div className="relative flex items-start justify-between text-xs">
+                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#2563eb] text-white font-bold text-xs shadow-xs">
+                      6
+                    </span>
+                    <div className="pl-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-bold text-slate-900 text-xs">จีน (เข้ากระบวนการซ่อม)</p>
+                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-[#fff7ed] px-2 py-0.5 text-[11px] font-medium text-[#d97706]">
+                          <Clock className="size-3" />
+                          <span>เริ่มนับบทปรับผู้ขาย</span>
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 14 วัน</p>
+                    </div>
+                    <div className="text-right text-slate-700 text-xs font-medium">
+                      1 ต.ค. 2569 (0 วัน)
+                    </div>
+                  </div>
+
+                  {/* Step 7 (Pending): ส่งกลับเครื่องบิน */}
+                  <div className="relative flex items-start justify-between text-xs">
+                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-xs">
+                      7
+                    </span>
+                    <div className="pl-3">
+                      <p className="text-slate-600 font-medium text-xs">ส่งกลับเครื่องบิน</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 3 วัน</p>
+                    </div>
+                    <div className="text-right text-slate-400 text-xs">
+                      ยังไม่ถึงขั้นนี้
+                    </div>
+                  </div>
+
+                  {/* Step 8 (Pending): เคลียร์ของออก (ศุลกากรขาเข้า) */}
+                  <div className="relative flex items-start justify-between text-xs">
+                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-xs">
+                      8
+                    </span>
+                    <div className="pl-3">
+                      <p className="text-slate-600 font-medium text-xs">เคลียร์ของออก (ศุลกากรขาเข้า)</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 5 วัน</p>
+                    </div>
+                    <div className="text-right text-slate-400 text-xs">
+                      ยังไม่ถึงขั้นนี้
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="border-t border-slate-200/80 bg-white p-5">
+                <p className="text-xs text-slate-600 font-medium leading-relaxed mb-3">
+                  ใช้ไปแล้ว 11 วัน · แผนมาตรฐานรวม 60 วัน (ไม่ใช่วันครบกำหนด — กระบวนการจริงราว 2-3 เดือน)
+                </p>
+
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                  <p className="text-[11px] text-slate-500 mb-1.5 font-medium">วันและเวลาที่เกิดขึ้นจริง</p>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                    <div className="relative flex-1">
+                      <Input
+                        defaultValue="2026-09-23 10:23 AM"
+                        className="h-9 rounded-lg border-slate-200 bg-white text-xs font-mono text-slate-700 pr-8 shadow-none"
+                      />
+                      <Calendar className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        showToast('อัปเดตสถานะเป็น "ขนส่งกลับ" เรียบร้อยแล้ว')
+                        setTimelineItem(null)
+                      }}
+                      className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-[#0c1a30] px-4 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1e293b] cursor-pointer"
+                    >
+                      <span>› ปิดขั้น &quot;จีน — ซ่อม&quot; → เข้าขั้น &quot;ขนส่งกลับ&quot;</span>
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    showToast("เปิดหน้าต่างแก้ไขข้อมูลย้อนหลัง")
+                  }}
+                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  <Pencil className="size-3.5" />
+                  <span>แก้ไขที่รายขั้น (กรอกย้อนหลัง)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================================
+            5. CREATE NEW RMA MODAL
+           ========================================================================= */}
+        {newRmaModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
+            onClick={() => setNewRmaModalOpen(false)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden p-6 animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="text-sm font-bold text-slate-900">
+                  เปิดใบส่งซ่อมต่างประเทศใหม่
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setNewRmaModalOpen(false)}
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateRma} className="mt-4 space-y-3.5 text-xs">
+                <div>
+                  <label className="font-medium text-slate-700">เลขใบส่งซ่อม (RMA No.)</label>
+                  <Input
+                    required
+                    placeholder="เช่น RMA-2026-003"
+                    value={newRmaForm.rmaNo}
+                    onChange={(e) =>
+                      setNewRmaForm((prev) => ({ ...prev, rmaNo: e.target.value }))
+                    }
+                    className="mt-1 h-9 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-medium text-slate-700">เคส / ปัญหา</label>
+                  <Input
+                    required
+                    placeholder="เช่น ทดสอบวิทยุหลัก"
+                    value={newRmaForm.caseName}
+                    onChange={(e) =>
+                      setNewRmaForm((prev) => ({ ...prev, caseName: e.target.value }))
+                    }
+                    className="mt-1 h-9 text-xs"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-medium text-slate-700">หมายเลขเครื่อง (S/N)</label>
+                    <Input
+                      required
+                      placeholder="เช่น 200426"
+                      value={newRmaForm.serialNo}
+                      onChange={(e) =>
+                        setNewRmaForm((prev) => ({ ...prev, serialNo: e.target.value }))
+                      }
+                      className="mt-1 h-9 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-medium text-slate-700">ศูนย์บริการ</label>
+                    <select
+                      value={newRmaForm.vendor}
+                      onChange={(e) =>
+                        setNewRmaForm((prev) => ({ ...prev, vendor: e.target.value }))
+                      }
+                      className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 focus:outline-none"
+                    >
+                      <option value="Hytera">Hytera</option>
+                      <option value="Huawei">Huawei</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-medium text-slate-700">รุ่นอุปกรณ์</label>
+                  <Input
+                    placeholder="เช่น DIB-R5 outdoor"
+                    value={newRmaForm.model}
+                    onChange={(e) =>
+                      setNewRmaForm((prev) => ({ ...prev, model: e.target.value }))
+                    }
+                    className="mt-1 h-9 text-xs"
+                  />
+                </div>
+
+                <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setNewRmaModalOpen(false)}
+                    className="text-xs"
+                  >
+                    ยกเลิก
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="gap-1.5 bg-[#0c1a30] text-white hover:bg-[#1e293b] text-xs"
+                  >
+                    <Check className="size-3.5" />
+                    <span>สร้างใบส่งซ่อม</span>
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================================
+            6. EDIT RMA MODAL
+           ========================================================================= */}
+        {editingItem && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
+            onClick={() => setEditingItem(null)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden p-6 animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="text-sm font-bold text-slate-900">
+                  แก้ไขข้อมูลใบส่งซ่อม ({editingItem.rmaNo})
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEdit} className="mt-4 space-y-3.5 text-xs">
+                <div>
+                  <label className="font-medium text-slate-700">เลขใบ RMA</label>
+                  <Input
+                    required
+                    value={editingItem.rmaNo}
+                    onChange={(e) =>
+                      setEditingItem((prev) =>
+                        prev ? { ...prev, rmaNo: e.target.value } : null
+                      )
+                    }
+                    className="mt-1 h-9 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-medium text-slate-700">เคส / ปัญหา</label>
+                  <Input
+                    required
+                    value={editingItem.caseName}
+                    onChange={(e) =>
+                      setEditingItem((prev) =>
+                        prev ? { ...prev, caseName: e.target.value } : null
+                      )
+                    }
+                    className="mt-1 h-9 text-xs"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-medium text-slate-700">S/N</label>
+                    <Input
+                      value={editingItem.serialNo}
+                      onChange={(e) =>
+                        setEditingItem((prev) =>
+                          prev ? { ...prev, serialNo: e.target.value } : null
+                        )
+                      }
+                      className="mt-1 h-9 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-medium text-slate-700">รุ่นอุปกรณ์</label>
+                    <Input
+                      value={editingItem.model}
+                      onChange={(e) =>
+                        setEditingItem((prev) =>
+                          prev ? { ...prev, model: e.target.value } : null
+                        )
+                      }
+                      className="mt-1 h-9 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditingItem(null)}
+                    className="text-xs"
+                  >
+                    ยกเลิก
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="gap-1.5 bg-[#0c1a30] text-white hover:bg-[#1e293b] text-xs"
+                  >
+                    <Check className="size-3.5" />
+                    <span>บันทึกการแก้ไข</span>
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   )

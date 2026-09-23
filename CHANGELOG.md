@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-23
+
+### Added
+- **Overseas Claim Management & Stage Tracking Stepper Modal (1:1 Reference Replication)**:
+  - Rebuilt `/repairs/overseas` view strictly matching the reference screenshots:
+    - **Header**: Airplane icon in navy badge (`#0c1a30`), breadcrumbs, page title `ส่งเคลมต่างประเทศ`, subtitle, and `+ เปิดใบส่งซ่อม` action button.
+    - **Filter Card**: `ค้นหา` input, `ขั้นตอน` dropdown, `สถานะใบ` dropdown, `ศูนย์บริการ` dropdown, `เฉพาะที่เกินบทปรับ` toggle button, and aligned dark `ค้นหา` button.
+    - **RMA Data Table**:
+      - Columns: `ใบ RMA / เคส`, `อุปกรณ์`, `ขั้นตอนปัจจุบัน`, `เปิดใบ`, `รวม`, `บทปรับผู้ขาย`, and Action buttons (`ไทม์ไลน์`, `แก้ไข`, `ลบ`).
+      - Segmented 8-stage progress indicators (`5/8` with green and blue dashes, `8/8` with full green dashes).
+      - Status badges (`กำลังดำเนินการ` and `ของกลับถึงแล้ว`).
+      - Row alert highlight for overdue vendor penalties (`test14` highlighted in soft red `bg-[#fff5f5]` with bold red `เกิน 7 วัน`).
+    - **Timeline Tracking Modal (ใบ TEST20)**:
+      - Modal header with RMA number, S/N, case name, and vendor.
+      - 8-stage vertical stepper timeline with connecting lines:
+        - Steps 1-5: Completed with green checkmarks, dates, and days elapsed (with exceeded days `(8 วัน)` and `(4 วัน)` in orange/red).
+        - Step 6 (Active): Highlighted with blue circle `6` badge, `จีน (เข้ากระบวนการซ่อม)`, and tag `⏰ เริ่มนับบทปรับผู้ขาย`.
+        - Steps 7-8: Pending steps in grey (`ส่งกลับเครื่องบิน`, `เคลียร์ของออก (ศุลกากรขาเข้า)`).
+      - Footer actions: Summary text of total elapsed days vs standard plan, timestamp input (`วันและเวลาที่เกิดขึ้นจริง`), primary transition button (`› ปิดขั้น "จีน — ซ่อม" → เข้าขั้น "ขนส่งกลับ"`), and secondary action (`✎ แก้ไขที่รายขั้น (กรอกย้อนหลัง)`).
+    - **New RMA Dispatch Modal**: Modal form for creating a new RMA record with validation and instant feedback.
+    - **Edit RMA Modal**: Modal form for in-place editing of RMA details.
+
 ## [0.11.0] - 2026-09-23
 
 ### Added
