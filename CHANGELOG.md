@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-23
+
+### Added
+- **Claim List & Multi-Column Filter UI (1:1 Reference Replication)**:
+  - Rebuilt `/tickets` view strictly matching the reference screenshot:
+    - **Header**: Navy badge (`#0c1a30`) with white clipboard icon, page title `รายการงานเคลม`, and subtitle `ทุกเคสเคลมที่บันทึกไว้ เลือกเงื่อนไขในการ์ดค้นหาแล้วกดค้นหา`.
+    - **Multi-Column Filter Card**:
+      - Row 1: `สถานะ` (Status dropdown), `เลขที่เคส` (Case No input), `S/N` (input with placeholder `หมายเลขเครื่อง`), `หมวดหมู่` (Category dropdown), `ศูนย์บริการ` (Service Center dropdown).
+      - Row 2: `จังหวัด` (Province dropdown), `อำเภอ` (District dropdown), `ตำบล` (Subdistrict dropdown), `สถานี` (Station dropdown), `เฉพาะที่เกินกำหนด` (Overdue toggle filter button).
+      - Row 3: Aligned dark navy `ค้นหา` action button with search icon.
+    - **Data Table**:
+      - Selectable rows with circular checkbox column (select-all and row selection).
+      - Columns: Checkbox, `เคส`, `อุปกรณ์` (with microchip icon badge), `สถานะ` (color-coded pill badges), `รับแจ้ง` (date), `อายุงาน` (duration), and `Action` (`ดู / แก้ไข` links).
+      - Alert highlight for overdue row (`FORTH-2026-002`): soft red background `bg-[#fff5f5]`, red duration `13 วัน`, and warning badge `⚠ เกินกำหนด 8 วัน`.
+      - Interactive modal integration for viewing and in-place editing of tickets.
+    - **Pagination & Footer**:
+      - Rows per page selector (`10 รายการ/หน้า ⌵`).
+      - Total records summary text (`แสดง 1–5 จาก 5 เคส`).
+      - Page navigation controls (`< ก่อนหน้า`, `หน้า 1/1`, `ถัดไป >`).
+
 ## [0.10.0] - 2026-09-23
 
 ### Added
