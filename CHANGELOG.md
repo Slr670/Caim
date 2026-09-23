@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-23
+
+### Fixed
+- **Tickets View / Edit Action Link**:
+  - Implemented responsive click handlers for "ดู" (View) and "แก้ไข" (Edit) action buttons in the claims table (`TicketsView`)
+  - Added interactive Claim Details Modal (`View Mode`) showing ticket title, problem description, equipment details, status badges, and SLA age
+  - Added interactive Claim Edit Form (`Edit Mode`) allowing in-place updating of claim title, problem description, vendor, model, serial number, and status code with persistent state synchronization
+  - Added status badge mappings for statuses 3 (รออะไหล่) and 4 (ซ่อมเสร็จ) in the claims table
+
 ## [0.8.1] - 2026-09-23
 
 ### Performance & Optimization

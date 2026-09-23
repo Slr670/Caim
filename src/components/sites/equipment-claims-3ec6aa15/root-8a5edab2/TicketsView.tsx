@@ -6,7 +6,12 @@ import {
   ClipboardList,
   ChevronRight,
   House,
-  Plus
+  Plus,
+  Check,
+  FileText,
+  Pencil,
+  Save,
+  X
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -91,12 +96,76 @@ const SAMPLE_TICKETS: Ticket[] = [
 ]
 
 export function TicketsView() {
-  const [tickets] = React.useState<Ticket[]>(SAMPLE_TICKETS)
+  const [tickets, setTickets] = React.useState<Ticket[]>(SAMPLE_TICKETS)
   const [searchStatus, setSearchStatus] = React.useState("all")
   const [searchSn, setSearchSn] = React.useState("")
   const [searchVendor, setSearchVendor] = React.useState("all")
   const [onlyOverdue, setOnlyOverdue] = React.useState(false)
   const deferredSn = React.useDeferredValue(searchSn)
+
+  // View / Edit Modal State
+  const [selectedTicket, setSelectedTicket] = React.useState<Ticket | null>(null)
+  const [modalMode, setModalMode] = React.useState<"view" | "edit">("view")
+  const [editForm, setEditForm] = React.useState<Ticket | null>(null)
+  const [saveSuccess, setSaveSuccess] = React.useState(false)
+
+  const handleView = React.useCallback((ticket: Ticket) => {
+    setSelectedTicket(ticket)
+    setEditForm({ ...ticket })
+    setModalMode("view")
+    setSaveSuccess(false)
+  }, [])
+
+  const handleEdit = React.useCallback((ticket: Ticket) => {
+    setSelectedTicket(ticket)
+    setEditForm({ ...ticket })
+    setModalMode("edit")
+    setSaveSuccess(false)
+  }, [])
+
+  const handleCloseModal = React.useCallback(() => {
+    setSelectedTicket(null)
+    setEditForm(null)
+    setSaveSuccess(false)
+  }, [])
+
+  const handleStatusChange = React.useCallback((newStatusCode: number) => {
+    const statusMap: Record<number, string> = {
+      1: "รับแจ้ง",
+      2: "ส่งศูนย์",
+      3: "รออะไหล่",
+      4: "ซ่อมเสร็จ",
+      5: "ปิดเคส",
+      6: "ปฏิเสธเคลม",
+    }
+    setEditForm((prev) =>
+      prev
+        ? {
+            ...prev,
+            statusCode: newStatusCode,
+            status: statusMap[newStatusCode] || prev.status,
+          }
+        : null
+    )
+  }, [])
+
+  const handleSaveTicket = React.useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      if (!editForm) return
+
+      setTickets((prev) =>
+        prev.map((t) => (t.id === editForm.id ? editForm : t))
+      )
+      setSelectedTicket(editForm)
+      setSaveSuccess(true)
+      setTimeout(() => {
+        setSaveSuccess(false)
+        setModalMode("view")
+      }, 700)
+    },
+    [editForm]
+  )
 
   React.useEffect(() => {
     if (typeof window !== "undefined") {
@@ -269,6 +338,16 @@ export function TicketsView() {
                           ส่งศูนย์
                         </span>
                       )}
+                      {item.statusCode === 3 && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-700 dark:text-purple-400">
+                          รออะไหล่
+                        </span>
+                      )}
+                      {item.statusCode === 4 && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 px-2.5 py-0.5 font-medium text-teal-700 dark:text-teal-400">
+                          ซ่อมเสร็จ
+                        </span>
+                      )}
                       {item.statusCode === 5 && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-400">
                           ปิดเคส
@@ -290,10 +369,24 @@ export function TicketsView() {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      <div className="inline-flex items-center gap-1 text-brand font-medium">
-                        <button type="button" className="hover:underline">ดู</button>
-                        <span>/</span>
-                        <button type="button" className="hover:underline">แก้ไข</button>
+                      <div className="inline-flex items-center gap-1.5 text-brand font-medium">
+                        <button
+                          type="button"
+                          onClick={() => handleView(item)}
+                          className="hover:underline hover:text-brand-dark focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded px-1 py-0.5 cursor-pointer"
+                          aria-label={`ดูรายละเอียดเคส ${item.title}`}
+                        >
+                          ดู
+                        </button>
+                        <span className="text-muted-foreground/60 select-none">/</span>
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(item)}
+                          className="hover:underline hover:text-brand-dark focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded px-1 py-0.5 cursor-pointer"
+                          aria-label={`แก้ไขข้อมูลเคส ${item.title}`}
+                        >
+                          แก้ไข
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -307,6 +400,311 @@ export function TicketsView() {
             <span>ระบบบริหารงานเคลมอุปกรณ์</span>
           </div>
         </div>
+
+        {/* View / Edit Modal Dialog */}
+        {selectedTicket && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
+            onClick={handleCloseModal}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="relative w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-muted/20">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex size-8 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                    {modalMode === "edit" ? (
+                      <Pencil className="size-4" />
+                    ) : (
+                      <FileText className="size-4" />
+                    )}
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {modalMode === "edit"
+                        ? "แก้ไขข้อมูลงานเคลม"
+                        : "รายละเอียดงานเคลม"}
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      เคส ID: {selectedTicket.id} · {selectedTicket.title}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                  aria-label="ปิดหน้าต่าง"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              {/* Success Banner */}
+              {saveSuccess && (
+                <div className="mx-5 mt-4 flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-400 animate-in fade-in">
+                  <Check className="size-3.5 shrink-0" />
+                  <span>บันทึกการแก้ไขข้อมูลเรียบร้อยแล้ว</span>
+                </div>
+              )}
+
+              {/* Modal Body */}
+              {modalMode === "view" ? (
+                <div className="flex flex-col gap-4 p-5 text-xs">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-border/70 p-3 bg-muted/20">
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        หัวข้อเคส
+                      </p>
+                      <p className="mt-1 font-semibold text-foreground">
+                        {selectedTicket.title}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border/70 p-3 bg-muted/20">
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        สถานะการเคลม
+                      </p>
+                      <div className="mt-1">
+                        {selectedTicket.statusCode === 1 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-700 dark:text-amber-400">
+                            รับแจ้ง / รอตรวจสภาพ
+                          </span>
+                        )}
+                        {selectedTicket.statusCode === 2 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 font-medium text-brand">
+                            ส่งศูนย์บริการแล้ว
+                          </span>
+                        )}
+                        {selectedTicket.statusCode === 3 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-700 dark:text-purple-400">
+                            รออะไหล่ / กำลังซ่อม
+                          </span>
+                        )}
+                        {selectedTicket.statusCode === 4 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 px-2.5 py-0.5 font-medium text-teal-700 dark:text-teal-400">
+                            ซ่อมเสร็จ / รอส่งมอบ
+                          </span>
+                        )}
+                        {selectedTicket.statusCode === 5 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-400">
+                            ปิดเคส (รับคืนเรียบร้อย)
+                          </span>
+                        )}
+                        {selectedTicket.statusCode === 6 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-0.5 font-medium text-destructive">
+                            ปฏิเสธเคลม
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/70 p-3 bg-muted/20">
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      ปัญหาที่พบ / อาการเสีย
+                    </p>
+                    <p className="mt-1 text-foreground leading-relaxed">
+                      {selectedTicket.problemDesc}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-border/70 p-3 bg-muted/20">
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        อุปกรณ์ / ยี่ห้อ / รุ่น
+                      </p>
+                      <p className="mt-1 font-medium text-foreground">
+                        {selectedTicket.vendor} / {selectedTicket.model}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border/70 p-3 bg-muted/20">
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        Serial Number (S/N)
+                      </p>
+                      <p className="mt-1 font-mono font-medium text-brand">
+                        {selectedTicket.serialNo}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-border/70 p-3 bg-muted/20">
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        วันที่รับแจ้ง
+                      </p>
+                      <p className="mt-1 text-muted-foreground font-medium">
+                        {selectedTicket.date}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border/70 p-3 bg-muted/20">
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        อายุงาน
+                      </p>
+                      <p
+                        className={`mt-1 font-semibold ${
+                          selectedTicket.isOverdue
+                            ? "text-destructive"
+                            : "text-foreground"
+                        }`}
+                      >
+                        {selectedTicket.ageDays}
+                        {selectedTicket.isOverdue && " (เกินกำหนด SLA)"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* View Actions */}
+                  <div className="mt-2 flex items-center justify-end gap-2 border-t border-border pt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCloseModal}
+                      className="cursor-pointer"
+                    >
+                      ปิด
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => setModalMode("edit")}
+                      className="gap-1.5 bg-brand text-white hover:bg-brand-dark cursor-pointer shadow-xs"
+                    >
+                      <Pencil className="size-3.5" />
+                      <span>แก้ไขข้อมูล</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                /* Edit Mode Form */
+                editForm && (
+                  <form onSubmit={handleSaveTicket} className="flex flex-col gap-4 p-5 text-xs">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="font-medium text-foreground">หัวข้อเคส</label>
+                      <Input
+                        required
+                        value={editForm.title}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, title: e.target.value })
+                        }
+                        className="h-9 text-xs"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="font-medium text-foreground">
+                        ปัญหาที่พบ / อาการเสีย
+                      </label>
+                      <textarea
+                        required
+                        rows={3}
+                        value={editForm.problemDesc}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, problemDesc: e.target.value })
+                        }
+                        className="w-full rounded-md border border-input bg-background p-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-medium text-foreground">
+                          ศูนย์บริการ / ผู้ผลิต
+                        </label>
+                        <select
+                          value={editForm.vendor}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, vendor: e.target.value })
+                          }
+                          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          <option value="Huawei">Huawei</option>
+                          <option value="Hytera">Hytera</option>
+                          <option value="Forth">Forth</option>
+                          <option value="Motorola">Motorola</option>
+                          <option value="Dell">Dell</option>
+                          <option value="Lenovo">Lenovo</option>
+                          <option value="Syndome">Syndome</option>
+                          <option value="Vertiv">Vertiv</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-medium text-foreground">รุ่นอุปกรณ์</label>
+                        <Input
+                          required
+                          value={editForm.model}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, model: e.target.value })
+                          }
+                          className="h-9 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-medium text-foreground">
+                          Serial Number (S/N)
+                        </label>
+                        <Input
+                          required
+                          value={editForm.serialNo}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, serialNo: e.target.value })
+                          }
+                          className="h-9 font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-medium text-foreground">สถานะงานเคลม</label>
+                        <select
+                          value={editForm.statusCode}
+                          onChange={(e) =>
+                            handleStatusChange(Number(e.target.value))
+                          }
+                          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          <option value={1}>1. รับแจ้ง / รอตรวจสภาพ</option>
+                          <option value={2}>2. ส่งศูนย์บริการแล้ว</option>
+                          <option value={3}>3. รออะไหล่ / กำลังซ่อม</option>
+                          <option value={4}>4. ซ่อมเสร็จ / รอส่งมอบ</option>
+                          <option value={5}>5. ปิดเคส (รับคืนเรียบร้อย)</option>
+                          <option value={6}>6. ปฏิเสธเคลม (นอกเงื่อนไข)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Edit Actions */}
+                    <div className="mt-2 flex items-center justify-end gap-2 border-t border-border pt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setModalMode("view")}
+                        className="cursor-pointer"
+                      >
+                        ยกเลิก
+                      </Button>
+                      <Button
+                        type="submit"
+                        size="sm"
+                        className="gap-1.5 bg-brand text-white hover:bg-brand-dark cursor-pointer shadow-xs"
+                      >
+                        <Save className="size-3.5" />
+                        <span>บันทึกการเปลี่ยนแปลง</span>
+                      </Button>
+                    </div>
+                  </form>
+                )
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </main>
   )
