@@ -2,456 +2,319 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
-  House,
+  Wrench,
   ChevronRight,
-  FilePlus,
-  Cpu,
-  FileText,
-  CalendarClock,
-  Users,
-  Calendar,
-  ChevronDown,
-  ChevronsUpDown,
-  Check
+  House,
+  Check,
+  Save,
+  Search,
+  HardDrive,
+  Info
 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-
-const REGISTERED_DEVICES = [
-  {
-    id: "1",
-    label: "Huawei / OMXD30000 (S/N 1000167600349)",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    sn: "1000167600349",
-  },
-  {
-    id: "2",
-    label: "Hytera / DIB-R5 outdoor (S/N 200426)",
-    vendor: "Hytera",
-    model: "DIB-R5 outdoor",
-    sn: "200426",
-  },
-  {
-    id: "3",
-    label: "Huawei / PAC80S12-CN (S/N 2102131835USR8305867)",
-    vendor: "Huawei",
-    model: "PAC80S12-CN",
-    sn: "2102131835USR8305867",
-  },
-  {
-    id: "4",
-    label: "Hytera / MD788G VHF (S/N 1000167600350)",
-    vendor: "Hytera",
-    model: "MD788G VHF",
-    sn: "1000167600350",
-  },
-]
+import { ASSETS } from "./assetsData"
 
 export function NewTicketView() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialSerial = searchParams.get("serial") || ""
 
-  // Form State
-  const [selectedDeviceId, setSelectedDeviceId] = React.useState("")
-  const [claimNo, setClaimNo] = React.useState("")
-  const [reportDate, setReportDate] = React.useState("2026-09-23 07:00 AM")
-  const [warrantyStatus, setWarrantyStatus] = React.useState("")
-  const [problemDesc, setProblemDesc] = React.useState("")
+  const [selectedSerial, setSelectedSerial] = React.useState<string>(initialSerial)
+  const [deviceSearch, setDeviceSearch] = React.useState<string>("")
+  const [isSaved, setIsSaved] = React.useState(false)
 
-  const [vendor, setVendor] = React.useState("")
-  const [dispatchDate, setDispatchDate] = React.useState("")
-  const [dueDate, setDueDate] = React.useState("2026-11-22 07:00 AM")
+  // Find selected asset
+  const selectedAsset = React.useMemo(() => {
+    if (!selectedSerial) return null
+    return ASSETS.find(
+      (a) => a.serial.toUpperCase() === selectedSerial.toUpperCase()
+    ) || null
+  }, [selectedSerial])
 
-  const [reporter, setReporter] = React.useState("")
-  const [assignee, setAssignee] = React.useState("")
-  const [remarks, setRemarks] = React.useState("")
+  // Filtered dropdown options based on search
+  const filteredAssets = React.useMemo(() => {
+    const q = deviceSearch.trim().toLowerCase()
+    if (!q) return ASSETS.slice(0, 50) // Top 50 default
+    return ASSETS.filter(
+      (a) =>
+        a.serial.toLowerCase().includes(q) ||
+        a.vendor.toLowerCase().includes(q) ||
+        a.model.toLowerCase().includes(q) ||
+        (a.name && a.name.toLowerCase().includes(q))
+    ).slice(0, 50)
+  }, [deviceSearch])
 
-  // Success Feedback
-  const [isSuccess, setIsSuccess] = React.useState(false)
-
-  // Find selected device info
-  const selectedDevice = React.useMemo(() => {
-    return REGISTERED_DEVICES.find((d) => d.id === selectedDeviceId)
-  }, [selectedDeviceId])
-
-  // Auto-set vendor if device is selected
+  // Auto-populate initial serial if matched
   React.useEffect(() => {
-    if (selectedDevice?.vendor && !vendor) {
-      setVendor(selectedDevice.vendor)
+    if (initialSerial) {
+      setSelectedSerial(initialSerial)
     }
-  }, [selectedDevice, vendor])
+  }, [initialSerial])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setIsSuccess(true)
+    setIsSaved(true)
     setTimeout(() => {
       router.push("/tickets")
     }, 1200)
   }
 
-  const handleCancel = () => {
-    router.push("/tickets")
-  }
-
   return (
-    <main id="main" className="flex-1 bg-slate-50/50 py-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
-        {/* Success Alert */}
-        {isSuccess && (
-          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-xs font-semibold text-emerald-800 animate-in fade-in">
-            <Check className="size-4 text-emerald-600" />
-            <span>เปิดเคสแจ้งเคลมสำเร็จ! กำลังนำทางกลับไปหน้ารายการเคส...</span>
-          </div>
-        )}
-
-        {/* =========================================================================
-            1. BREADCRUMBS & HEADER
-           ========================================================================= */}
-        <div className="flex flex-col gap-3">
-          {/* Breadcrumb */}
+    <main id="main" className="flex-1 bg-background">
+      <div className="mx-auto flex max-w-350 flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6">
+        {/* Breadcrumb and Header */}
+        <div className="flex flex-col gap-4">
           <nav aria-label="breadcrumb">
-            <ol className="flex items-center gap-1.5 text-xs text-slate-500">
-              <li className="inline-flex items-center">
+            <ol className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+              <li className="inline-flex items-center gap-1">
                 <Link
                   href="/dashboard"
                   aria-label="หน้าแรก"
-                  className="transition-colors hover:text-slate-900"
+                  className="transition-colors hover:text-foreground"
                 >
-                  <House className="size-3.5 text-slate-500" />
+                  <House className="size-4" />
                 </Link>
               </li>
-              <li className="flex items-center text-slate-400">
-                <ChevronRight className="size-3" />
+              <li className="flex items-center text-muted-foreground/60">
+                <ChevronRight className="size-3.5" />
               </li>
-              <li className="inline-flex items-center">
-                <Link
-                  href="/tickets"
-                  className="transition-colors hover:text-slate-900"
-                >
+              <li className="inline-flex items-center gap-1">
+                <Link href="/tickets" className="hover:text-foreground">
                   งานเคลม
                 </Link>
               </li>
-              <li className="flex items-center text-slate-400">
-                <ChevronRight className="size-3" />
+              <li className="flex items-center text-muted-foreground/60">
+                <ChevronRight className="size-3.5" />
               </li>
-              <li className="inline-flex items-center">
-                <span className="font-normal text-slate-700">เปิดเคสใหม่</span>
+              <li className="inline-flex items-center gap-1">
+                <span className="font-normal text-foreground">เปิดเคสใหม่</span>
               </li>
             </ol>
           </nav>
 
-          {/* Title & Icon */}
-          <div className="flex items-center gap-3">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#0c1a30] text-white shadow-xs">
-              <FilePlus className="size-5.5 text-white" />
+          <div className="flex items-center gap-3.5">
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-brand-navy text-white shadow-xs">
+              <Wrench className="size-6" />
             </span>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+              <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
                 เปิดเคสใหม่
               </h1>
-              <p className="text-xs text-slate-500 sm:text-sm">
-                กรอกเลขที่เคลมเองในฟอร์มด้านล่าง
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                เลือกอุปกรณ์จากฐานข้อมูลและระบุรายละเอียดการแจ้งเคลม
               </p>
             </div>
           </div>
         </div>
 
-        {/* =========================================================================
-            2. TWO-COLUMN CARD CONTAINER (FORM + LIVE SUMMARY)
-           ========================================================================= */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-xs sm:p-7">
-          <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-start">
-              {/* ===================================================================
-                  LEFT COLUMN: FORM INPUTS (8 COLS)
-                 =================================================================== */}
-              <div className="space-y-7 lg:col-span-8">
-                {/* ---------------- Section 1: อุปกรณ์ ---------------- */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-1.5 text-slate-800">
-                    <Cpu className="size-4 text-slate-600" />
-                    <h2 className="text-xs sm:text-sm font-bold">อุปกรณ์</h2>
-                  </div>
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+          {isSaved && (
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-400">
+              <Check className="size-4 shrink-0" />
+              <span>บันทึกข้อมูลการเปิดเคสเรียบร้อยแล้ว กำลังนำทางกลับไปหน้ารายการ...</span>
+            </div>
+          )}
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-normal text-slate-600">
-                      เลือกอุปกรณ์
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={selectedDeviceId}
-                        onChange={(e) => setSelectedDeviceId(e.target.value)}
-                        className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
-                      >
-                        <option value="">เลือกอุปกรณ์จากทะเบียน</option>
-                        {REGISTERED_DEVICES.map((dev) => (
-                          <option key={dev.id} value={dev.id}>
-                            {dev.label}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronsUpDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-                    </div>
-                  </div>
-                </div>
+          {/* Section 1: อุปกรณ์ */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-border pb-2.5">
+              <h2 className="text-base font-semibold text-foreground">
+                1. อุปกรณ์
+              </h2>
+              <Link
+                href="/assets"
+                className="text-xs text-brand hover:underline flex items-center gap-1"
+              >
+                <HardDrive className="size-3.5" />
+                ดูทะเบียนอุปกรณ์ทั้งหมด ({ASSETS.length})
+              </Link>
+            </div>
 
-                {/* ---------------- Section 2: ข้อมูลเคส ---------------- */}
-                <div className="space-y-3.5 pt-1">
-                  <div className="flex items-center gap-1.5 text-slate-800">
-                    <FileText className="size-4 text-slate-600" />
-                    <h2 className="text-xs sm:text-sm font-bold">ข้อมูลเคส</h2>
-                  </div>
-
-                  {/* เลขที่เคลม */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-normal text-slate-600">
-                      เลขที่เคส
-                    </label>
-                    <Input
-                      placeholder=""
-                      value={claimNo}
-                      onChange={(e) => setClaimNo(e.target.value)}
-                      className="h-9 max-w-xs rounded-lg border-slate-200 bg-white text-xs text-slate-800 shadow-none focus-visible:ring-1 focus-visible:ring-blue-500"
-                    />
-                    <p className="text-[11px] text-slate-400">
-                      กรอกเองตามที่หน่วยงานกำหนด ห้ามซ้ำกับเคสที่มีอยู่แล้ว
-                    </p>
-                  </div>
-
-                  {/* วันที่รับแจ้ง & สถานะประกัน */}
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-normal text-slate-600">
-                        วันและเวลาที่รับแจ้ง
-                      </label>
-                      <div className="relative">
-                        <Input
-                          value={reportDate}
-                          onChange={(e) => setReportDate(e.target.value)}
-                          className="h-9 rounded-lg border-slate-200 bg-white pr-8 text-xs text-slate-800 shadow-none focus-visible:ring-1 focus-visible:ring-blue-500"
-                        />
-                        <Calendar className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-normal text-slate-600">
-                        สถานะการรับประกัน
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={warrantyStatus}
-                          onChange={(e) => setWarrantyStatus(e.target.value)}
-                          className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
-                        >
-                          <option value="">เลือกสถานะประกัน</option>
-                          <option value="warranty">อยู่ในประกัน</option>
-                          <option value="expired">นอกประกัน</option>
-                          <option value="carepack">ประกันพิเศษ (Care Pack)</option>
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* อาการเสีย / ปัญหาที่พบ */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-normal text-slate-600">
-                      อาการเสีย / ปัญหาที่พบ
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={problemDesc}
-                      onChange={(e) => setProblemDesc(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                {/* ---------------- Section 3: กำหนดการและศูนย์บริการ ---------------- */}
-                <div className="space-y-3.5 pt-1">
-                  <div className="flex items-center gap-1.5 text-slate-800">
-                    <CalendarClock className="size-4 text-slate-600" />
-                    <h2 className="text-xs sm:text-sm font-bold">
-                      กำหนดการและศูนย์บริการ
-                    </h2>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-normal text-slate-600">
-                        ศูนย์บริการ / ผู้รับงาน
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={vendor}
-                          onChange={(e) => setVendor(e.target.value)}
-                          className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
-                        >
-                          <option value="">เลือกศูนย์บริการ</option>
-                          <option value="Huawei">Huawei</option>
-                          <option value="Hytera">Hytera</option>
-                          <option value="Dell">Dell</option>
-                          <option value="Lenovo">Lenovo</option>
-                          <option value="Syndome">Syndome</option>
-                          <option value="Vertiv">Vertiv</option>
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-normal text-slate-600">
-                        วันและเวลาที่ส่งศูนย์บริการ
-                      </label>
-                      <div className="relative">
-                        <Input
-                          placeholder="yyyy-mm-dd --:-- --"
-                          value={dispatchDate}
-                          onChange={(e) => setDispatchDate(e.target.value)}
-                          className="h-9 rounded-lg border-slate-200 bg-white pr-8 text-xs text-slate-800 placeholder:text-slate-400 shadow-none focus-visible:ring-1 focus-visible:ring-blue-500"
-                        />
-                        <Calendar className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-normal text-slate-600">
-                      กำหนดแล้วเสร็จ
-                    </label>
-                    <div className="relative max-w-xs">
-                      <Input
-                        value={dueDate}
-                        onChange={(e) => setDueDate(e.target.value)}
-                        className="h-9 rounded-lg border-slate-200 bg-white pr-8 text-xs text-slate-800 shadow-none focus-visible:ring-1 focus-visible:ring-blue-500"
-                      />
-                      <Calendar className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      เติมให้อัตโนมัติจากวันที่รับแจ้ง แก้ทับได้ถ้าตกลงกับศูนย์เป็นอย่างอื่น
-                    </p>
-                  </div>
-                </div>
-
-                {/* ---------------- Section 4: ผู้เกี่ยวข้อง ---------------- */}
-                <div className="space-y-3.5 pt-1">
-                  <div className="flex items-center gap-1.5 text-slate-800">
-                    <Users className="size-4 text-slate-600" />
-                    <h2 className="text-xs sm:text-sm font-bold">ผู้เกี่ยวข้อง</h2>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-normal text-slate-600">
-                        ผู้แจ้ง / เจ้าของเครื่อง
-                      </label>
-                      <Input
-                        value={reporter}
-                        onChange={(e) => setReporter(e.target.value)}
-                        className="h-9 rounded-lg border-slate-200 bg-white text-xs text-slate-800 shadow-none focus-visible:ring-1 focus-visible:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-normal text-slate-600">
-                        ผู้รับผิดชอบเคส
-                      </label>
-                      <Input
-                        value={assignee}
-                        onChange={(e) => setAssignee(e.target.value)}
-                        className="h-9 rounded-lg border-slate-200 bg-white text-xs text-slate-800 shadow-none focus-visible:ring-1 focus-visible:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-normal text-slate-600">
-                      หมายเหตุ
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={remarks}
-                      onChange={(e) => setRemarks(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">
+                  ค้นหาอุปกรณ์ในระบบ (S/N หรือ ชื่อรุ่น)
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="พิมพ์เพื่อค้นหา เช่น 1025B... หรือ Huawei..."
+                    value={deviceSearch}
+                    onChange={(e) => setDeviceSearch(e.target.value)}
+                    className="pl-8 h-9 text-xs"
+                  />
                 </div>
               </div>
 
-              {/* ===================================================================
-                  RIGHT COLUMN: SIDEBAR SUMMARY CARD (4 COLS)
-                 =================================================================== */}
-              <div className="lg:col-span-4 lg:pl-6">
-                {/* 1. Countdown Widget */}
-                <div>
-                  <h3 className="text-xs font-semibold text-slate-800">
-                    กำหนดแล้วเสร็จ
-                  </h3>
-
-                  <div className="my-4 flex flex-col items-center">
-                    <div className="flex size-24 flex-col items-center justify-center rounded-full border-4 border-[#2563eb]">
-                      <span className="text-xl font-bold text-slate-800 leading-tight">
-                        60
-                      </span>
-                      <span className="text-[11px] text-slate-500">วัน</span>
-                    </div>
-
-                    <p className="mt-2 text-xs font-semibold text-[#2563eb]">
-                      เหลืออีก 60 วัน
-                    </p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      ครบกำหนด 22 พ.ย. 2569
-                    </p>
-                  </div>
-                </div>
-
-                {/* 2. Live Case Summary */}
-                <div className="mt-8 border-t border-slate-100 pt-5">
-                  <div className="flex items-center gap-1.5 text-slate-800">
-                    <FileText className="size-3.5 text-slate-600" />
-                    <h3 className="text-xs font-semibold">สรุปเคส</h3>
-                  </div>
-
-                  <div className="mt-3 space-y-3 text-xs">
-                    <div>
-                      <p className="text-[11px] text-slate-500">เลขที่เคส</p>
-                      <p className="font-medium text-slate-800 mt-0.5">
-                        {claimNo.trim() ? claimNo : "ยังไม่ได้กรอก"}
-                      </p>
-                    </div>
-
-                    <div className="border-t border-slate-100 pt-2.5">
-                      <p className="text-[11px] text-slate-500">อุปกรณ์ที่เลือก</p>
-                      <p className="font-medium text-slate-800 mt-0.5">
-                        {selectedDevice ? selectedDevice.label : "ยังไม่ได้เลือกอุปกรณ์"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Action Buttons */}
-                <div className="mt-8 space-y-2.5">
-                  <button
-                    type="submit"
-                    className="w-full rounded-lg bg-[#0c1a30] py-2.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1e293b] cursor-pointer"
-                  >
-                    เปิดเคส
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleCancel}
-                    className="w-full rounded-lg border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 cursor-pointer"
-                  >
-                    ยกเลิก
-                  </button>
-                </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">
+                  เลือกอุปกรณ์จากทะเบียน <span className="text-destructive">*</span>
+                </label>
+                <select
+                  required
+                  value={selectedSerial}
+                  onChange={(e) => setSelectedSerial(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                >
+                  <option value="">-- เลือกอุปกรณ์ ({filteredAssets.length} รายการที่ค้นพบ) --</option>
+                  {selectedSerial && !filteredAssets.some((a) => a.serial === selectedSerial) && selectedAsset && (
+                    <option value={selectedAsset.serial}>
+                      {selectedAsset.vendor} / {selectedAsset.model} (S/N: {selectedAsset.serial})
+                    </option>
+                  )}
+                  {filteredAssets.map((asset) => (
+                    <option key={asset.serial} value={asset.serial}>
+                      {asset.vendor} / {asset.model} (S/N: {asset.serial}) {asset.name ? `- ${asset.name}` : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-          </form>
-        </div>
+
+            {/* Selected Device Preview Card */}
+            {selectedAsset ? (
+              <div className="rounded-lg border border-brand/20 bg-brand/5 p-3.5 text-xs text-foreground flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex items-start gap-2.5">
+                  <HardDrive className="size-4 text-brand mt-0.5 shrink-0" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-brand">{selectedAsset.serial}</span>
+                      <span className="rounded bg-brand-navy/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand-navy dark:text-blue-300">
+                        {selectedAsset.vendor}
+                      </span>
+                      <span className="font-medium text-foreground">{selectedAsset.model}</span>
+                    </div>
+                    {selectedAsset.name && (
+                      <p className="text-[11px] font-medium text-foreground mt-0.5">
+                        {selectedAsset.name}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {selectedAsset.category} {selectedAsset.description ? `• ${selectedAsset.description}` : ""}
+                    </p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 shrink-0">
+                  ทะเบียนพร้อมใช้งาน
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
+                <Info className="size-4 shrink-0" />
+                <span>กรุณาเลือกอุปกรณ์จากรายการด้านบน ข้อมูลรุ่น ยี่ห้อ และหมวดหมู่จะถูกดึงมาให้อัตโนมัติ</span>
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: ข้อมูลเคส */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
+            <h2 className="text-base font-semibold text-foreground border-b border-border pb-2.5">
+              2. ข้อมูลเคส
+            </h2>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">
+                  เลขที่เคลม <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  required
+                  placeholder="เช่น CLM-2026-0043"
+                  defaultValue="CLM-2026-0043"
+                  className="h-9 text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  กรอกเองตามที่หน่วยงานกำหนด ห้ามซ้ำกับเคสที่มีอยู่แล้ว
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">วันและเวลาที่รับแจ้ง</label>
+                <Input
+                  type="date"
+                  defaultValue={new Date().toISOString().split("T")[0]}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <label className="font-medium text-foreground">สถานะการรับประกัน</label>
+                <select className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none">
+                  <option value="warranty">อยู่ในประกัน</option>
+                  <option value="expired">นอกประกัน</option>
+                  <option value="carepack">ประกันพิเศษ (Care Pack)</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <label className="font-medium text-foreground">
+                  อาการเสีย / ปัญหาที่พบ <span className="text-destructive">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="ระบุอาการผิดปกติหรือสาเหตุที่ต้องการส่งเคลมอย่างละเอียด..."
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: กำหนดการและศูนย์บริการ */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
+            <h2 className="text-base font-semibold text-foreground border-b border-border pb-2.5">
+              3. กำหนดการและศูนย์บริการ
+            </h2>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">ศูนย์บริการ / ผู้รับงาน</label>
+                <select
+                  defaultValue={selectedAsset ? selectedAsset.vendor.toLowerCase() : "huawei"}
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                >
+                  <option value="huawei">Huawei</option>
+                  <option value="hytera">Hytera</option>
+                  <option value="dell">Dell</option>
+                  <option value="lenovo">Lenovo</option>
+                  <option value="syndome">Syndome</option>
+                  <option value="motorola">Motorola</option>
+                  <option value="transpower">Transpower</option>
+                  <option value="vertiv">Vertiv</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">กำหนดแล้วเสร็จ</label>
+                <Input
+                  type="date"
+                  defaultValue="2026-11-21"
+                  className="h-9 text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  เติมให้อัตโนมัติจากวันที่รับแจ้ง แก้ทับได้ถ้าตกลงกับศูนย์เป็นอย่างอื่น
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Link href="/tickets">
+              <Button type="button" variant="outline" size="sm">
+                ยกเลิก
+              </Button>
+            </Link>
+            <Button type="submit" size="sm" className="gap-2 bg-brand text-white hover:bg-brand-dark">
+              <Save className="size-4" />
+              <span>บันทึกเคสเคลม</span>
+            </Button>
+          </div>
+        </form>
       </div>
     </main>
   )
