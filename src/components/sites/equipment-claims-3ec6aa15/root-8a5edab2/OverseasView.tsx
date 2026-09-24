@@ -16,10 +16,75 @@ import {
   History,
   Clock,
   ChevronDown,
-  ChevronLeft
+  ChevronLeft,
+  AlertCircle
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ASSETS } from "./assetsData"
+
+interface ClaimCaseOption {
+  id: string
+  caseNo: string
+  title: string
+  serialNo: string
+  vendor: string
+  model: string
+  status: string
+}
+
+const AVAILABLE_CASES: ClaimCaseOption[] = [
+  {
+    id: "case-01",
+    caseNo: "FORTH-2026-002",
+    title: "บอร์ดส่งสัญญาณ SHF ชำรุด",
+    serialNo: "200426",
+    vendor: "Hytera",
+    model: "DIB-R5 outdoor",
+    status: "ส่งศูนย์",
+  },
+  {
+    id: "case-02",
+    caseNo: "FORTH-2026-001",
+    title: "Optical Transceiver ไม่ตอบสนอง",
+    serialNo: "1000167600349",
+    vendor: "Huawei",
+    model: "OMXD30000",
+    status: "รับแจ้ง",
+  },
+  {
+    id: "case-03",
+    caseNo: "FORTH-2026-004",
+    title: "เพาเวอร์ซัพพลาย TaiShan 200 ดับ",
+    serialNo: "N02555009980",
+    vendor: "Huawei",
+    model: "TaiShan 200 Server 2280",
+    status: "ส่งศูนย์",
+  },
+  {
+    id: "case-04",
+    caseNo: "FORTH-2026-005",
+    title: "DMR Mobile Radio กำลังส่งตก",
+    serialNo: "1000167600350",
+    vendor: "Hytera",
+    model: "MD788G",
+    status: "รับแจ้ง",
+  },
+]
+
+function getInitialDateTime() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+  let hours = now.getHours()
+  const minutes = String(now.getMinutes()).padStart(2, "0")
+  const ampm = hours >= 12 ? "PM" : "AM"
+  hours = hours % 12
+  hours = hours ? hours : 12
+  const strHours = String(hours).padStart(2, "0")
+  return `${year}-${month}-${day} ${strHours}:${minutes} ${ampm}`
+}
 
 interface RmaItem {
   id: string
@@ -104,15 +169,70 @@ export function OverseasView() {
   // Selected item for timeline modal
   const [timelineItem, setTimelineItem] = React.useState<RmaItem | null>(null)
 
+  // Equipment options from ASSETS
+  const equipmentOptions = React.useMemo(() => {
+    const map = new Map<string, (typeof ASSETS)[0]>()
+    for (const a of ASSETS) {
+      if (a.serial && !map.has(a.serial)) {
+        map.set(a.serial, a)
+      }
+    }
+    return Array.from(map.values()).slice(0, 150)
+  }, [])
+
   // New RMA Modal state
   const [newRmaModalOpen, setNewRmaModalOpen] = React.useState(false)
   const [newRmaForm, setNewRmaForm] = React.useState({
     rmaNo: "",
-    caseName: "",
-    serialNo: "",
-    vendor: "Hytera",
-    model: "",
+    status: "in_progress",
+    selectedAssetSerial: "",
+    linkedCaseId: "",
+    serviceCenter: "",
+    destination: "",
+    openDate: getInitialDateTime(),
+    remarks: "",
   })
+  const [formValidationError, setFormValidationError] = React.useState<string | null>(null)
+
+  const handleCaseChange = (caseId: string) => {
+    setNewRmaForm((prev) => {
+      const updated = { ...prev, linkedCaseId: caseId }
+      if (caseId && caseId !== "none") {
+        const foundCase = AVAILABLE_CASES.find((c) => c.id === caseId)
+        if (foundCase) {
+          if (!prev.serviceCenter) {
+            updated.serviceCenter = foundCase.vendor
+          }
+          if (!prev.destination) {
+            updated.destination =
+              foundCase.vendor === "Hytera" ? "Hytera Hongkong" : "Huawei Service Center"
+          }
+        }
+      }
+      return updated
+    })
+    if (formValidationError) setFormValidationError(null)
+  }
+
+  const handleEquipmentChange = (serial: string) => {
+    setNewRmaForm((prev) => {
+      const updated = { ...prev, selectedAssetSerial: serial }
+      if (serial) {
+        const foundAsset = ASSETS.find((a) => a.serial === serial)
+        if (foundAsset) {
+          if (!prev.serviceCenter && foundAsset.vendor) {
+            updated.serviceCenter = foundAsset.vendor
+          }
+          if (!prev.destination && foundAsset.vendor) {
+            updated.destination =
+              foundAsset.vendor === "Hytera" ? "Hytera Hongkong" : "Huawei Service Center"
+          }
+        }
+      }
+      return updated
+    })
+    if (formValidationError) setFormValidationError(null)
+  }
 
   // Edit RMA state
   const [editingItem, setEditingItem] = React.useState<RmaItem | null>(null)
@@ -168,29 +288,95 @@ export function OverseasView() {
 
   const handleCreateRma = (e: React.FormEvent) => {
     e.preventDefault()
+
+    const hasEquipment = Boolean(newRmaForm.selectedAssetSerial)
+    const hasCase = Boolean(newRmaForm.linkedCaseId && newRmaForm.linkedCaseId !== "none")
+
+    if (!hasEquipment && !hasCase) {
+      setFormValidationError("กรุณาเลือกอุปกรณ์จากทะเบียน หรือผูกกับเคสแจ้งเคลมอย่างน้อยหนึ่งอย่าง")
+      return
+    }
+
+    setFormValidationError(null)
+
+    let resolvedCaseName = "ไม่ผูกเคส"
+    let resolvedSerial = "S/N-PENDING"
+    let resolvedVendor = newRmaForm.serviceCenter || "Hytera"
+    let resolvedModel = "อุปกรณ์สื่อสาร"
+
+    if (hasCase) {
+      const foundCase = AVAILABLE_CASES.find((c) => c.id === newRmaForm.linkedCaseId)
+      if (foundCase) {
+        resolvedCaseName = foundCase.caseNo
+        resolvedSerial = foundCase.serialNo
+        resolvedVendor = foundCase.vendor
+        resolvedModel = foundCase.model
+      }
+    }
+
+    if (hasEquipment) {
+      const foundAsset = ASSETS.find((a) => a.serial === newRmaForm.selectedAssetSerial)
+      if (foundAsset) {
+        resolvedSerial = foundAsset.serial
+        resolvedVendor = foundAsset.vendor || resolvedVendor
+        resolvedModel = foundAsset.name || foundAsset.model || resolvedModel
+      }
+    }
+
+    if (newRmaForm.serviceCenter) {
+      resolvedVendor = newRmaForm.serviceCenter
+    }
+
+    const generatedRmaNo =
+      newRmaForm.rmaNo.trim() ||
+      `RMA-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 900 + 100))}`
+
+    const statusBadgeMap: Record<string, { badge: "in_progress" | "returned"; text: string }> = {
+      in_progress: { badge: "in_progress", text: "กำลังดำเนินการ" },
+      pending: { badge: "in_progress", text: "รอดำเนินการ" },
+      shipped: { badge: "in_progress", text: "จัดส่งแล้ว" },
+      returned: { badge: "returned", text: "ของกลับถึงแล้ว" },
+      completed: { badge: "returned", text: "เสร็จสิ้น" },
+    }
+
+    const badgeInfo = statusBadgeMap[newRmaForm.status] || {
+      badge: "in_progress",
+      text: "กำลังดำเนินการ",
+    }
+
     const newItem: RmaItem = {
       id: String(Date.now()),
-      rmaNo: newRmaForm.rmaNo || `RMA-${Math.floor(Math.random() * 9000 + 1000)}`,
-      caseName: newRmaForm.caseName || "เคสทั่วไป",
-      serialNo: newRmaForm.serialNo || "S/N-PENDING",
-      vendor: newRmaForm.vendor,
-      model: newRmaForm.model || "อุปกรณ์สื่อสาร",
+      rmaNo: generatedRmaNo,
+      caseName: resolvedCaseName,
+      serialNo: resolvedSerial,
+      vendor: resolvedVendor,
+      model: resolvedModel,
       currentStageNumber: 1,
       totalStages: 8,
       currentStageName: "1. ระบบใบ RMA",
       stageWaitDays: "ค้างมา 0 วัน",
-      openDate: "23 ก.ย. 2569",
-      totalDays: "1 วัน",
-      statusBadge: "in_progress",
-      statusBadgeText: "กำลังดำเนินการ",
+      openDate: newRmaForm.openDate.split(" ")[0] || "24 ก.ย. 2569",
+      totalDays: "0 วัน",
+      statusBadge: badgeInfo.badge,
+      statusBadgeText: badgeInfo.text,
       penaltyDays: "0 วัน",
       penaltyStandard: "จาก 14 วัน",
       isOverduePenalty: false,
     }
+
     setRmaList((prev) => [newItem, ...prev])
     setNewRmaModalOpen(false)
-    setNewRmaForm({ rmaNo: "", caseName: "", serialNo: "", vendor: "Hytera", model: "" })
-    showToast("เปิดใบส่งซ่อมต่างประเทศใหม่เรียบร้อยแล้ว")
+    setNewRmaForm({
+      rmaNo: "",
+      status: "in_progress",
+      selectedAssetSerial: "",
+      linkedCaseId: "",
+      serviceCenter: "",
+      destination: "",
+      openDate: getInitialDateTime(),
+      remarks: "",
+    })
+    showToast(`เปิดใบส่งซ่อม ${generatedRmaNo} เรียบร้อยแล้ว`)
   }
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -791,106 +977,212 @@ export function OverseasView() {
             aria-modal="true"
           >
             <div
-              className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden p-6 animate-in zoom-in-95 duration-150"
+              className="relative w-full max-w-xl rounded-2xl border border-slate-200 bg-white shadow-2xl p-6 animate-in zoom-in-95 duration-150"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h3 className="text-sm font-bold text-slate-900">
-                  เปิดใบส่งซ่อมต่างประเทศใหม่
-                </h3>
+              {/* Modal Header */}
+              <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    เปิดใบส่งเคลมต่างประเทศ
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    เลือกอุปกรณ์ หรือผูกกับเคสแจ้งเคลมอย่างน้อยหนึ่งอย่าง
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setNewRmaModalOpen(false)}
-                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer transition-colors"
                 >
                   <X className="size-4" />
                 </button>
               </div>
 
+              {/* Validation Alert */}
+              {formValidationError && (
+                <div className="mt-3.5 flex items-center gap-2 rounded-lg bg-red-50 p-2.5 text-xs text-red-700 border border-red-200">
+                  <AlertCircle className="size-4 shrink-0 text-red-600" />
+                  <span>{formValidationError}</span>
+                </div>
+              )}
+
               <form onSubmit={handleCreateRma} className="mt-4 space-y-3.5 text-xs">
-                <div>
-                  <label className="font-medium text-slate-700">เลขใบส่งซ่อม (RMA No.)</label>
-                  <Input
-                    required
-                    placeholder="เช่น RMA-2026-003"
-                    value={newRmaForm.rmaNo}
-                    onChange={(e) =>
-                      setNewRmaForm((prev) => ({ ...prev, rmaNo: e.target.value }))
-                    }
-                    className="mt-1 h-9 text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-medium text-slate-700">เคส / ปัญหา</label>
-                  <Input
-                    required
-                    placeholder="เช่น ทดสอบวิทยุหลัก"
-                    value={newRmaForm.caseName}
-                    onChange={(e) =>
-                      setNewRmaForm((prev) => ({ ...prev, caseName: e.target.value }))
-                    }
-                    className="mt-1 h-9 text-xs"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
+                {/* Row 1: เลขที่ใบ RMA & สถานะใบ * */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="font-medium text-slate-700">หมายเลขเครื่อง (S/N)</label>
+                    <label className="block font-medium text-slate-700 mb-1">เลขที่ใบ RMA</label>
                     <Input
-                      required
-                      placeholder="เช่น 200426"
-                      value={newRmaForm.serialNo}
+                      placeholder="เช่น RMA-2026-014"
+                      value={newRmaForm.rmaNo}
                       onChange={(e) =>
-                        setNewRmaForm((prev) => ({ ...prev, serialNo: e.target.value }))
+                        setNewRmaForm((prev) => ({ ...prev, rmaNo: e.target.value }))
                       }
-                      className="mt-1 h-9 font-mono text-xs"
+                      className="h-9 text-xs rounded-lg border-slate-200 focus-visible:ring-1 focus-visible:ring-blue-500"
                     />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      ยังไม่ออกเลขก็บันทึกได้ ค่อยมาเติมทีหลัง
+                    </p>
                   </div>
+
                   <div>
-                    <label className="font-medium text-slate-700">ศูนย์บริการ</label>
-                    <select
-                      value={newRmaForm.vendor}
-                      onChange={(e) =>
-                        setNewRmaForm((prev) => ({ ...prev, vendor: e.target.value }))
-                      }
-                      className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 focus:outline-none"
-                    >
-                      <option value="Hytera">Hytera</option>
-                      <option value="Huawei">Huawei</option>
-                    </select>
+                    <label className="block font-medium text-slate-700 mb-1">
+                      สถานะใบ <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={newRmaForm.status}
+                        onChange={(e) =>
+                          setNewRmaForm((prev) => ({ ...prev, status: e.target.value }))
+                        }
+                        className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                        required
+                      >
+                        <option value="in_progress">กำลังดำเนินการ</option>
+                        <option value="pending">รอดำเนินการ</option>
+                        <option value="shipped">จัดส่งแล้ว</option>
+                        <option value="returned">ของกลับถึงแล้ว</option>
+                        <option value="completed">เสร็จสิ้น</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+                    </div>
                   </div>
                 </div>
 
+                {/* Row 2: อุปกรณ์ที่ส่งไปซ่อม */}
                 <div>
-                  <label className="font-medium text-slate-700">รุ่นอุปกรณ์</label>
-                  <Input
-                    placeholder="เช่น DIB-R5 outdoor"
-                    value={newRmaForm.model}
+                  <label className="block font-medium text-slate-700 mb-1">อุปกรณ์ที่ส่งไปซ่อม</label>
+                  <div className="relative">
+                    <select
+                      value={newRmaForm.selectedAssetSerial}
+                      onChange={(e) => handleEquipmentChange(e.target.value)}
+                      className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="">เลือกอุปกรณ์จากทะเบียน</option>
+                      {equipmentOptions.map((asset) => (
+                        <option key={asset.serial} value={asset.serial}>
+                          {asset.serial} — {asset.name || asset.model} ({asset.vendor})
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    ถ้าผูกกับเคสอยู่แล้ว เว้นว่างได้ ระบบจะดึงอุปกรณ์จากเคสมาให้เอง
+                  </p>
+                </div>
+
+                {/* Row 3: ผูกกับเคสแจ้งเคลม */}
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">ผูกกับเคสแจ้งเคลม</label>
+                  <div className="relative">
+                    <select
+                      value={newRmaForm.linkedCaseId}
+                      onChange={(e) => handleCaseChange(e.target.value)}
+                      className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="">ไม่ผูกกับเคส</option>
+                      {AVAILABLE_CASES.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.caseNo}: {c.title} — {c.model} (S/N: {c.serialNo})
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    ไม่บังคับ — เลือกได้เฉพาะเคสที่ยังไม่จบงานและยังไม่มีใบส่งซ่อม
+                  </p>
+                </div>
+
+                {/* Row 4: ศูนย์บริการ / ผู้รับเคลม & ปลายทาง */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">ศูนย์บริการ / ผู้รับเคลม</label>
+                    <div className="relative">
+                      <select
+                        value={newRmaForm.serviceCenter}
+                        onChange={(e) =>
+                          setNewRmaForm((prev) => ({ ...prev, serviceCenter: e.target.value }))
+                        }
+                        className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                      >
+                        <option value="">เลือกศูนย์บริการ</option>
+                        <option value="Hytera">Hytera</option>
+                        <option value="Huawei">Huawei</option>
+                        <option value="Forth">Forth</option>
+                        <option value="อื่นๆ">อื่นๆ</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-700 mb-1">ปลายทาง</label>
+                    <Input
+                      placeholder="เช่น Hytera Hongkong"
+                      value={newRmaForm.destination}
+                      onChange={(e) =>
+                        setNewRmaForm((prev) => ({ ...prev, destination: e.target.value }))
+                      }
+                      className="h-9 text-xs rounded-lg border-slate-200 focus-visible:ring-1 focus-visible:ring-blue-500"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      เช่น Hytera Hongkong
+                    </p>
+                  </div>
+                </div>
+
+                {/* Row 5: วันที่เปิดใบ * */}
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">
+                    วันที่เปิดใบ <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative w-full sm:max-w-xs">
+                    <Input
+                      type="text"
+                      required
+                      value={newRmaForm.openDate}
+                      onChange={(e) =>
+                        setNewRmaForm((prev) => ({ ...prev, openDate: e.target.value }))
+                      }
+                      className="h-9 pr-9 text-xs font-mono rounded-lg border-slate-200 focus-visible:ring-1 focus-visible:ring-blue-500"
+                    />
+                    <Calendar className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
+                  </div>
+                </div>
+
+                {/* Row 6: หมายเหตุ */}
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">หมายเหตุ</label>
+                  <textarea
+                    rows={3}
+                    placeholder="เช่น รอเอกสารอนุมัติจาก กสทช. ก่อนส่งออก"
+                    value={newRmaForm.remarks}
                     onChange={(e) =>
-                      setNewRmaForm((prev) => ({ ...prev, model: e.target.value }))
+                      setNewRmaForm((prev) => ({ ...prev, remarks: e.target.value }))
                     }
-                    className="mt-1 h-9 text-xs"
+                    className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none resize-none"
                   />
                 </div>
 
-                <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
+                {/* Footer Actions */}
+                <div className="mt-6 flex justify-end gap-2.5 pt-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setNewRmaModalOpen(false)}
-                    className="text-xs"
+                    className="h-9 px-4 text-xs font-medium text-slate-700 border-slate-200 bg-white hover:bg-slate-50 rounded-lg cursor-pointer"
                   >
                     ยกเลิก
                   </Button>
                   <Button
                     type="submit"
                     size="sm"
-                    className="gap-1.5 bg-[#0c1a30] text-white hover:bg-[#1e293b] text-xs"
+                    className="h-9 px-4 bg-[#0c1a30] text-white hover:bg-[#1e293b] text-xs font-medium rounded-lg shadow-xs cursor-pointer"
                   >
-                    <Check className="size-3.5" />
-                    <span>สร้างใบส่งซ่อม</span>
+                    เปิดใบส่งซ่อม
                   </Button>
                 </div>
               </form>
