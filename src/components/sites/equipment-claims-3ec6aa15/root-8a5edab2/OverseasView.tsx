@@ -17,11 +17,13 @@ import {
   Clock,
   ChevronDown,
   ChevronLeft,
-  AlertCircle
+  AlertCircle,
+  RotateCcw
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ASSETS } from "./assetsData"
+import { getDeletedRmaIds, deleteRmaApi } from "@/lib/storage/recordStorage"
 
 interface ClaimCaseOption {
   id: string
@@ -150,6 +152,31 @@ const INITIAL_RMA_ITEMS: RmaItem[] = [
 export function OverseasView() {
   const [rmaList, setRmaList] = React.useState<RmaItem[]>(INITIAL_RMA_ITEMS)
 
+  // Empty Table State flag on filter reset
+  const [isTableCleared, setIsTableCleared] = React.useState(false)
+
+  // Deletion Confirmation & Feedback States
+  const [itemToDelete, setItemToDelete] = React.useState<RmaItem | null>(null)
+  const [isDeleting, setIsDeleting] = React.useState(false)
+
+  // Success Alert Toast
+  const [toastMessage, setToastMessage] = React.useState<string | null>(null)
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg)
+    setTimeout(() => setToastMessage(null), 3500)
+  }
+
+  // Sync deleted RMA records from persistence storage on mount
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      const deletedIds = getDeletedRmaIds()
+      if (deletedIds.length > 0) {
+        setRmaList((prev) => prev.filter((item) => !deletedIds.includes(item.id)))
+      }
+    }
+  }, [])
+
   // Filters
   const [searchQuery, setSearchQuery] = React.useState("")
   const [stageFilter, setStageFilter] = React.useState("all")
@@ -237,15 +264,10 @@ export function OverseasView() {
   // Edit RMA state
   const [editingItem, setEditingItem] = React.useState<RmaItem | null>(null)
 
-  // Success Alert Toast
-  const [toastMessage, setToastMessage] = React.useState<string | null>(null)
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg)
-    setTimeout(() => setToastMessage(null), 3000)
-  }
-
   const handleSearch = React.useCallback(() => {
+    // Re-enable table rendering upon manual search trigger
+    setIsTableCleared(false)
+
     setAppliedFilters({
       query: searchQuery.trim(),
       stage: stageFilter,
@@ -255,7 +277,60 @@ export function OverseasView() {
     })
   }, [searchQuery, stageFilter, statusFilter, vendorFilter, onlyOverduePenalty])
 
+  const handleResetFilters = React.useCallback(() => {
+    // 1. Reset all inputs to default empty/placeholder states
+    setSearchQuery("")
+    setStageFilter("all")
+    setStatusFilter("all")
+    setVendorFilter("all")
+    setOnlyOverduePenalty(false)
+
+    // 2. Empty Table State: Clear all rendered records until manually searched
+    setIsTableCleared(true)
+
+    setAppliedFilters({
+      query: "",
+      stage: "all",
+      status: "all",
+      vendor: "all",
+      onlyOverdue: false,
+    })
+  }, [])
+
+  // Permanent Record Deletion Handlers
+  const confirmDeleteItem = React.useCallback((item: RmaItem) => {
+    setItemToDelete(item)
+  }, [])
+
+  const executeDeleteItem = React.useCallback(async () => {
+    if (!itemToDelete) return
+    const targetId = itemToDelete.id
+    const targetRmaNo = itemToDelete.rmaNo
+    setIsDeleting(true)
+
+    try {
+      // 1. Immediate UI update
+      setRmaList((prev) => prev.filter((item) => item.id !== targetId))
+
+      // 2. Permanent persistence via localStorage & backend DELETE API request
+      const res = await deleteRmaApi(targetId)
+
+      showToast(res.message || `ลบใบส่งซ่อม "${targetRmaNo}" ถาวรเรียบร้อยแล้ว`)
+    } catch (err) {
+      console.error("Failed to delete RMA record", err)
+      showToast("เกิดข้อผิดพลาดในการลบใบส่งซ่อม")
+    } finally {
+      setIsDeleting(false)
+      setItemToDelete(null)
+    }
+  }, [itemToDelete])
+
   const filteredItems = React.useMemo(() => {
+    // Empty Table State: When filters are cleared, completely clear all rendered records
+    if (isTableCleared) {
+      return []
+    }
+
     return rmaList.filter((item) => {
       if (appliedFilters.query) {
         const q = appliedFilters.query.toLowerCase()
@@ -265,6 +340,9 @@ export function OverseasView() {
           item.serialNo.toLowerCase().includes(q) ||
           item.vendor.toLowerCase().includes(q)
         if (!match) return false
+      }
+      if (appliedFilters.stage !== "all" && String(item.currentStageNumber) !== appliedFilters.stage) {
+        return false
       }
       if (appliedFilters.status !== "all" && item.statusBadge !== appliedFilters.status) {
         return false
@@ -277,14 +355,7 @@ export function OverseasView() {
       }
       return true
     })
-  }, [rmaList, appliedFilters])
-
-  const handleDeleteItem = (id: string) => {
-    if (confirm("คุณแน่ใจว่าต้องการลบใบส่งซ่อมนี้ใช่หรือไม่?")) {
-      setRmaList((prev) => prev.filter((item) => item.id !== id))
-      showToast("ลบใบส่งซ่อมเรียบร้อยแล้ว")
-    }
-  }
+  }, [rmaList, appliedFilters, isTableCleared])
 
   const handleCreateRma = (e: React.FormEvent) => {
     e.preventDefault()
@@ -539,8 +610,16 @@ export function OverseasView() {
             </div>
           </div>
 
-          {/* Search Button */}
-          <div className="mt-4 flex justify-end">
+          {/* Filter Action Buttons */}
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 cursor-pointer"
+            >
+              <RotateCcw className="size-3.5 text-slate-500" />
+              <span>ล้างตัวกรอง</span>
+            </button>
             <button
               type="button"
               onClick={handleSearch}
@@ -570,152 +649,191 @@ export function OverseasView() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredItems.map((item) => {
-                  const isOverdue = item.isOverduePenalty
-
-                  return (
-                    <tr
-                      key={item.id}
-                      className={`transition-colors ${
-                        isOverdue
-                          ? "bg-[#fff5f5] hover:bg-[#ffebeb]"
-                          : "hover:bg-slate-50/70"
-                      }`}
-                    >
-                      {/* ใบ RMA / เคส */}
-                      <td className="px-5 py-3.5">
-                        <p className="font-bold text-slate-800 text-xs">
-                          {item.rmaNo}
-                        </p>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          {item.caseName}
-                        </p>
-                      </td>
-
-                      {/* อุปกรณ์ */}
-                      <td className="px-4 py-3.5">
-                        <p className="font-mono text-xs text-slate-800">
-                          {item.serialNo}
-                        </p>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          {item.vendor} / {item.model}
-                        </p>
-                      </td>
-
-                      {/* ขั้นตอนปัจจุบัน (Segmented Progress Bars) */}
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-1">
-                          {Array.from({ length: item.totalStages }).map((_, idx) => {
-                            const step = idx + 1
-                            let color = "bg-slate-200"
-                            if (step < item.currentStageNumber) {
-                              color = "bg-emerald-500"
-                            } else if (step === item.currentStageNumber) {
-                              color =
-                                item.currentStageNumber === item.totalStages
-                                  ? "bg-emerald-500"
-                                  : "bg-blue-600"
-                            }
-                            return (
-                              <span
-                                key={idx}
-                                className={`h-1.5 w-3.5 rounded-full ${color}`}
-                              />
-                            )
-                          })}
-                          <span className="ml-1.5 text-[11px] text-slate-400 font-medium">
-                            {item.currentStageNumber === 8 ? "8/8" : "5/8"}
-                          </span>
-                        </div>
-                        <div className="mt-1.5">
-                          <p className="font-semibold text-slate-800 text-xs">
-                            {item.currentStageName}
-                          </p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            {item.stageWaitDays}
-                          </p>
-                        </div>
-                      </td>
-
-                      {/* เปิดใบ */}
-                      <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap">
-                        {item.openDate}
-                      </td>
-
-                      {/* รวม (Elapsed Days & Status Badge) */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        <p className="text-slate-700 text-xs font-medium">
-                          {item.totalDays}
-                        </p>
-                        {item.statusBadge === "in_progress" ? (
-                          <span className="mt-1 inline-block rounded-full border border-blue-200/60 bg-[#eff6ff] px-2 py-0.5 text-[10px] font-medium text-[#2563eb]">
-                            {item.statusBadgeText}
-                          </span>
-                        ) : (
-                          <span className="mt-1 inline-block rounded-full border border-emerald-200/60 bg-[#ecfdf5] px-2 py-0.5 text-[10px] font-medium text-[#059669]">
-                            {item.statusBadgeText}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* บทปรับผู้ขาย */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        {isOverdue ? (
+                {filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-14 text-center">
+                      {isTableCleared ? (
+                        <div className="flex flex-col items-center justify-center gap-2.5">
+                          <div className="flex size-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                            <RotateCcw className="size-5.5 text-slate-500" />
+                          </div>
                           <div>
-                            <p className="font-bold text-[#dc2626] text-xs">
-                              {item.penaltyDays}
+                            <p className="text-sm font-semibold text-slate-800">
+                              ล้างตัวกรองแล้ว — ไม่มีรายการแสดงผล
                             </p>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              {item.penaltyStandard}
+                            <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                              ระบบได้ล้างรายการข้อมูลออกจากตารางแล้ว กรุณาเลือกเงื่อนไขที่ต้องการหรือกดปุ่ม &quot;ค้นหา&quot; เพื่อแสดงรายการ RMA
                             </p>
                           </div>
-                        ) : (
-                          <div>
-                            <p className="text-slate-700 text-xs font-medium">
-                              {item.penaltyDays}
+                          <button
+                            type="button"
+                            onClick={handleSearch}
+                            className="mt-2 inline-flex h-8.5 items-center gap-1.5 rounded-lg bg-[#0c1a30] px-4 text-xs font-medium text-white shadow-xs hover:bg-[#1e293b] cursor-pointer transition-colors"
+                          >
+                            <Search className="size-3.5" />
+                            <span>ค้นหาข้อมูล</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center gap-1.5 py-6">
+                          <p className="text-sm font-medium text-slate-600">
+                            ไม่พบรายการส่งซ่อมต่างประเทศที่ตรงกับเงื่อนไข
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            ลองปรับเปลี่ยนเงื่อนไขการค้นหาใหม่
+                          </p>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredItems.map((item) => {
+                    const isOverdue = item.isOverduePenalty
+
+                    return (
+                      <tr
+                        key={item.id}
+                        className={`transition-colors ${
+                          isOverdue
+                            ? "bg-[#fff5f5] hover:bg-[#ffebeb]"
+                            : "hover:bg-slate-50/70"
+                        }`}
+                      >
+                        {/* ใบ RMA / เคส */}
+                        <td className="px-5 py-3.5">
+                          <p className="font-bold text-slate-800 text-xs">
+                            {item.rmaNo}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {item.caseName}
+                          </p>
+                        </td>
+
+                        {/* อุปกรณ์ */}
+                        <td className="px-4 py-3.5">
+                          <p className="font-mono text-xs text-slate-800">
+                            {item.serialNo}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {item.vendor} / {item.model}
+                          </p>
+                        </td>
+
+                        {/* ขั้นตอนปัจจุบัน (Segmented Progress Bars) */}
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: item.totalStages }).map((_, idx) => {
+                              const step = idx + 1
+                              let color = "bg-slate-200"
+                              if (step < item.currentStageNumber) {
+                                color = "bg-emerald-500"
+                              } else if (step === item.currentStageNumber) {
+                                color =
+                                  item.currentStageNumber === item.totalStages
+                                    ? "bg-emerald-500"
+                                    : "bg-blue-600"
+                              }
+                              return (
+                                <span
+                                  key={idx}
+                                  className={`h-1.5 w-3.5 rounded-full ${color}`}
+                                />
+                              )
+                            })}
+                            <span className="ml-1.5 text-[11px] text-slate-400 font-medium">
+                              {item.currentStageNumber === 8 ? "8/8" : "5/8"}
+                            </span>
+                          </div>
+                          <div className="mt-1.5">
+                            <p className="font-semibold text-slate-800 text-xs">
+                              {item.currentStageName}
                             </p>
                             <p className="text-[11px] text-slate-400 mt-0.5">
-                              {item.penaltyStandard}
+                              {item.stageWaitDays}
                             </p>
                           </div>
-                        )}
-                      </td>
+                        </td>
 
-                      {/* Action Links */}
-                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setTimelineItem(item)}
-                            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer transition-colors"
-                            title="ดูไทม์ไลน์กระบวนการ"
-                            aria-label="ดูไทม์ไลน์"
-                          >
-                            <History className="size-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingItem({ ...item })}
-                            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600 cursor-pointer transition-colors"
-                            title="แก้ไข"
-                            aria-label="แก้ไข"
-                          >
-                            <Pencil className="size-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteItem(item.id)}
-                            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600 cursor-pointer transition-colors"
-                            title="ลบ"
-                            aria-label="ลบ"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
+                        {/* เปิดใบ */}
+                        <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap">
+                          {item.openDate}
+                        </td>
+
+                        {/* รวม (Elapsed Days & Status Badge) */}
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <p className="text-slate-700 text-xs font-medium">
+                            {item.totalDays}
+                          </p>
+                          {item.statusBadge === "in_progress" ? (
+                            <span className="mt-1 inline-block rounded-full border border-blue-200/60 bg-[#eff6ff] px-2 py-0.5 text-[10px] font-medium text-[#2563eb]">
+                              {item.statusBadgeText}
+                            </span>
+                          ) : (
+                            <span className="mt-1 inline-block rounded-full border border-emerald-200/60 bg-[#ecfdf5] px-2 py-0.5 text-[10px] font-medium text-[#059669]">
+                              {item.statusBadgeText}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* บทปรับผู้ขาย */}
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          {isOverdue ? (
+                            <div>
+                              <p className="font-bold text-[#dc2626] text-xs">
+                                {item.penaltyDays}
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {item.penaltyStandard}
+                              </p>
+                            </div>
+                          ) : (
+                            <div>
+                              <p className="text-slate-700 text-xs font-medium">
+                                {item.penaltyDays}
+                              </p>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                {item.penaltyStandard}
+                              </p>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Action Links */}
+                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setTimelineItem(item)}
+                              className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer transition-colors"
+                              title="ดูไทม์ไลน์กระบวนการ"
+                              aria-label="ดูไทม์ไลน์"
+                            >
+                              <History className="size-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingItem({ ...item })}
+                              className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600 cursor-pointer transition-colors"
+                              title="แก้ไข"
+                              aria-label="แก้ไข"
+                            >
+                              <Pencil className="size-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => confirmDeleteItem(item)}
+                              className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600 cursor-pointer transition-colors"
+                              title="ลบใบส่งซ่อมนี้ถาวร"
+                              aria-label="ลบ"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -1293,6 +1411,58 @@ export function OverseasView() {
                   </Button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Permanent RMA Deletion Confirmation Modal */}
+        {itemToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
+              onClick={() => !isDeleting && setItemToDelete(null)}
+            />
+            <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl transition-all z-10 animate-in fade-in zoom-in-95">
+              <div className="flex items-start gap-3.5">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600">
+                  <Trash2 className="size-5 text-red-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-base font-bold text-slate-900">
+                    ยืนยันการลบใบส่งซ่อมต่างประเทศถาวร
+                  </h3>
+                  <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">
+                    คุณต้องการลบใบ RMA{" "}
+                    <strong className="text-slate-800 font-semibold">
+                      &quot;{itemToDelete.rmaNo}&quot;
+                    </strong>{" "}
+                    ({itemToDelete.vendor} {itemToDelete.model} S/N: {itemToDelete.serialNo}) ใช่หรือไม่?
+                  </p>
+                  <div className="mt-3 rounded-lg border border-red-150 bg-red-50/70 p-2.5 text-[11px] text-red-700 leading-relaxed">
+                    <span className="font-semibold">ข้อควรระวัง:</span> คำขอนี้จะลบรายการออกจากฐานข้อมูลอย่างถาวร ข้อมูลจะไม่สามารถเรียกคืนได้แม้จะรีเฟรชหน้าเว็บ
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setItemToDelete(null)}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={executeDeleteItem}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 text-xs font-medium text-white shadow-xs transition-colors hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+                >
+                  <Trash2 className="size-3.5" />
+                  <span>{isDeleting ? "กำลังลบ..." : "ยืนยันลบถาวร"}</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

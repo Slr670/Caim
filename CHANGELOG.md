@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-24
+
+### Added
+- **Permanent Record Deletion & Full Persistence Architecture**:
+  - Implemented `/api/tickets` and `/api/rma` backend route handlers for HTTP `DELETE` requests.
+  - Added `recordStorage` utility to persist deleted ticket and RMA IDs across page reloads via `localStorage` synchronization.
+  - Added dedicated custom confirmation modal dialogs with risk warnings before executing deletions.
+  - Integrated real-time UI feedback toasts notifying users upon successful database and local deletion.
+  - Added row deletion trigger (`ลบ` action button with `Trash2` icon) to the Claim List module.
+
+### Fixed
+- **Filter Reset & Empty Table State Behavior**:
+  - Fixed 'ล้างตัวกรอง' (Clear Filter) in both Claim List (`TicketsView`) and RMA (`OverseasView`) modules to reset all input fields and dropdowns back to their default empty states.
+  - Implemented an **Empty Table State** upon clearing filters — clearing all rendered rows completely without reloading or displaying the default list until the user manually clicks 'ค้นหา' (Search).
+  - Added clean empty table state placeholders with search call-to-action buttons.
+
 ## [0.16.0] - 2026-09-24
 
 ### Added
