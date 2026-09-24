@@ -21,7 +21,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { STATIONS } from "./stationsData"
-import { getDeletedTicketIds, deleteTicketApi } from "@/lib/storage/recordStorage"
+import { getDeletedTicketIds, deleteTicketApi, getCustomTickets } from "@/lib/storage/recordStorage"
 
 export interface Ticket {
   id: string
@@ -178,13 +178,38 @@ export function TicketsView() {
     setTimeout(() => setToastMessage(null), 3500)
   }, [])
 
-  // Sync deleted tickets from persistence storage on mount
+  // Sync tickets from local storage and backend API on mount
   React.useEffect(() => {
     if (typeof window !== "undefined") {
       const deletedIds = getDeletedTicketIds()
-      if (deletedIds.length > 0) {
-        setTickets((prev) => prev.filter((t) => !deletedIds.includes(t.id)))
-      }
+      const customTickets = getCustomTickets()
+
+      // 1. Initial local sync with custom tickets created by user
+      setTickets((prev) => {
+        const combined = [
+          ...customTickets,
+          ...prev.filter((p) => !customTickets.some((c) => c.id === p.id)),
+        ]
+        return combined.filter((t) => !deletedIds.includes(t.id))
+      })
+
+      // 2. Fetch latest records from backend API / MongoDB Atlas
+      fetch("/api/tickets")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.success && Array.isArray(data.tickets) && data.tickets.length > 0) {
+            setTickets((prev) => {
+              const apiTickets: Ticket[] = data.tickets
+              const merged = [
+                ...apiTickets,
+                ...prev.filter((p) => !apiTickets.some((a) => a.id === p.id)),
+              ]
+              const allDeleted = [...new Set([...deletedIds, ...(data.deletedIds || [])])]
+              return merged.filter((t) => !allDeleted.includes(t.id))
+            })
+          }
+        })
+        .catch((err) => console.warn("Could not sync tickets from backend API:", err))
     }
   }, [])
 

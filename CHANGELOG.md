@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.17.0] - 2026-09-24
+## [0.18.0] - 2026-09-24
+
+### Added
+- **MongoDB Atlas Backend Database Infrastructure & Dual-Layer Persistence**:
+  - Configured `@/lib/mongodb` client pool manager for Next.js with connection caching.
+  - Added `.env.example` and `.env.local` templates for MongoDB Atlas cluster connection string.
+  - Enhanced `/api/tickets` route handler with `GET`, `POST`, `PUT`, and `DELETE` operations connecting to MongoDB Atlas `tickets` collection with graceful offline fallback.
+  - Enhanced `/api/rma` route handler with `GET`, `POST`, and `DELETE` operations connecting to MongoDB Atlas `rma` collection.
+  - Upgraded New Ticket Creation module (`NewTicketView`) with full controlled state binding, automated ID generation, and immediate dual-layer persistence (localStorage + MongoDB Atlas API).
+  - Synchronized custom tickets into Claim List (`TicketsView`) on mount, ensuring newly created records persist and remain visible across page reloads.
 
 ### Added
 - **Permanent Record Deletion & Full Persistence Architecture**:

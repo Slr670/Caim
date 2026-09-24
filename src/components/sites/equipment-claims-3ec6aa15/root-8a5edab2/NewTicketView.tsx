@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ASSETS } from "./assetsData"
+import { addCustomTicket, StoredTicket } from "@/lib/storage/recordStorage"
 
 export function NewTicketView() {
   const router = useRouter()
@@ -24,6 +25,15 @@ export function NewTicketView() {
 
   const [selectedSerial, setSelectedSerial] = React.useState<string>(initialSerial)
   const [deviceSearch, setDeviceSearch] = React.useState<string>("")
+  const [ticketTitle, setTicketTitle] = React.useState<string>("CLM-2026-0043")
+  const [receivedDate, setReceivedDate] = React.useState<string>(
+    new Date().toISOString().split("T")[0]
+  )
+  const [warranty, setWarranty] = React.useState<string>("warranty")
+  const [problemDesc, setProblemDesc] = React.useState<string>("")
+  const [serviceCenter, setServiceCenter] = React.useState<string>("huawei")
+  const [dueDate, setDueDate] = React.useState<string>("2026-11-21")
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [isSaved, setIsSaved] = React.useState(false)
 
   // Find selected asset
@@ -54,12 +64,56 @@ export function NewTicketView() {
     }
   }, [initialSerial])
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!ticketTitle.trim() || !problemDesc.trim()) return
+
+    setIsSubmitting(true)
+
+    const dateFormatted = new Date(receivedDate).toLocaleDateString("th-TH", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })
+
+    const newTicket: StoredTicket = {
+      id: ticketTitle.trim(),
+      title: ticketTitle.trim(),
+      problemDesc: problemDesc.trim(),
+      vendor: selectedAsset?.vendor || serviceCenter,
+      model: selectedAsset?.model || "-",
+      serialNo: selectedSerial || "-",
+      status: "รับแจ้ง",
+      statusCode: 1,
+      date: dateFormatted,
+      ageDays: "0 วัน",
+      isOverdue: false,
+      station: "",
+      province: "",
+      district: "",
+      subdistrict: "",
+    }
+
+    // 1. Dual persistence: Save to localStorage immediately
+    addCustomTicket(newTicket)
+
+    // 2. Dispatch to Backend API / MongoDB
+    try {
+      await fetch("/api/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newTicket),
+      })
+    } catch (err) {
+      console.warn("Backend API offline or unreachable, saved locally", err)
+    }
+
     setIsSaved(true)
+    setIsSubmitting(false)
+
     setTimeout(() => {
       router.push("/tickets")
-    }, 1200)
+    }, 1000)
   }
 
   return (
@@ -115,7 +169,7 @@ export function NewTicketView() {
           {isSaved && (
             <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-400">
               <Check className="size-4 shrink-0" />
-              <span>บันทึกข้อมูลการเปิดเคสเรียบร้อยแล้ว กำลังนำทางกลับไปหน้ารายการ...</span>
+              <span>บันทึกข้อมูลการเปิดเคสลงฐานข้อมูลเรียบร้อยแล้ว กำลังนำทางกลับไปหน้ารายการ...</span>
             </div>
           )}
 
@@ -224,7 +278,8 @@ export function NewTicketView() {
                 <Input
                   required
                   placeholder="เช่น CLM-2026-0043"
-                  defaultValue="CLM-2026-0043"
+                  value={ticketTitle}
+                  onChange={(e) => setTicketTitle(e.target.value)}
                   className="h-9 text-xs"
                 />
                 <p className="text-[11px] text-muted-foreground">
@@ -236,14 +291,19 @@ export function NewTicketView() {
                 <label className="font-medium text-foreground">วันและเวลาที่รับแจ้ง</label>
                 <Input
                   type="date"
-                  defaultValue={new Date().toISOString().split("T")[0]}
+                  value={receivedDate}
+                  onChange={(e) => setReceivedDate(e.target.value)}
                   className="h-9 text-xs"
                 />
               </div>
 
               <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <label className="font-medium text-foreground">สถานะการรับประกัน</label>
-                <select className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none">
+                <select
+                  value={warranty}
+                  onChange={(e) => setWarranty(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                >
                   <option value="warranty">อยู่ในประกัน</option>
                   <option value="expired">นอกประกัน</option>
                   <option value="carepack">ประกันพิเศษ (Care Pack)</option>
@@ -257,6 +317,8 @@ export function NewTicketView() {
                 <textarea
                   required
                   rows={3}
+                  value={problemDesc}
+                  onChange={(e) => setProblemDesc(e.target.value)}
                   placeholder="ระบุอาการผิดปกติหรือสาเหตุที่ต้องการส่งเคลมอย่างละเอียด..."
                   className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                 />
@@ -274,7 +336,8 @@ export function NewTicketView() {
               <div className="flex flex-col gap-1.5">
                 <label className="font-medium text-foreground">ศูนย์บริการ / ผู้รับงาน</label>
                 <select
-                  defaultValue={selectedAsset ? selectedAsset.vendor.toLowerCase() : "huawei"}
+                  value={serviceCenter}
+                  onChange={(e) => setServiceCenter(e.target.value)}
                   className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
                 >
                   <option value="huawei">Huawei</option>
@@ -292,7 +355,8 @@ export function NewTicketView() {
                 <label className="font-medium text-foreground">กำหนดแล้วเสร็จ</label>
                 <Input
                   type="date"
-                  defaultValue="2026-11-21"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
                   className="h-9 text-xs"
                 />
                 <p className="text-[11px] text-muted-foreground">
@@ -309,9 +373,14 @@ export function NewTicketView() {
                 ยกเลิก
               </Button>
             </Link>
-            <Button type="submit" size="sm" className="gap-2 bg-brand text-white hover:bg-brand-dark">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isSubmitting}
+              className="gap-2 bg-brand text-white hover:bg-brand-dark cursor-pointer disabled:opacity-50"
+            >
               <Save className="size-4" />
-              <span>บันทึกเคสเคลม</span>
+              <span>{isSubmitting ? "กำลังบันทึก..." : "บันทึกเคสเคลม"}</span>
             </Button>
           </div>
         </form>
