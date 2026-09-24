@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
+import { dashboardEmitter, DASHBOARD_EVENTS } from "@/lib/events/dashboardEmitter"
 
 // Runtime fallback storage for created & deleted tickets when DB is connecting/offline
 interface TicketDocument {
@@ -113,6 +114,9 @@ export async function POST(request: NextRequest) {
     // Also cache in fallback store
     fallbackTickets.unshift(newTicket)
 
+    // Broadcast instant update to all connected dashboard SSE subscribers
+    dashboardEmitter.emit(DASHBOARD_EVENTS.TICKETS_CHANGED, { action: "create", ticket: newTicket })
+
     return NextResponse.json({
       success: true,
       ticket: newTicket,
@@ -148,6 +152,8 @@ export async function PUT(request: NextRequest) {
     if (idx !== -1) {
       fallbackTickets[idx] = { ...fallbackTickets[idx], ...updates }
     }
+
+    dashboardEmitter.emit(DASHBOARD_EVENTS.TICKETS_CHANGED, { action: "update", id, updates })
 
     return NextResponse.json({
       success: true,
@@ -189,6 +195,8 @@ export async function DELETE(request: NextRequest) {
     if (idx !== -1) {
       fallbackTickets.splice(idx, 1)
     }
+
+    dashboardEmitter.emit(DASHBOARD_EVENTS.TICKETS_CHANGED, { action: "delete", id })
 
     return NextResponse.json({
       success: true,

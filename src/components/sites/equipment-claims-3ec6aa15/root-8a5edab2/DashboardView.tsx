@@ -13,70 +13,125 @@ import {
   AlarmClock,
   CalendarCheck2,
   Timer,
-  TrendingDown
+  TrendingDown,
+  TrendingUp,
+  RefreshCw,
+  Activity
 } from "lucide-react"
+import { useRealtimeDashboard } from "@/hooks/useRealtimeDashboard"
 
 export function DashboardView() {
+  const { metrics, connectionStatus, lastSyncTime, isRefreshing, refresh } =
+    useRealtimeDashboard()
+
+  const formattedSyncTime = React.useMemo(() => {
+    if (!lastSyncTime) return "กำลังเชื่อมต่อ..."
+    return lastSyncTime.toLocaleTimeString("th-TH", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+  }, [lastSyncTime])
+
   return (
     <main id="main" className="flex-1 bg-slate-50/50 py-6">
       <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
         {/* =========================================================================
-            1. DASHBOARD HEADER & BREADCRUMB (image_3.png)
+            1. DASHBOARD HEADER & BREADCRUMB + REAL-TIME STATUS BAR
            ========================================================================= */}
-        <div className="flex flex-col gap-3">
-          {/* Breadcrumb */}
-          <nav aria-label="breadcrumb">
-            <ol className="flex items-center gap-1.5 text-xs text-slate-500">
-              <li className="inline-flex items-center">
-                <Link
-                  href="/dashboard"
-                  aria-label="หน้าแรก"
-                  className="transition-colors hover:text-slate-900"
-                >
-                  <House className="size-3.5 text-slate-500" />
-                </Link>
-              </li>
-              <li className="flex items-center text-slate-400">
-                <ChevronRight className="size-3" />
-              </li>
-              <li className="inline-flex items-center">
-                <span className="font-normal text-slate-700">แดชบอร์ด</span>
-              </li>
-            </ol>
-          </nav>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-3">
+            {/* Breadcrumb */}
+            <nav aria-label="breadcrumb">
+              <ol className="flex items-center gap-1.5 text-xs text-slate-500">
+                <li className="inline-flex items-center">
+                  <Link
+                    href="/dashboard"
+                    aria-label="หน้าแรก"
+                    className="transition-colors hover:text-slate-900"
+                  >
+                    <House className="size-3.5 text-slate-500" />
+                  </Link>
+                </li>
+                <li className="flex items-center text-slate-400">
+                  <ChevronRight className="size-3" />
+                </li>
+                <li className="inline-flex items-center">
+                  <span className="font-normal text-slate-700">แดชบอร์ด</span>
+                </li>
+              </ol>
+            </nav>
 
-          {/* Title & Icon */}
-          <div className="flex items-center gap-3">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#0c1a30] text-white shadow-xs">
-              <svg
-                className="size-5 text-white"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-            </span>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                ภาพรวมงานเคลมอุปกรณ์
-              </h1>
-              <p className="text-xs text-slate-500 sm:text-sm">
-                สรุปสถานะการเคลมอุปกรณ์โครงข่ายวิทยุสื่อสาร
-              </p>
+            {/* Title & Icon */}
+            <div className="flex items-center gap-3">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#0c1a30] text-white shadow-xs">
+                <Activity className="size-5 text-white" />
+              </span>
+              <div>
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                  ภาพรวมงานเคลมอุปกรณ์
+                </h1>
+                <p className="text-xs text-slate-500 sm:text-sm">
+                  สรุปสถานะการเคลมอุปกรณ์โครงข่ายวิทยุสื่อสารแบบเรียลไทม์
+                </p>
+              </div>
             </div>
+          </div>
+
+          {/* Real-time Status Badge & Manual Refresh */}
+          <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-1.5 text-xs shadow-2xs">
+              <span className="relative flex size-2.5">
+                <span
+                  className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${
+                    connectionStatus === "connected"
+                      ? "bg-emerald-400"
+                      : connectionStatus === "fallback-polling"
+                      ? "bg-amber-400"
+                      : "bg-blue-400"
+                  }`}
+                />
+                <span
+                  className={`relative inline-flex size-2.5 rounded-full ${
+                    connectionStatus === "connected"
+                      ? "bg-emerald-500"
+                      : connectionStatus === "fallback-polling"
+                      ? "bg-amber-500"
+                      : "bg-blue-500"
+                  }`}
+                />
+              </span>
+              <span className="font-medium text-slate-700">
+                {connectionStatus === "connected"
+                  ? "ระบบออนไลน์ · ซิงค์สดอัตโนมัติ"
+                  : connectionStatus === "fallback-polling"
+                  ? "ระบบออนไลน์ · สำรองแบบ Polling"
+                  : "กำลังเชื่อมต่อ..."}
+              </span>
+              <span className="text-slate-300">|</span>
+              <span className="text-[11px] text-slate-400">
+                {formattedSyncTime}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => refresh()}
+              disabled={isRefreshing}
+              title="กดเพื่อดึงข้อมูลล่าสุดจากฐานข้อมูลทันที"
+              className="inline-flex size-8.5 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-2xs hover:bg-slate-50 hover:text-slate-900 active:scale-95 disabled:opacity-50 transition-all cursor-pointer"
+            >
+              <RefreshCw
+                className={`size-3.5 ${isRefreshing ? "animate-spin text-blue-600" : ""}`}
+              />
+            </button>
           </div>
         </div>
 
         {/* =========================================================================
-            2. TOP CONTAINER: SUMMARY CARDS & CORE PERFORMANCE WIDGETS (image_3.png)
+            2. TOP CONTAINER: SUMMARY CARDS & CORE PERFORMANCE WIDGETS
            ========================================================================= */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs sm:p-6">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs sm:p-6 transition-all duration-300">
           {/* 4 Summary Stat Cards */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Card 1: เคสทั้งหมด (Total) */}
@@ -86,8 +141,8 @@ export function DashboardView() {
                   <span className="flex size-9 items-center justify-center rounded-lg bg-[#2563eb] text-white shadow-2xs">
                     <ClipboardList className="size-5" />
                   </span>
-                  <span className="tabular font-semibold text-3xl text-slate-900 sm:text-4xl">
-                    5
+                  <span className="tabular font-semibold text-3xl text-slate-900 sm:text-4xl transition-all">
+                    {metrics.summary.total}
                   </span>
                 </div>
                 <div className="mt-3">
@@ -107,8 +162,8 @@ export function DashboardView() {
                   <span className="flex size-9 items-center justify-center rounded-lg bg-[#d97706] text-white shadow-2xs">
                     <Sun className="size-5" />
                   </span>
-                  <span className="tabular font-semibold text-3xl text-slate-900 sm:text-4xl">
-                    3
+                  <span className="tabular font-semibold text-3xl text-slate-900 sm:text-4xl transition-all">
+                    {metrics.summary.inProgress}
                   </span>
                 </div>
                 <div className="mt-3">
@@ -118,9 +173,14 @@ export function DashboardView() {
               </div>
               <div className="mt-4">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/80">
-                  <div className="h-full w-[60%] rounded-full bg-[#ea580c]" />
+                  <div
+                    className="h-full rounded-full bg-[#ea580c] transition-all duration-500 ease-out"
+                    style={{ width: `${metrics.summary.inProgressPct}%` }}
+                  />
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-500">60% ของเคสทั้งหมด</p>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  {metrics.summary.inProgressPct}% ของเคสทั้งหมด
+                </p>
               </div>
             </div>
 
@@ -131,8 +191,8 @@ export function DashboardView() {
                   <span className="flex size-9 items-center justify-center rounded-lg bg-[#16a34a] text-white shadow-2xs">
                     <CheckCircle2 className="size-5" />
                   </span>
-                  <span className="tabular font-semibold text-3xl text-slate-900 sm:text-4xl">
-                    1
+                  <span className="tabular font-semibold text-3xl text-slate-900 sm:text-4xl transition-all">
+                    {metrics.summary.closed}
                   </span>
                 </div>
                 <div className="mt-3">
@@ -142,9 +202,14 @@ export function DashboardView() {
               </div>
               <div className="mt-4">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/80">
-                  <div className="h-full w-[20%] rounded-full bg-[#4ade80]" />
+                  <div
+                    className="h-full rounded-full bg-[#4ade80] transition-all duration-500 ease-out"
+                    style={{ width: `${metrics.summary.closedPct}%` }}
+                  />
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-500">20% ของเคสทั้งหมด</p>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  {metrics.summary.closedPct}% ของเคสทั้งหมด
+                </p>
               </div>
             </div>
 
@@ -155,8 +220,8 @@ export function DashboardView() {
                   <span className="flex size-9 items-center justify-center rounded-lg bg-[#db2777] text-white shadow-2xs">
                     <Ban className="size-5" />
                   </span>
-                  <span className="tabular font-semibold text-3xl text-slate-900 sm:text-4xl">
-                    1
+                  <span className="tabular font-semibold text-3xl text-slate-900 sm:text-4xl transition-all">
+                    {metrics.summary.rejected}
                   </span>
                 </div>
                 <div className="mt-3">
@@ -166,9 +231,14 @@ export function DashboardView() {
               </div>
               <div className="mt-4">
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/80">
-                  <div className="h-full w-[20%] rounded-full bg-[#db2777]" />
+                  <div
+                    className="h-full rounded-full bg-[#db2777] transition-all duration-500 ease-out"
+                    style={{ width: `${metrics.summary.rejectedPct}%` }}
+                  />
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-500">20% ของเคสทั้งหมด</p>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  {metrics.summary.rejectedPct}% ของเคสทั้งหมด
+                </p>
               </div>
             </div>
           </div>
@@ -179,36 +249,40 @@ export function DashboardView() {
               ตัวชี้วัดการทำงาน
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              ความเร็วและการตรงต่อกำหนดของงานเคลม
+              ความเร็วและการตรงต่อกำหนดของงานเคลม (คำนวณสดจากข้อมูลในระบบ)
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-              ตัวเลขคิดจากข้อมูลทั้งหมดในระบบ สูตรเทียบ 30 วันล่าสุดกับ 30 วันก่อนหน้า · ตัวเลขที่เป็นภาพรวม ณ วันนี้ (อายุงานค้าง เกินกำหนด) เทียบย้อนหลังไม่ได้ เพราะระบบไม่ได้เก็บภาพรวมรายวันไว้
+              ตัวเลขคิดจากข้อมูลทั้งหมดในระบบ คำนวณค่ากลางและอายุงานสดแบบเรียลไทม์
             </p>
 
             {/* 4 Metric Columns */}
             <div className="mt-4 grid grid-cols-1 divide-y rounded-xl border border-slate-200/80 bg-white sm:grid-cols-2 sm:divide-y-0 sm:divide-x lg:grid-cols-4 divide-slate-200/80">
-              {/* Metric 1 */}
+              {/* Metric 1: อายุงานค้างกลาง */}
               <div className="p-4 sm:p-5">
                 <div className="flex items-start justify-between">
                   <div>
                     <span className="tabular text-xl font-bold text-slate-900 sm:text-2xl">
-                      13 วัน
+                      {metrics.kpi.pendingMedianDays} วัน
                     </span>
-                    <span className="ml-1 text-xs text-slate-400">n=3</span>
+                    <span className="ml-1 text-xs text-slate-400">
+                      n={metrics.kpi.pendingCount}
+                    </span>
                   </div>
                   <span className="flex size-7 items-center justify-center rounded-md bg-slate-100 text-slate-500">
                     <Hourglass className="size-4" />
                   </span>
                 </div>
                 <p className="mt-2 text-xs font-medium text-slate-700">อายุงานค้างกลาง</p>
-                <p className="mt-1 text-[11px] text-slate-400">จากงานค้าง 3 เคส · ณ วันนี้</p>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  จากงานค้าง {metrics.kpi.pendingCount} เคส · ณ วันนี้
+                </p>
               </div>
 
-              {/* Metric 2 */}
+              {/* Metric 2: เกินกำหนด */}
               <div className="p-4 sm:p-5">
                 <div className="flex items-start justify-between">
                   <span className="tabular text-xl font-bold text-[#dc2626] sm:text-2xl">
-                    1
+                    {metrics.kpi.overdueCount}
                   </span>
                   <span className="flex size-7 items-center justify-center rounded-md bg-red-50 text-[#dc2626]">
                     <AlarmClock className="size-4" />
@@ -216,15 +290,15 @@ export function DashboardView() {
                 </div>
                 <p className="mt-2 text-xs font-medium text-slate-700">เกินกำหนด</p>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  33% ของงานค้าง · ไม่รวมเคสส่งซ่อมต่างประเทศ
+                  {metrics.kpi.overduePct}% ของงานค้าง · ไม่รวมเคสส่งซ่อมต่างประเทศ
                 </p>
               </div>
 
-              {/* Metric 3 */}
+              {/* Metric 3: ปิดทันกำหนด */}
               <div className="p-4 sm:p-5">
                 <div className="flex items-start justify-between">
-                  <span className="tabular text-xl font-bold text-slate-400 sm:text-2xl">
-                    —
+                  <span className="tabular text-xl font-bold text-slate-700 sm:text-2xl">
+                    {metrics.kpi.closedCount > 0 ? metrics.kpi.closedOnTimeText : "—"}
                   </span>
                   <span className="flex size-7 items-center justify-center rounded-md bg-slate-100 text-slate-500">
                     <CalendarCheck2 className="size-4" />
@@ -232,19 +306,21 @@ export function DashboardView() {
                 </div>
                 <p className="mt-2 text-xs font-medium text-slate-700">ปิดทันกำหนด</p>
                 <div className="mt-1 text-[11px] leading-tight text-slate-400">
-                  <p>ตัวอย่างน้อยเกินกว่าจะเทียบ</p>
-                  <p>ยังไม่มีเคสในประเทศที่ปิดแล้ว</p>
+                  <p>{metrics.kpi.closedCount > 0 ? "ตรงต่อเวลา" : "ตัวอย่างน้อยเกินกว่าจะเทียบ"}</p>
+                  <p>{metrics.kpi.closedCount > 0 ? `ปิดแล้ว ${metrics.kpi.closedCount} เคส` : "ยังไม่มีเคสในประเทศที่ปิดแล้ว"}</p>
                 </div>
               </div>
 
-              {/* Metric 4 */}
+              {/* Metric 4: เวลาปิดงานกลาง */}
               <div className="p-4 sm:p-5">
                 <div className="flex items-start justify-between">
                   <div>
                     <span className="tabular text-xl font-bold text-slate-900 sm:text-2xl">
-                      19 วัน
+                      {metrics.kpi.closedCount > 0 ? `${metrics.kpi.closedMedianDays} วัน` : "—"}
                     </span>
-                    <span className="ml-1 text-xs text-slate-400">n=1</span>
+                    <span className="ml-1 text-xs text-slate-400">
+                      n={metrics.kpi.closedCount}
+                    </span>
                   </div>
                   <span className="flex size-7 items-center justify-center rounded-md bg-slate-100 text-slate-500">
                     <Timer className="size-4" />
@@ -252,8 +328,12 @@ export function DashboardView() {
                 </div>
                 <p className="mt-2 text-xs font-medium text-slate-700">เวลาปิดงานกลาง</p>
                 <div className="mt-1 text-[11px] leading-tight text-slate-400">
-                  <p>ตัวอย่างน้อยเกินกว่าจะเทียบ</p>
-                  <p>จากเคสที่ปิดแล้ว 1 เคส · รวมเคสส่งซ่อมต่างประเทศ</p>
+                  <p>{metrics.kpi.closedCount > 0 ? "เวลาเฉลี่ยจนจบกระบวนการ" : "ตัวอย่างน้อยเกินกว่าจะเทียบ"}</p>
+                  <p>
+                    {metrics.kpi.closedCount > 0
+                      ? `จากเคสที่ปิดแล้ว ${metrics.kpi.closedCount} เคส · รวมเคสส่งซ่อมต่างประเทศ`
+                      : "รอข้อมูลการปิดเคสเพิ่มเติม"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -261,102 +341,51 @@ export function DashboardView() {
         </div>
 
         {/* =========================================================================
-            3. WORK STATUS & WEEKLY OVERVIEW (image_4.png)
+            3. WORK STATUS & WEEKLY OVERVIEW
            ========================================================================= */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs sm:p-6">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs sm:p-6 transition-all duration-300">
           <div className="grid grid-cols-1 gap-6 divide-y divide-slate-200/80 lg:grid-cols-2 lg:gap-8 lg:divide-y-0 lg:divide-x">
             {/* Left Column: สถานะงาน (Work Status) */}
             <div className="lg:pr-4">
               <div>
                 <h2 className="text-sm font-bold text-slate-900 sm:text-base">สถานะงาน</h2>
-                <p className="mt-0.5 text-xs text-slate-500">ทั้งหมด 5 เคส</p>
+                <p className="mt-0.5 text-xs text-slate-500">ทั้งหมด {metrics.summary.total} เคส</p>
               </div>
 
               <div className="mt-5 flex flex-col gap-4">
-                {/* 1. รับแจ้ง/รอตรวจสภาพ */}
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="size-2 rounded-full bg-[#0d9488]" />
-                      <span className="font-medium text-slate-700">รับแจ้ง/รอตรวจสภาพ</span>
-                    </div>
-                    <span className="font-bold text-slate-900">1</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full w-[25%] rounded-full bg-[#0d9488]" />
-                  </div>
-                </div>
-
-                {/* 2. ส่งศูนย์บริการแล้ว */}
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="size-2 rounded-full bg-[#7c3aed]" />
-                      <span className="font-medium text-slate-700">ส่งศูนย์บริการแล้ว</span>
-                    </div>
-                    <span className="font-bold text-slate-900">2</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full w-[50%] rounded-full bg-[#7c3aed]" />
-                  </div>
-                </div>
-
-                {/* 3. รออะไหล่/กำลังซ่อม */}
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="size-2 rounded-full bg-[#d97706]" />
-                      <span className="font-medium text-slate-700">รออะไหล่/กำลังซ่อม</span>
-                    </div>
-                    <span className="font-bold text-slate-900">0</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100" />
-                </div>
-
-                {/* 4. ซ่อมเสร็จ/รอส่งมอบ */}
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="size-2 rounded-full bg-[#2563eb]" />
-                      <span className="font-medium text-slate-700">ซ่อมเสร็จ/รอส่งมอบ</span>
-                    </div>
-                    <span className="font-bold text-slate-900">0</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100" />
-                </div>
-
-                {/* ปิดงานแล้ว Divider */}
-                <div className="pt-2">
-                  <p className="text-[11px] font-medium text-slate-400">ปิดงานแล้ว</p>
-                </div>
-
-                {/* 5. ปิดเคส (รับคืนเรียบร้อย) */}
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="size-2 rounded-full bg-[#16a34a]" />
-                      <span className="font-medium text-slate-700">ปิดเคส (รับคืนเรียบร้อย)</span>
-                    </div>
-                    <span className="font-bold text-slate-900">1</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full w-[25%] rounded-full bg-[#16a34a]" />
-                  </div>
-                </div>
-
-                {/* 6. ปฏิเสธเคลม (นอกเงื่อนไข) */}
-                <div>
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="size-2 rounded-full bg-[#db2777]" />
-                      <span className="font-medium text-slate-700">ปฏิเสธเคลม (นอกเงื่อนไข)</span>
-                    </div>
-                    <span className="font-bold text-slate-900">1</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full w-[25%] rounded-full bg-[#db2777]" />
-                  </div>
-                </div>
+                {metrics.workStatus.map((item, idx) => {
+                  const showDivider = idx === 4
+                  return (
+                    <React.Fragment key={item.code}>
+                      {showDivider && (
+                        <div className="pt-2">
+                          <p className="text-[11px] font-medium text-slate-400">ปิดงานแล้ว</p>
+                        </div>
+                      )}
+                      <div>
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="size-2 rounded-full shrink-0"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <span className="font-medium text-slate-700">{item.name}</span>
+                          </div>
+                          <span className="font-bold text-slate-900 tabular">{item.count}</span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full transition-all duration-500 ease-out"
+                            style={{
+                              width: `${Math.max(item.pct, item.count > 0 ? 5 : 0)}%`,
+                              backgroundColor: item.color,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  )
+                })}
               </div>
             </div>
 
@@ -373,11 +402,19 @@ export function DashboardView() {
               <div className="mt-5">
                 <div className="flex items-baseline gap-2">
                   <span className="tabular text-3xl font-bold text-slate-900 sm:text-4xl">
-                    0
+                    {metrics.weekly.thisWeekCount}
                   </span>
-                  <span className="inline-flex items-center text-xs font-semibold text-rose-500">
-                    -100%
-                    <TrendingDown className="ml-1 size-3.5 stroke-[2.5]" />
+                  <span
+                    className={`inline-flex items-center text-xs font-semibold ${
+                      metrics.weekly.isPositiveTrend ? "text-emerald-600" : "text-rose-500"
+                    }`}
+                  >
+                    {metrics.weekly.trendPct >= 0 ? `+${metrics.weekly.trendPct}%` : `${metrics.weekly.trendPct}%`}
+                    {metrics.weekly.isPositiveTrend ? (
+                      <TrendingUp className="ml-1 size-3.5 stroke-[2.5]" />
+                    ) : (
+                      <TrendingDown className="ml-1 size-3.5 stroke-[2.5]" />
+                    )}
                   </span>
                 </div>
                 <div className="mt-2 text-xs leading-relaxed text-slate-500">
@@ -388,13 +425,9 @@ export function DashboardView() {
 
               {/* Compact Calendar Days Header */}
               <div className="mt-6 flex justify-end gap-5 text-xs text-slate-400 pr-2">
-                <span>พฤ.</span>
-                <span>ศ.</span>
-                <span>ส.</span>
-                <span>อา.</span>
-                <span>จ.</span>
-                <span>อ.</span>
-                <span>พ.</span>
+                {metrics.weekly.daysBreakdown.map((d, i) => (
+                  <span key={i} className="text-center w-5">{d.day}</span>
+                ))}
               </div>
 
               {/* 3 Summary Stat Boxes */}
@@ -402,17 +435,23 @@ export function DashboardView() {
                 <div className="grid grid-cols-3 gap-2 text-left">
                   <div>
                     <p className="text-xs text-slate-500">รับแจ้ง</p>
-                    <p className="mt-1 text-base font-bold text-slate-900 sm:text-lg">0</p>
+                    <p className="mt-1 text-base font-bold text-slate-900 sm:text-lg tabular">
+                      {metrics.weekly.boxReceived}
+                    </p>
                     <div className="mt-2 h-1 w-12 rounded-full bg-slate-200/80 sm:w-16" />
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">ซ่อมเสร็จ รอส่งมอบ</p>
-                    <p className="mt-1 text-base font-bold text-slate-900 sm:text-lg">0</p>
+                    <p className="mt-1 text-base font-bold text-slate-900 sm:text-lg tabular">
+                      {metrics.weekly.boxRepaired}
+                    </p>
                     <div className="mt-2 h-1 w-12 rounded-full bg-slate-200/80 sm:w-16" />
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">ปิดเคส</p>
-                    <p className="mt-1 text-base font-bold text-slate-900 sm:text-lg">0</p>
+                    <p className="mt-1 text-base font-bold text-slate-900 sm:text-lg tabular">
+                      {metrics.weekly.boxClosed}
+                    </p>
                     <div className="mt-2 h-1 w-12 rounded-full bg-slate-200/80 sm:w-16" />
                   </div>
                 </div>
@@ -422,9 +461,9 @@ export function DashboardView() {
         </div>
 
         {/* =========================================================================
-            4. PROCESS BOTTLENECKS & SERVICE CENTER METRICS (image_5.png)
+            4. PROCESS BOTTLENECKS & SERVICE CENTER METRICS
            ========================================================================= */}
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs sm:p-6">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs sm:p-6 transition-all duration-300">
           <div className="grid grid-cols-1 gap-6 divide-y divide-slate-200/80 lg:grid-cols-2 lg:gap-8 lg:divide-y-0 lg:divide-x">
             {/* Left Column: คอขวดของกระบวนการ (Process Bottlenecks) */}
             <div className="lg:pr-4">
@@ -433,111 +472,60 @@ export function DashboardView() {
                   คอขวดของกระบวนการ
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  เคสค้างอยู่ในขั้นไหนนานที่สุด
+                  เคสค้างอยู่ในขั้นไหนนานที่สุด (คำนวณสดจากข้อมูลปัจจุบัน)
                 </p>
                 <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                  ค่ากลางของจำนวนวัน นับจากเวลาที่กดเปลี่ยนสถานะในระบบ ไม่ใช่วันที่ในเอกสาร · n คือจำนวนช่วงเวลา เคสที่ย้อนกลับมาขั้นเดิมนับซ้ำ
+                  ค่ากลางของจำนวนวัน นับจากเวลาที่บันทึกเคสในระบบ · n คือจำนวนช่วงเวลา
                 </p>
               </div>
 
               <div className="mt-5 flex flex-col gap-4 text-xs">
-                {/* Stage 1: รับแจ้ง/รอตรวจสภาพ */}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-[#0d9488]" />
-                    <span className="font-semibold text-slate-800">
-                      รับแจ้ง/รอตรวจสภาพ
-                    </span>
-                  </div>
-                  <div className="mt-2 space-y-1.5 pl-4">
-                    <div className="flex items-center gap-3">
-                      <span className="w-12 text-slate-400">จบแล้ว</span>
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28">
-                        <div className="h-full w-[20%] rounded-full bg-[#5eead4]" />
-                      </div>
-                      <span className="text-slate-600">1 วัน n=4</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="w-12 text-slate-400">ค้างอยู่</span>
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28">
-                        <div className="h-full w-[60%] rounded-full bg-[#0d9488]" />
-                      </div>
-                      <span className="text-slate-600">10 วัน 1 เคส · นานสุด 10 วัน</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stage 2: ส่งศูนย์บริการแล้ว */}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-[#7c3aed]" />
-                    <span className="font-semibold text-slate-800">
-                      ส่งศูนย์บริการแล้ว
-                    </span>
-                  </div>
-                  <div className="mt-2 space-y-1.5 pl-4">
-                    <div className="flex items-center gap-3">
-                      <span className="w-12 text-slate-400">จบแล้ว</span>
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28">
-                        <div className="h-full w-[20%] rounded-full bg-[#c084fc]" />
-                      </div>
-                      <span className="text-slate-600">1 วัน n=1</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="w-12 text-slate-400">ค้างอยู่</span>
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28">
-                        <div className="h-full w-[75%] rounded-full bg-[#7c3aed]" />
-                      </div>
-                      <span className="text-slate-600">
-                        11.5 วัน 2 เคส · นานสุด 12 วัน
+                {metrics.bottlenecks.map((stage) => (
+                  <div key={stage.code}>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="size-2 rounded-full shrink-0"
+                        style={{ backgroundColor: stage.color }}
+                      />
+                      <span className="font-semibold text-slate-800">
+                        {stage.name}
                       </span>
                     </div>
-                  </div>
-                </div>
-
-                {/* Stage 3: รออะไหล่/กำลังซ่อม */}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-[#d97706]" />
-                    <span className="font-semibold text-slate-800">
-                      รออะไหล่/กำลังซ่อม
-                    </span>
-                  </div>
-                  <div className="mt-2 space-y-1.5 pl-4">
-                    <div className="flex items-center gap-3">
-                      <span className="w-12 text-slate-400">จบแล้ว</span>
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28" />
-                      <span className="text-slate-400">0 วัน n=1</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="w-12 text-slate-400">ค้างอยู่</span>
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28" />
-                      <span className="text-slate-400">— ไม่มีเคสค้าง</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stage 4: ซ่อมเสร็จ/รอส่งมอบ */}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-[#2563eb]" />
-                    <span className="font-semibold text-slate-800">
-                      ซ่อมเสร็จ/รอส่งมอบ
-                    </span>
-                  </div>
-                  <div className="mt-2 space-y-1.5 pl-4">
-                    <div className="flex items-center gap-3">
-                      <span className="w-12 text-slate-400">จบแล้ว</span>
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28" />
-                      <span className="text-slate-400">0 วัน n=1</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="w-12 text-slate-400">ค้างอยู่</span>
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28" />
-                      <span className="text-slate-400">— ไม่มีเคสค้าง</span>
+                    <div className="mt-2 space-y-1.5 pl-4">
+                      <div className="flex items-center gap-3">
+                        <span className="w-12 text-slate-400">จบแล้ว</span>
+                        <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28">
+                          <div
+                            className="h-full rounded-full transition-all duration-500 ease-out"
+                            style={{
+                              width: `${Math.min(100, Math.max(15, stage.completedDays * 20))}%`,
+                              backgroundColor: stage.color,
+                              opacity: 0.6,
+                            }}
+                          />
+                        </div>
+                        <span className="text-slate-600">{stage.completedText}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="w-12 text-slate-400">ค้างอยู่</span>
+                        <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100 sm:w-28">
+                          <div
+                            className="h-full rounded-full transition-all duration-500 ease-out"
+                            style={{
+                              width: `${stage.pendingCount > 0 ? Math.min(100, Math.max(20, stage.pendingDays * 8)) : 0}%`,
+                              backgroundColor: stage.color,
+                            }}
+                          />
+                        </div>
+                        <span className="text-slate-600">
+                          {stage.pendingCount > 0
+                            ? `${stage.pendingDays} วัน ${stage.pendingCount} เคส · นานสุด ${stage.maxDays} วัน`
+                            : "— ไม่มีเคสค้าง"}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
 
@@ -551,7 +539,7 @@ export function DashboardView() {
                   นับเฉพาะช่วงที่เคสอยู่กับศูนย์ ไม่รวมช่วงที่ของกลับมาถึงเราแล้ว
                 </p>
                 <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                  นับขั้น &quot;ส่งศูนย์บริการแล้ว&quot; กับ &quot;รออะไหล่/กำลังซ่อม&quot; เท่านั้น · ค่ากลางคิดจากเคสที่ออกจากมือศูนย์แล้ว
+                  นับขั้น &quot;ส่งศูนย์บริการแล้ว&quot; กับ &quot;รออะไหล่/กำลังซ่อม&quot; เท่านั้น
                 </p>
               </div>
 
@@ -569,41 +557,37 @@ export function DashboardView() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
-                    <tr className="hover:bg-slate-50/50">
-                      <td className="py-3 font-medium text-[#1e61f0] hover:underline cursor-pointer">
-                        Huawei
-                      </td>
-                      <td className="py-3 text-center">3</td>
-                      <td className="py-3 text-center">1</td>
-                      <td className="py-3">
-                        <div className="space-y-1">
-                          <span>1 วัน n=1</span>
-                          <div className="h-1 w-16 rounded-full bg-slate-300" />
-                        </div>
-                      </td>
-                      <td className="py-3 text-center">11 วัน</td>
-                      <td className="py-3 text-center font-bold text-[#dc2626]">1</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50/50">
-                      <td className="py-3 font-medium text-[#1e61f0] hover:underline cursor-pointer">
-                        Hytera
-                      </td>
-                      <td className="py-3 text-center">1</td>
-                      <td className="py-3 text-center text-slate-400">—</td>
-                      <td className="py-3 text-slate-400">— ยังไม่เคยเข้าขั้นส่งศูนย์</td>
-                      <td className="py-3 text-center text-slate-400">—</td>
-                      <td className="py-3 text-center text-slate-400">—</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50/50">
-                      <td className="py-3 text-slate-700">
-                        ยังไม่ระบุศูนย์
-                      </td>
-                      <td className="py-3 text-center">1</td>
-                      <td className="py-3 text-center">1</td>
-                      <td className="py-3 text-slate-400">— ยังไม่มีเคสที่ออกจากศูนย์</td>
-                      <td className="py-3 text-center">12 วัน</td>
-                      <td className="py-3 text-center text-slate-400">—</td>
-                    </tr>
+                    {metrics.serviceCenters.map((sc, i) => (
+                      <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-3 font-medium text-[#1e61f0] hover:underline cursor-pointer">
+                          {sc.vendor}
+                        </td>
+                        <td className="py-3 text-center tabular">{sc.totalCases}</td>
+                        <td className="py-3 text-center tabular">
+                          {sc.atCenterNow > 0 ? (
+                            <span className="font-semibold text-amber-600">{sc.atCenterNow}</span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-3">
+                          <div className="space-y-1">
+                            <span className="text-slate-600">{sc.avgDaysText}</span>
+                            {sc.atCenterNow > 0 && (
+                              <div className="h-1 w-16 rounded-full bg-slate-300" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 text-center tabular">{sc.maxDaysText}</td>
+                        <td className="py-3 text-center tabular">
+                          {sc.overdueCount > 0 ? (
+                            <span className="font-bold text-[#dc2626]">{sc.overdueCount}</span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

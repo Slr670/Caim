@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.18.1] - 2026-09-24
+## [0.19.0] - 2026-09-24
+
+### Added
+- **Real-Time Data Synchronization Architecture for Claim Dashboard**:
+  - Implemented Server-Sent Events (SSE) stream endpoint `/api/dashboard/stream` broadcasting live ticket changes directly to client sessions.
+  - Implemented Pub/Sub Event Emitter singleton `@/lib/events/dashboardEmitter` notifying connected clients on ticket mutations (create, update, delete).
+  - Built comprehensive, pure-function KPI and metric calculation engine `@/lib/dashboard/calculateMetrics`.
+  - Added REST stats endpoint `/api/dashboard/stats` for SWR and manual revalidation fallback.
+  - Built custom React hook `useRealtimeDashboard` with automatic fallback polling (8s), tab visibility/focus revalidation, and optimistic local storage synchronization.
+  - Refactored `DashboardView` with live-synced widget metrics across all 4 key areas:
+    - Top Summary Cards (Total, In Progress, Closed, Rejected with dynamic progress bar percentages).
+    - Performance KPIs (Median pending age, Overdue cases, Closed on time, Median resolution days).
+    - Work Status Breakdown (6 stages with animated width bars) & Weekly incoming volume trend.
+    - Process Bottlenecks & Service Center Statistics table.
+  - Added live status pill indicator with pulse animation and manual refresh trigger.
 
 ### Added
 - **Live Database Connection & Data Seeding in MongoDB Atlas**:
