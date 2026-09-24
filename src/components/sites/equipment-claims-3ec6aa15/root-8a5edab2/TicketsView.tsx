@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { STATIONS } from "./stationsData"
 
 interface Ticket {
   id: string
@@ -440,10 +441,21 @@ export function TicketsView() {
                   onChange={(e) => setStationFilter(e.target.value)}
                   className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="all">ทุกสถานี</option>
-                  <option value="st-01">สถานีวิทยุหลัก 01</option>
-                  <option value="st-02">สถานีวิทยุหลัก 02</option>
-                  <option value="st-03">สถานีวิทยุสาขา 03</option>
+                  <option value="all">ทุกสถานี ({STATIONS.length} สถานี)</option>
+                  <optgroup label="สถานีหลัก 60 เมตร (16 สถานี)">
+                    {STATIONS.filter((s) => s.height === 60).map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.code} - {s.name} ({s.province})
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="เสารับ-ส่งสัญญาณ 9, 18, 30 เมตร (181 สถานี)">
+                    {STATIONS.filter((s) => s.height < 60).map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.code} - {s.name} ({s.province})
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
               </div>
