@@ -21,20 +21,39 @@ import {
   SlidersHorizontal,
   Server,
   Building2,
-  Tag
+  Tag,
+  AlertCircle
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { type Asset, ASSETS } from "./assetsData"
+import { getCustomAssets, saveAssetApi } from "@/lib/storage/recordStorage"
 
 export function AssetsView() {
-  const [assetsList, setAssetsList] = React.useState<Asset[]>(ASSETS)
+  const [assetsList, setAssetsList] = React.useState<Asset[]>(() => {
+    if (typeof window !== "undefined") {
+      const custom = getCustomAssets()
+      if (custom.length > 0) {
+        return [
+          ...custom,
+          ...ASSETS.filter((a) => !custom.some((c) => c.serial.toUpperCase() === a.serial.toUpperCase())),
+        ]
+      }
+    }
+    return ASSETS
+  })
   const [searchQuery, setSearchQuery] = React.useState("")
   const [selectedVendor, setSelectedVendor] = React.useState<string>("all")
   const [selectedCategory, setSelectedCategory] = React.useState<string>("all")
   const [pageSize, setPageSize] = React.useState<number>(25)
   const [currentPage, setCurrentPage] = React.useState<number>(1)
   const [copiedSerial, setCopiedSerial] = React.useState<string | null>(null)
+
+  // Loading and feedback states
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [toastMessage, setToastMessage] = React.useState<string | null>(null)
 
   // Modals
   const [detailAsset, setDetailAsset] = React.useState<Asset | null>(null)
@@ -48,6 +67,11 @@ export function AssetsView() {
   const [newCategory, setNewCategory] = React.useState("")
   const [newDescription, setNewDescription] = React.useState("")
   const [formSuccess, setFormSuccess] = React.useState(false)
+
+  const showToast = React.useCallback((msg: string) => {
+    setToastMessage(msg)
+    setTimeout(() => setToastMessage(null), 3500)
+  }, [])
 
   const deferredQuery = React.useDeferredValue(searchQuery)
 
@@ -134,42 +158,117 @@ export function AssetsView() {
     document.body.removeChild(link)
   }
 
-  // Add Device Handler
-  const handleAddDevice = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newSerial.trim() || !newVendor.trim()) return
+  // Fetch assets from backend API with automatic cache revalidation
+  const fetchAssets = React.useCallback(async () => {
+    try {
+      setIsLoading(true)
+      const res = await fetch("/api/assets", { cache: "no-store" })
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`)
+      const data = await res.json()
+      if (data && data.success && Array.isArray(data.assets) && data.assets.length > 0) {
+        setAssetsList((prev) => {
+          const apiAssets: Asset[] = data.assets
+          const custom = getCustomAssets()
+          // Combine API assets, custom local assets, and previous state
+          const merged = [
+            ...apiAssets,
+            ...custom.filter((c) => !apiAssets.some((a) => a.serial.toUpperCase() === c.serial.toUpperCase())),
+            ...prev.filter(
+              (p) =>
+                !apiAssets.some((a) => a.serial.toUpperCase() === p.serial.toUpperCase()) &&
+                !custom.some((c) => c.serial.toUpperCase() === p.serial.toUpperCase())
+            ),
+          ]
+          return merged
+        })
+      }
+    } catch (err) {
+      console.warn("Could not sync assets from backend API:", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
-    const newDevice: Asset = {
-      serial: newSerial.trim(),
-      name: newName.trim() || undefined,
-      vendor: newVendor.trim(),
-      model: newModel.trim() || "-",
-      category: newCategory.trim() || "อื่นๆ",
-      description: newDescription.trim() || undefined
+  // Sync on mount
+  React.useEffect(() => {
+    const custom = getCustomAssets()
+    if (custom.length > 0) {
+      setAssetsList((prev) => [
+        ...custom,
+        ...prev.filter((p) => !custom.some((c) => c.serial.toUpperCase() === p.serial.toUpperCase())),
+      ])
+    }
+    fetchAssets()
+  }, [fetchAssets])
+
+  // Add Device Handler with Database Persistence & Cache Invalidation
+  const handleAddDevice = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setErrorMessage(null)
+
+    const trimmedSerial = newSerial.trim()
+    const trimmedVendor = newVendor.trim()
+
+    if (!trimmedSerial) {
+      setErrorMessage("กรุณาระบุหมายเลขอุปกรณ์ (Serial Number)")
+      return
+    }
+    if (!trimmedVendor) {
+      setErrorMessage("กรุณาระบุยี่ห้อ (Vendor)")
+      return
     }
 
-    // Insert or update in state
-    setAssetsList((prev) => {
-      const idx = prev.findIndex((a) => a.serial.toUpperCase() === newDevice.serial.toUpperCase())
-      if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = newDevice
-        return next
-      }
-      return [newDevice, ...prev]
-    })
+    const newDevice: Asset = {
+      serial: trimmedSerial,
+      name: newName.trim() || undefined,
+      vendor: trimmedVendor,
+      model: newModel.trim() || "-",
+      category: newCategory.trim() || "อื่นๆ",
+      description: newDescription.trim() || undefined,
+    }
 
-    setFormSuccess(true)
-    setTimeout(() => {
-      setFormSuccess(false)
-      setIsAddModalOpen(false)
-      setNewSerial("")
-      setNewName("")
-      setNewVendor("")
-      setNewModel("")
-      setNewCategory("")
-      setNewDescription("")
-    }, 1000)
+    setIsSubmitting(true)
+
+    try {
+      // 1. Submit HTTP POST to /api/assets and save to localStorage
+      const result = await saveAssetApi(newDevice)
+
+      if (!result.success) {
+        throw new Error(result.message || "ไม่สามารถบันทึกข้อมูลอุปกรณ์ได้")
+      }
+
+      // 2. Optimistic local state update to immediately update UI & summary counters
+      setAssetsList((prev) => {
+        const filtered = prev.filter(
+          (a) => a.serial.toUpperCase() !== newDevice.serial.toUpperCase()
+        )
+        return [newDevice, ...filtered]
+      })
+
+      // 3. Invalidate and refetch from backend API
+      await fetchAssets()
+
+      setFormSuccess(true)
+      showToast(`บันทึกอุปกรณ์ ${newDevice.serial} (${newDevice.vendor}) สำเร็จแล้ว`)
+
+      setTimeout(() => {
+        setFormSuccess(false)
+        setIsAddModalOpen(false)
+        setNewSerial("")
+        setNewName("")
+        setNewVendor("")
+        setNewModel("")
+        setNewCategory("")
+        setNewDescription("")
+        setErrorMessage(null)
+      }, 700)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการบันทึกข้อมูล"
+      console.error("Failed to save device:", err)
+      setErrorMessage(msg)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const resetFilters = () => {
@@ -220,6 +319,16 @@ export function AssetsView() {
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
+                onClick={fetchAssets}
+                disabled={isLoading}
+                title="รีเฟรชข้อมูลจากเซิร์ฟเวอร์"
+                className="gap-1.5 border-border text-foreground hover:bg-muted shadow-xs text-xs h-9 px-2.5"
+              >
+                <RotateCcw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">รีเฟรช</span>
+              </Button>
+              <Button
+                variant="outline"
                 onClick={handleExportCSV}
                 className="gap-2 border-border text-foreground hover:bg-muted shadow-xs text-xs h-9"
               >
@@ -227,7 +336,10 @@ export function AssetsView() {
                 <span className="hidden sm:inline">ส่งออก CSV</span>
               </Button>
               <Button
-                onClick={() => setIsAddModalOpen(true)}
+                onClick={() => {
+                  setErrorMessage(null)
+                  setIsAddModalOpen(true)
+                }}
                 className="gap-2 bg-brand text-white hover:bg-brand-dark shadow-xs text-xs h-9"
               >
                 <Plus className="size-4" />
@@ -641,6 +753,13 @@ export function AssetsView() {
               </div>
             </div>
 
+            {errorMessage && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
+                <AlertCircle className="size-4 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
             {formSuccess && (
               <div className="mt-4 flex items-center gap-2 rounded-lg bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-400">
                 <Check className="size-4 shrink-0" />
@@ -728,12 +847,39 @@ export function AssetsView() {
                 >
                   ยกเลิก
                 </Button>
-                <Button type="submit" size="sm" className="bg-brand text-white hover:bg-brand-dark text-xs">
-                  บันทึกอุปกรณ์
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isSubmitting}
+                  className="bg-brand text-white hover:bg-brand-dark text-xs gap-1.5"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <span className="size-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      <span>กำลังบันทึก...</span>
+                    </>
+                  ) : (
+                    <span>บันทึกอุปกรณ์</span>
+                  )}
                 </Button>
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Floating Action Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-3 text-xs font-medium text-white shadow-xl animate-in fade-in slide-in-from-bottom-5">
+          <Check className="size-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+          <button
+            type="button"
+            onClick={() => setToastMessage(null)}
+            className="ml-2 text-slate-400 hover:text-white"
+          >
+            <X className="size-3.5" />
+          </button>
         </div>
       )}
     </main>

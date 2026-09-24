@@ -165,6 +165,30 @@ async function seed() {
       console.log(`Successfully seeded ${stations.length} stations into MongoDB Atlas!`);
     }
 
+    // Seed Assets from assetsData.ts
+    const assetsCol = db.collection("assets");
+    const existingAssets = await assetsCol.countDocuments();
+    console.log(`Current assets count in 'caim.assets': ${existingAssets}`);
+
+    if (existingAssets === 0) {
+      console.log("Reading assets from assetsData.ts...");
+      const content = fs.readFileSync("d:/Caim/src/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/assetsData.ts", "utf-8");
+      const start = content.indexOf("= [") + 2;
+      const end = content.lastIndexOf("]");
+      const jsonStr = content.slice(start, end + 1);
+      const assets = JSON.parse(jsonStr).map((a) => ({
+        ...a,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+      console.log(`Found ${assets.length} assets. Seeding into 'caim.assets'...`);
+      await assetsCol.insertMany(assets);
+      await assetsCol.createIndex({ serial: 1 }, { unique: true });
+      await assetsCol.createIndex({ vendor: 1 });
+      await assetsCol.createIndex({ category: 1 });
+      console.log(`Successfully seeded ${assets.length} assets into MongoDB Atlas!`);
+    }
+
     console.log("\nALL SEEDING COMPLETED SUCCESSFULLY!");
   } catch (err) {
     console.error("MongoDB Atlas Seeding Error:", err);

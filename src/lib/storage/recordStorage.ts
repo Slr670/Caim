@@ -3,6 +3,7 @@ export const STORAGE_KEYS = {
   DELETED_TICKETS: "forth_caim_deleted_ticket_ids_v1",
   DELETED_RMA: "forth_caim_deleted_rma_ids_v1",
   CUSTOM_TICKETS: "forth_caim_custom_tickets_v1",
+  CUSTOM_ASSETS: "forth_caim_custom_assets_v1",
 }
 
 export interface StoredTicket {
@@ -156,5 +157,85 @@ export async function deleteRmaApi(id: string): Promise<{ success: boolean; mess
   } catch (err: unknown) {
     console.warn("Backend API not reachable or network error, stored in local persistence", err)
     return { success: true, message: `ใบ RMA ${id} ถูกลบออกจากเครื่องของคุณเรียบร้อยแล้ว` }
+  }
+}
+
+export interface StoredAsset {
+  serial: string
+  vendor: string
+  model: string
+  category: string
+  name?: string
+  description?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+/**
+ * Get the list of custom created assets from localStorage
+ */
+export function getCustomAssets(): StoredAsset[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.CUSTOM_ASSETS)
+    return raw ? JSON.parse(raw) : []
+  } catch (err) {
+    console.error("Failed to read custom assets from localStorage", err)
+    return []
+  }
+}
+
+/**
+ * Add or update a custom asset in localStorage
+ */
+export function saveCustomAsset(asset: StoredAsset): void {
+  if (typeof window === "undefined") return
+  try {
+    const existing = getCustomAssets()
+    const filtered = existing.filter(
+      (a) => a.serial.toUpperCase() !== asset.serial.toUpperCase()
+    )
+    const updated = [asset, ...filtered]
+    localStorage.setItem(STORAGE_KEYS.CUSTOM_ASSETS, JSON.stringify(updated))
+  } catch (err) {
+    console.error("Failed to save custom asset to localStorage", err)
+  }
+}
+
+/**
+ * Persist asset to both MongoDB API and localStorage
+ */
+export async function saveAssetApi(
+  asset: StoredAsset
+): Promise<{ success: boolean; asset?: StoredAsset; message?: string }> {
+  // 1. Immediately cache locally
+  saveCustomAsset(asset)
+
+  try {
+    // 2. HTTP POST to /api/assets
+    const res = await fetch("/api/assets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(asset),
+    })
+
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || `HTTP error ${res.status}`)
+    }
+
+    return {
+      success: true,
+      asset: data.asset || asset,
+      message: data.message || "บันทึกข้อมูลอุปกรณ์สำเร็จแล้ว",
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์"
+    console.warn("Backend API not reachable or error, saved to local persistence:", msg)
+    return {
+      success: true,
+      asset,
+      message: "บันทึกข้อมูลลงเครื่องของคุณเรียบร้อยแล้ว (จะซิงก์เข้าฐานข้อมูลเมื่อเชื่อมต่อได้)",
+    }
   }
 }

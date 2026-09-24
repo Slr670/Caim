@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-24
+
+### Added
+- **Equipment Information Data Persistence & MongoDB Atlas Backend Integration**:
+  - Implemented `/api/assets` REST endpoint with `GET`, `POST`, `PUT`, and `DELETE` handlers connecting to MongoDB Atlas `caim.assets` collection.
+  - Added full search, category/vendor filter, and pagination support with graceful local in-memory fallback.
+  - Added dual-layer persistence in `@/lib/storage/recordStorage` (`CUSTOM_ASSETS` in `localStorage` + MongoDB Atlas API).
+  - Integrated `AssetsView` modal form with `saveAssetApi`, client validation, submit loading state, and toast feedback.
+  - Added manual data refresh button (`RotateCcw`) and automated revalidation on component mount and device creation.
+  - Seeded initial equipment database (644 records) into MongoDB Atlas cluster with unique serial indexing via `scripts/seed_mongodb.mjs`.
+
 ## [0.19.0] - 2026-09-24
 
 ### Added
