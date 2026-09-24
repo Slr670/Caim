@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.18.0] - 2026-09-24
+## [0.18.1] - 2026-09-24
+
+### Added
+- **Live Database Connection & Data Seeding in MongoDB Atlas**:
+  - Connected Next.js app to MongoDB Atlas cluster `slr.b6ih1xk.mongodb.net` using database user `darkwer01_db_user`.
+  - Created and seeded `caim.tickets` with claim records and lookup indexes (`id`, `serialNo`, `status`, `province`).
+  - Created and seeded `caim.stations` with 197 registered station records from Excel data with indexing.
+  - Added secure automated seeding script `scripts/seed_mongodb.mjs` resolving credentials dynamically from environment.
 
 ### Added
 - **MongoDB Atlas Backend Database Infrastructure & Dual-Layer Persistence**:
