@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-24
+
+### Added
+- **Cascading Location & Station Hierarchy Filters in Claim List (`รายการงานเคลม`)**:
+  - Populated Province (`จังหวัด`), District (`อำเภอ`), Sub-district (`ตำบล`), and Station (`สถานี`) dropdown filters directly from registered records in the Station Information (`STATIONS`) database:
+    - **Province (`จังหวัด`)**: Distinct registered provinces sorted in Thai alphabetical order.
+    - **District (`อำเภอ`)**: Cascades dynamically from selected province (disabled with `"เลือกจังหวัดก่อน"` when no province is chosen); resets when province changes.
+    - **Sub-district (`ตำบล`)**: Cascades dynamically from selected district (disabled with placeholder `"เลือกอำเภอก่อน"` when no district is chosen); resets when district changes.
+    - **Station Linking (`สถานี`)**: Filters and groups stations matching the full selected hierarchy (Province > District > Sub-district), organized by 60m main stations and repeater masts.
+  - **State Management & Query Logic**:
+    - Full cascading handlers with synchronized reset triggers.
+    - Exported `buildClaimFiltersQuery` URL query builder for API integration and client bookmark sync.
+    - Clear/Reset filters button with icon and reactive search result counter badge.
+    - Enriched table rows and detail modal with station installation and administrative boundary indicators.
+
+## [0.15.0] - 2026-09-24
+
+### Added
+- **Create Overseas RMA / Dispatch Modal Dialog**:
+  - Interactive modal dialog for creating overseas RMA claims with equipment selection and case linking.
+
+## [0.14.0] - 2026-09-24
+
+### Added
+- **Station Management (`ข้อมูลสถานี`) Full Database Import**:
+  - Integrated 197 station sites from Excel dataset with multi-criteria filtering and detail viewer.
+
 ## [0.13.0] - 2026-09-23
 
 ### Added

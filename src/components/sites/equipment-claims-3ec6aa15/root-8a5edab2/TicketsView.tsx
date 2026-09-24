@@ -13,13 +13,15 @@ import {
   FileText,
   Pencil,
   Check,
-  X
+  X,
+  MapPin,
+  RotateCcw
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { STATIONS } from "./stationsData"
 
-interface Ticket {
+export interface Ticket {
   id: string
   title: string
   problemDesc: string
@@ -32,6 +34,41 @@ interface Ticket {
   ageDays: string
   isOverdue?: boolean
   overdueText?: string
+  station?: string
+  province?: string
+  district?: string
+  subdistrict?: string
+}
+
+/**
+ * Helper to construct URLSearchParams for claim list API queries
+ */
+export interface ClaimFilterParams {
+  status?: string
+  caseNo?: string
+  sn?: string
+  vendor?: string
+  category?: string
+  province?: string
+  district?: string
+  subdistrict?: string
+  station?: string
+  onlyOverdue?: boolean
+}
+
+export function buildClaimFiltersQuery(filters: ClaimFilterParams): URLSearchParams {
+  const params = new URLSearchParams()
+  if (filters.status && filters.status !== "all") params.set("status", filters.status)
+  if (filters.caseNo) params.set("caseNo", filters.caseNo)
+  if (filters.sn) params.set("sn", filters.sn)
+  if (filters.vendor && filters.vendor !== "all") params.set("vendor", filters.vendor)
+  if (filters.category && filters.category !== "all") params.set("category", filters.category)
+  if (filters.province && filters.province !== "all") params.set("province", filters.province)
+  if (filters.district && filters.district !== "all") params.set("district", filters.district)
+  if (filters.subdistrict && filters.subdistrict !== "all") params.set("subdistrict", filters.subdistrict)
+  if (filters.station && filters.station !== "all") params.set("station", filters.station)
+  if (filters.onlyOverdue) params.set("onlyOverdue", "true")
+  return params
 }
 
 const INITIAL_TICKETS: Ticket[] = [
@@ -47,6 +84,10 @@ const INITIAL_TICKETS: Ticket[] = [
     date: "13 ก.ย. 2569",
     ageDays: "10 วัน",
     isOverdue: false,
+    station: "ที่ว่าการอำเภอเลาขวัญ",
+    province: "กาญจนบุรี",
+    district: "เลาขวัญ",
+    subdistrict: "เลาขวัญ",
   },
   {
     id: "2",
@@ -60,6 +101,10 @@ const INITIAL_TICKETS: Ticket[] = [
     date: "10 ก.ย. 2569",
     ageDays: "19 วัน",
     isOverdue: false,
+    station: "ที่ว่าการอำเภอคลองลาน",
+    province: "กำแพงเพชร",
+    district: "คลองลาน",
+    subdistrict: "คลองน้ำไหล",
   },
   {
     id: "3",
@@ -73,6 +118,10 @@ const INITIAL_TICKETS: Ticket[] = [
     date: "9 ก.ย. 2569",
     ageDays: "13 วัน",
     isOverdue: false,
+    station: "อบต.เขาสวนกวาง",
+    province: "ขอนแก่น",
+    district: "เขาสวนกวาง",
+    subdistrict: "เขาสวนกวาง",
   },
   {
     id: "4",
@@ -87,6 +136,10 @@ const INITIAL_TICKETS: Ticket[] = [
     ageDays: "13 วัน",
     isOverdue: true,
     overdueText: "เกินกำหนด 8 วัน",
+    station: "อบต.หมูสี",
+    province: "นครราชสีมา",
+    district: "ปากช่อง",
+    subdistrict: "หมูสี",
   },
   {
     id: "5",
@@ -100,6 +153,10 @@ const INITIAL_TICKETS: Ticket[] = [
     date: "8 ก.ย. 2569",
     ageDays: "15 วัน",
     isOverdue: false,
+    station: "อบต.ปากช่อง",
+    province: "นครราชสีมา",
+    district: "ปากช่อง",
+    subdistrict: "ปากช่อง",
   },
 ]
 
@@ -124,6 +181,11 @@ export function TicketsView() {
     caseNo: "",
     sn: "",
     vendor: "all",
+    category: "all",
+    province: "all",
+    district: "all",
+    subdistrict: "all",
+    station: "all",
     onlyOverdue: false,
   })
 
@@ -136,14 +198,102 @@ export function TicketsView() {
   const [editForm, setEditForm] = React.useState<Ticket | null>(null)
   const [saveSuccess, setSaveSuccess] = React.useState(false)
 
-  // Sync query params if present
+  // =========================================================================
+  // CASCADING LOCATION & STATION DATA EXTRACTION FROM STATIONS DATABASE
+  // =========================================================================
+
+  // 1. Province ('จังหวัด'): Distinct provinces extracted directly from STATIONS
+  const availableProvinces = React.useMemo(() => {
+    const set = new Set(STATIONS.map((s) => s.province).filter(Boolean))
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
+  }, [])
+
+  // 2. District ('อำเภอ'): Filter districts based on selected province
+  const availableDistricts = React.useMemo(() => {
+    if (provinceFilter === "all") return []
+    const set = new Set(
+      STATIONS
+        .filter((s) => s.province === provinceFilter)
+        .map((s) => s.district)
+        .filter(Boolean)
+    )
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
+  }, [provinceFilter])
+
+  // 3. Sub-district ('ตำบล'): Filter sub-districts based on selected district & province
+  const availableSubdistricts = React.useMemo(() => {
+    if (districtFilter === "all" || provinceFilter === "all") return []
+    const set = new Set(
+      STATIONS
+        .filter(
+          (s) =>
+            s.province === provinceFilter &&
+            s.district === districtFilter
+        )
+        .map((s) => s.subdistrict)
+        .filter(Boolean)
+    )
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
+  }, [provinceFilter, districtFilter])
+
+  // 4. Station Linking ('สถานี'): Matching selected location hierarchy
+  const availableStations = React.useMemo(() => {
+    return STATIONS.filter((s) => {
+      if (provinceFilter !== "all" && s.province !== provinceFilter) return false
+      if (districtFilter !== "all" && s.district !== districtFilter) return false
+      if (subdistrictFilter !== "all" && s.subdistrict !== subdistrictFilter) return false
+      return true
+    })
+  }, [provinceFilter, districtFilter, subdistrictFilter])
+
+  // Cascading Handlers
+  const handleProvinceChange = React.useCallback((newProvince: string) => {
+    setProvinceFilter(newProvince)
+    setDistrictFilter("all")
+    setSubdistrictFilter("all")
+    setStationFilter("all")
+  }, [])
+
+  const handleDistrictChange = React.useCallback((newDistrict: string) => {
+    setDistrictFilter(newDistrict)
+    setSubdistrictFilter("all")
+    setStationFilter("all")
+  }, [])
+
+  const handleSubdistrictChange = React.useCallback((newSubdistrict: string) => {
+    setSubdistrictFilter(newSubdistrict)
+    setStationFilter("all")
+  }, [])
+
+  const handleStationChange = React.useCallback((newStation: string) => {
+    setStationFilter(newStation)
+  }, [])
+
+  // Sync query params if present (on initial mount)
   React.useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search)
       const st = params.get("status")
-      if (st) {
-        setStatusFilter(st)
-        setAppliedFilters((prev) => ({ ...prev, status: st }))
+      const prov = params.get("province")
+      const dist = params.get("district")
+      const sub = params.get("subdistrict")
+      const sta = params.get("station")
+
+      if (st) setStatusFilter(st)
+      if (prov) setProvinceFilter(prov)
+      if (dist) setDistrictFilter(dist)
+      if (sub) setSubdistrictFilter(sub)
+      if (sta) setStationFilter(sta)
+
+      if (st || prov || dist || sub || sta) {
+        setAppliedFilters((prev) => ({
+          ...prev,
+          status: st || prev.status,
+          province: prov || prev.province,
+          district: dist || prev.district,
+          subdistrict: sub || prev.subdistrict,
+          station: sta || prev.station,
+        }))
       }
     }
   }, [])
@@ -154,9 +304,51 @@ export function TicketsView() {
       caseNo: caseNoFilter.trim(),
       sn: snFilter.trim(),
       vendor: vendorFilter,
+      category: categoryFilter,
+      province: provinceFilter,
+      district: districtFilter,
+      subdistrict: subdistrictFilter,
+      station: stationFilter,
       onlyOverdue,
     })
-  }, [statusFilter, caseNoFilter, snFilter, vendorFilter, onlyOverdue])
+  }, [
+    statusFilter,
+    caseNoFilter,
+    snFilter,
+    vendorFilter,
+    categoryFilter,
+    provinceFilter,
+    districtFilter,
+    subdistrictFilter,
+    stationFilter,
+    onlyOverdue,
+  ])
+
+  const handleResetFilters = React.useCallback(() => {
+    setStatusFilter("all")
+    setCaseNoFilter("")
+    setSnFilter("")
+    setCategoryFilter("all")
+    setVendorFilter("all")
+    setProvinceFilter("all")
+    setDistrictFilter("all")
+    setSubdistrictFilter("all")
+    setStationFilter("all")
+    setOnlyOverdue(false)
+
+    setAppliedFilters({
+      status: "all",
+      caseNo: "",
+      sn: "",
+      vendor: "all",
+      category: "all",
+      province: "all",
+      district: "all",
+      subdistrict: "all",
+      station: "all",
+      onlyOverdue: false,
+    })
+  }, [])
 
   const filteredTickets = React.useMemo(() => {
     return tickets.filter((t) => {
@@ -185,6 +377,35 @@ export function TicketsView() {
         return false
       }
       if (appliedFilters.onlyOverdue && !t.isOverdue) {
+        return false
+      }
+      // Location Hierarchy Filters
+      if (
+        appliedFilters.province !== "all" &&
+        t.province &&
+        t.province !== appliedFilters.province
+      ) {
+        return false
+      }
+      if (
+        appliedFilters.district !== "all" &&
+        t.district &&
+        t.district !== appliedFilters.district
+      ) {
+        return false
+      }
+      if (
+        appliedFilters.subdistrict !== "all" &&
+        t.subdistrict &&
+        t.subdistrict !== appliedFilters.subdistrict
+      ) {
+        return false
+      }
+      if (
+        appliedFilters.station !== "all" &&
+        t.station &&
+        t.station !== appliedFilters.station
+      ) {
         return false
       }
       return true
@@ -378,7 +599,7 @@ export function TicketsView() {
             </div>
           </div>
 
-          {/* Row 2: 5 Columns */}
+          {/* Row 2: 5 Columns - Cascading Location Hierarchy */}
           <div className="mt-3.5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {/* จังหวัด */}
             <div className="flex flex-col gap-1.5">
@@ -386,14 +607,15 @@ export function TicketsView() {
               <div className="relative">
                 <select
                   value={provinceFilter}
-                  onChange={(e) => setProvinceFilter(e.target.value)}
+                  onChange={(e) => handleProvinceChange(e.target.value)}
                   className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="all">ทุกจังหวัด</option>
-                  <option value="bkk">กรุงเทพมหานคร</option>
-                  <option value="chiangmai">เชียงใหม่</option>
-                  <option value="khonkaen">ขอนแก่น</option>
-                  <option value="songkhla">สงขลา</option>
+                  <option value="all">ทุกจังหวัด ({availableProvinces.length} จังหวัด)</option>
+                  {availableProvinces.map((prov) => (
+                    <option key={prov} value={prov}>
+                      {prov}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
               </div>
@@ -405,13 +627,26 @@ export function TicketsView() {
               <div className="relative">
                 <select
                   value={districtFilter}
-                  onChange={(e) => setDistrictFilter(e.target.value)}
-                  className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                  disabled={provinceFilter === "all"}
+                  onChange={(e) => handleDistrictChange(e.target.value)}
+                  className={`h-9 w-full appearance-none rounded-lg border px-3 pr-8 text-xs focus:border-blue-500 focus:outline-none transition-colors ${
+                    provinceFilter === "all"
+                      ? "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+                      : "border-slate-200 bg-white text-slate-700"
+                  }`}
                 >
-                  <option value="all">ทุกอำเภอ</option>
-                  <option value="muang">เมือง</option>
-                  <option value="bangkhen">บางเขน</option>
-                  <option value="hatyai">หาดใหญ่</option>
+                  {provinceFilter === "all" ? (
+                    <option value="all">เลือกจังหวัดก่อน</option>
+                  ) : (
+                    <>
+                      <option value="all">ทุกอำเภอ ({availableDistricts.length} อำเภอ)</option>
+                      {availableDistricts.map((dist) => (
+                        <option key={dist} value={dist}>
+                          {dist}
+                        </option>
+                      ))}
+                    </>
+                  )}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
               </div>
@@ -423,10 +658,26 @@ export function TicketsView() {
               <div className="relative">
                 <select
                   value={subdistrictFilter}
-                  onChange={(e) => setSubdistrictFilter(e.target.value)}
-                  className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+                  disabled={districtFilter === "all"}
+                  onChange={(e) => handleSubdistrictChange(e.target.value)}
+                  className={`h-9 w-full appearance-none rounded-lg border px-3 pr-8 text-xs focus:border-blue-500 focus:outline-none transition-colors ${
+                    districtFilter === "all"
+                      ? "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+                      : "border-slate-200 bg-white text-slate-700"
+                  }`}
                 >
-                  <option value="all">เลือกอำเภอก่อน</option>
+                  {districtFilter === "all" ? (
+                    <option value="all">เลือกอำเภอก่อน</option>
+                  ) : (
+                    <>
+                      <option value="all">ทุกตำบล ({availableSubdistricts.length} ตำบล)</option>
+                      {availableSubdistricts.map((sub) => (
+                        <option key={sub} value={sub}>
+                          {sub}
+                        </option>
+                      ))}
+                    </>
+                  )}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
               </div>
@@ -438,24 +689,50 @@ export function TicketsView() {
               <div className="relative">
                 <select
                   value={stationFilter}
-                  onChange={(e) => setStationFilter(e.target.value)}
+                  onChange={(e) => handleStationChange(e.target.value)}
                   className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="all">ทุกสถานี ({STATIONS.length} สถานี)</option>
-                  <optgroup label="สถานีหลัก 60 เมตร (16 สถานี)">
-                    {STATIONS.filter((s) => s.height === 60).map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.code} - {s.name} ({s.province})
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="เสารับ-ส่งสัญญาณ 9, 18, 30 เมตร (181 สถานี)">
-                    {STATIONS.filter((s) => s.height < 60).map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.code} - {s.name} ({s.province})
-                      </option>
-                    ))}
-                  </optgroup>
+                  <option value="all">
+                    ทุกสถานี ({availableStations.length} สถานี)
+                  </option>
+                  {availableStations.length === 0 ? (
+                    <option value="none" disabled>
+                      ไม่พบสถานีในพื้นที่ที่เลือก
+                    </option>
+                  ) : (
+                    <>
+                      {availableStations.some((s) => s.height === 60) && (
+                        <optgroup
+                          label={`สถานีหลัก 60 เมตร (${
+                            availableStations.filter((s) => s.height === 60).length
+                          } สถานี)`}
+                        >
+                          {availableStations
+                            .filter((s) => s.height === 60)
+                            .map((s) => (
+                              <option key={s.id} value={s.name}>
+                                {s.code} - {s.name} ({s.district ? `${s.district}, ` : ""}{s.province})
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      {availableStations.some((s) => s.height < 60) && (
+                        <optgroup
+                          label={`เสารับ-ส่งสัญญาณ 9, 18, 30 เมตร (${
+                            availableStations.filter((s) => s.height < 60).length
+                          } สถานี)`}
+                        >
+                          {availableStations
+                            .filter((s) => s.height < 60)
+                            .map((s) => (
+                              <option key={s.id} value={s.name}>
+                                {s.code} - {s.name} ({s.district ? `${s.district}, ` : ""}{s.province})
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                    </>
+                  )}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
               </div>
@@ -477,16 +754,50 @@ export function TicketsView() {
             </div>
           </div>
 
-          {/* Row 3: Aligned Search Action Button */}
-          <div className="mt-4 flex justify-end">
-            <button
-              type="button"
-              onClick={handleSearch}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#0c1a30] px-4.5 text-xs font-medium text-white shadow-xs transition-colors hover:bg-[#1e293b] cursor-pointer"
-            >
-              <Search className="size-3.5" />
-              <span>ค้นหา</span>
-            </button>
+          {/* Row 3: Action Buttons & Filter Summary */}
+          <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span>
+                ผลการค้นหา: <strong>{filteredTickets.length}</strong> รายการ
+              </span>
+              {(appliedFilters.province !== "all" ||
+                appliedFilters.district !== "all" ||
+                appliedFilters.subdistrict !== "all" ||
+                appliedFilters.station !== "all") && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 border border-blue-100">
+                  <MapPin className="size-3 text-blue-600" />
+                  <span>
+                    {[
+                      appliedFilters.province !== "all" && `จ.${appliedFilters.province}`,
+                      appliedFilters.district !== "all" && `อ.${appliedFilters.district}`,
+                      appliedFilters.subdistrict !== "all" && `ต.${appliedFilters.subdistrict}`,
+                      appliedFilters.station !== "all" && appliedFilters.station,
+                    ]
+                      .filter(Boolean)
+                      .join(" › ")}
+                  </span>
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 cursor-pointer"
+              >
+                <RotateCcw className="size-3.5 text-slate-500" />
+                <span>ล้างตัวกรอง</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSearch}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#0c1a30] px-4.5 text-xs font-medium text-white shadow-xs transition-colors hover:bg-[#1e293b] cursor-pointer"
+              >
+                <Search className="size-3.5" />
+                <span>ค้นหา</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -548,6 +859,17 @@ export function TicketsView() {
                         <p className="text-[11px] text-slate-500 mt-0.5 max-w-xs truncate">
                           {item.problemDesc}
                         </p>
+                        {item.station && (
+                          <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-600">
+                            <MapPin className="size-3 text-slate-400 shrink-0" />
+                            <span className="font-medium text-slate-700">{item.station}</span>
+                            {(item.district || item.province) && (
+                              <span className="text-slate-400">
+                                ({[item.district && `อ.${item.district}`, item.province && `จ.${item.province}`].filter(Boolean).join(", ")})
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* อุปกรณ์ (Chip Icon & S/N) */}
@@ -811,6 +1133,35 @@ export function TicketsView() {
                       <p className="mt-1 text-slate-900">{selectedTicket.ageDays}</p>
                     </div>
                   </div>
+
+                  {(selectedTicket.station || selectedTicket.province) && (
+                    <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                      <div className="flex items-center gap-1.5 text-slate-700 font-medium">
+                        <MapPin className="size-3.5 text-blue-600" />
+                        <span>ข้อมูลสถานี / จุดติดตั้ง</span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-slate-500">ชื่อสถานี: </span>
+                          <span className="font-semibold text-slate-800">
+                            {selectedTicket.station || "-"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">พื้นที่: </span>
+                          <span className="text-slate-800">
+                            {[
+                              selectedTicket.subdistrict && `ต.${selectedTicket.subdistrict}`,
+                              selectedTicket.district && `อ.${selectedTicket.district}`,
+                              selectedTicket.province && `จ.${selectedTicket.province}`,
+                            ]
+                              .filter(Boolean)
+                              .join(" ") || "-"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-4">
                     <Button
