@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { StationDocument } from "@/types/database"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
-import { STATIONS } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/stationsData"
 import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 export const fetchCache = "force-no-store"
 
-// Runtime in-memory fallback store
-const fallbackStations: StationDocument[] = [...STATIONS]
+// Runtime in-memory fallback store (strictly dynamic - zero mock data)
+const fallbackStations: StationDocument[] = []
 const deletedStationIds = new Set<string>()
 
 export async function GET(request: NextRequest) {

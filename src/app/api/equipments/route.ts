@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { EquipmentDocument } from "@/types/database"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
-import { ASSETS } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/assetsData"
 import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 import {
   getPersistentEquipments,
@@ -14,18 +13,6 @@ export const dynamic = "force-dynamic"
 export const revalidate = 0
 export const fetchCache = "force-no-store"
 
-// Runtime static baseline store
-const fallbackEquipments: EquipmentDocument[] = ASSETS.map((a) => ({
-  serial: a.serial,
-  vendor: a.vendor,
-  model: a.model,
-  category: a.category,
-  name: a.name,
-  description: a.description,
-  status: "active",
-  createdAt: "2026-09-25T02:38:12.148Z",
-  updatedAt: "2026-09-25T02:39:24.031Z",
-}))
 const deletedSerials = new Set<string>()
 
 export async function GET(request: NextRequest) {
@@ -108,15 +95,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fallback: persistent disk store + static assets
-    let list = [
-      ...persistentCustom,
-      ...fallbackEquipments.filter(
-        (e) =>
-          !deletedSerials.has(e.serial.toUpperCase()) &&
-          !persistentCustom.some((p) => p.serial.toUpperCase() === e.serial.toUpperCase())
-      ),
-    ]
+    // Fallback: persistent disk store (strictly dynamic - zero mock data)
+    let list = persistentCustom.filter((e) => !deletedSerials.has(e.serial.toUpperCase()))
 
     if (serial) {
       const found = list.find((e) => e.serial.toUpperCase() === serial.toUpperCase())
@@ -188,9 +168,9 @@ export async function POST(request: NextRequest) {
     }
 
     const persistentCustom = getPersistentEquipments()
-    const isDuplicateLocal =
-      persistentCustom.some((p) => p.serial.toUpperCase() === serial.toUpperCase()) ||
-      fallbackEquipments.some((f) => f.serial.toUpperCase() === serial.toUpperCase())
+    const isDuplicateLocal = persistentCustom.some(
+      (p) => p.serial.toUpperCase() === serial.toUpperCase()
+    )
 
     const nowIso = new Date().toISOString()
     const equipmentDoc: EquipmentDocument = {

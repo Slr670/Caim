@@ -23,7 +23,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ASSETS } from "./assetsData"
+import { type Asset } from "./assetsData"
 import { saveRmaApi } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useRmaQuery, type RmaItem } from "@/hooks/useRmaQuery"
@@ -37,45 +37,6 @@ interface ClaimCaseOption {
   model: string
   status: string
 }
-
-const AVAILABLE_CASES: ClaimCaseOption[] = [
-  {
-    id: "case-01",
-    caseNo: "FORTH-2026-002",
-    title: "บอร์ดส่งสัญญาณ SHF ชำรุด",
-    serialNo: "200426",
-    vendor: "Hytera",
-    model: "DIB-R5 outdoor",
-    status: "ส่งศูนย์",
-  },
-  {
-    id: "case-02",
-    caseNo: "FORTH-2026-001",
-    title: "Optical Transceiver ไม่ตอบสนอง",
-    serialNo: "1000167600349",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    status: "รับแจ้ง",
-  },
-  {
-    id: "case-03",
-    caseNo: "FORTH-2026-004",
-    title: "เพาเวอร์ซัพพลาย TaiShan 200 ดับ",
-    serialNo: "N02555009980",
-    vendor: "Huawei",
-    model: "TaiShan 200 Server 2280",
-    status: "ส่งศูนย์",
-  },
-  {
-    id: "case-04",
-    caseNo: "FORTH-2026-005",
-    title: "DMR Mobile Radio กำลังส่งตก",
-    serialNo: "1000167600350",
-    vendor: "Hytera",
-    model: "MD788G",
-    status: "รับแจ้ง",
-  },
-]
 
 function getInitialDateTime() {
   const now = new Date()
@@ -113,8 +74,8 @@ export function OverseasView() {
   const { isConnected } = useRealtimeSync()
 
   // State for available claim cases & equipments from DB
-  const [availableCases, setAvailableCases] = React.useState<ClaimCaseOption[]>(AVAILABLE_CASES)
-  const [equipmentsData, setEquipmentsData] = React.useState<(typeof ASSETS)>(ASSETS)
+  const [availableCases, setAvailableCases] = React.useState<ClaimCaseOption[]>([])
+  const [equipmentsData, setEquipmentsData] = React.useState<Asset[]>([])
 
   // Sync available tickets for case options from DB on mount
   React.useEffect(() => {
@@ -170,7 +131,7 @@ export function OverseasView() {
 
   // Equipment options from live DB equipments
   const equipmentOptions = React.useMemo(() => {
-    const map = new Map<string, (typeof ASSETS)[0]>()
+    const map = new Map<string, Asset>()
     for (const a of equipmentsData) {
       if (a.serial && !map.has(a.serial)) {
         map.set(a.serial, a)
@@ -1206,7 +1167,7 @@ export function OverseasView() {
                       className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
                     >
                       <option value="">ไม่ผูกกับเคส</option>
-                      {AVAILABLE_CASES.map((c) => (
+                      {availableCases.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.caseNo}: {c.title} — {c.model} (S/N: {c.serialNo})
                         </option>

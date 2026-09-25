@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.7] - 2026-09-25
+
+### Refactored & Purged
+- **Purge All Mock Data & Fallback Fixtures**:
+  - **Removed Hardcoded Mock Stores & Fallbacks**:
+    - Purged `INITIAL_FALLBACK_TICKETS` from `useRealtimeDashboard.ts` and set dashboard initial state to pure computed metrics (`calculateDashboardMetrics([])` = 0) until API response arrives.
+    - Purged `ASSETS` mock array baseline from `src/app/api/equipments/route.ts` and `src/hooks/useEquipmentsQuery.ts`; equipment query cache and fallbacks now start empty (`[]`) and bind strictly to live database records.
+    - Purged `AVAILABLE_CASES` mock array and `(typeof ASSETS)[0]` type reference from `OverseasView.tsx`; linked claim case dropdowns now resolve dynamic live tickets and database equipments.
+    - Purged `STATIONS` baseline fixture from `src/app/api/stations/route.ts`, `NewTicketView.tsx`, `TicketsView.tsx`, and `StationsView.tsx`; station lists and cascade filters now query exclusively from `/api/stations`.
+  - **Clean Empty-State UI Views**:
+    - Ensured every query reflects the true state of the database—when the database is empty (`[]` or `null`), the system cleanly renders authentic empty-state views (e.g., "ไม่พบข้อมูลอุปกรณ์", "ไม่พบเคสที่ตรงกับเงื่อนไขการค้นหา", "ไม่พบรายการส่งซ่อมต่างประเทศที่ตรงกับเงื่อนไข", "ไม่พบข้อมูลสถานีที่ค้นหา") rather than resurrecting static sample fixtures.
+  - **Unified Real-Time Dashboard & SSE Pipeline**:
+    - Updated `/api/realtime/stream` to integrate server-side persistent ticket storage fallback seamlessly with MongoDB Atlas for zero-latency metric broadcasting.
 
 ## [0.21.6] - 2026-09-25
 

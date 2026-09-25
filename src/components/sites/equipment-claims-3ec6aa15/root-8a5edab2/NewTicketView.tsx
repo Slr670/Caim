@@ -24,7 +24,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { type Asset } from "./assetsData"
-import { STATIONS, type Station } from "./stationsData"
+import { type Station } from "./stationsData"
 import { StoredTicket } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useEquipmentsQuery } from "@/hooks/useEquipmentsQuery"
@@ -38,7 +38,7 @@ export function NewTicketView() {
 
   // Database-backed states with unified equipment query cache
   const { equipments } = useEquipmentsQuery()
-  const [stations, setStations] = React.useState<Station[]>(STATIONS)
+  const [stations, setStations] = React.useState<Station[]>([])
 
   const [selectedSerial, setSelectedSerial] = React.useState<string>(initialSerial)
   const [deviceSearch, setDeviceSearch] = React.useState<string>("")

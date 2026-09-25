@@ -30,13 +30,13 @@ import {
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { type Station, STATIONS } from "./stationsData"
+import { type Station } from "./stationsData"
 import { saveStationApi, deleteStationApi } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 
 export function StationsView() {
-  const [stationsList, setStationsList] = React.useState<Station[]>(STATIONS)
-  const [isLoading, setIsLoading] = React.useState(false)
+  const [stationsList, setStationsList] = React.useState<Station[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
   const [searchQuery, setSearchQuery] = React.useState("")
   const [selectedHeight, setSelectedHeight] = React.useState<string>("all")
   const [selectedArea, setSelectedArea] = React.useState<string>("all")
@@ -87,9 +87,12 @@ export function StationsView() {
       const data = await res.json()
       if (data && data.success && Array.isArray(data.stations)) {
         setStationsList(data.stations)
+      } else {
+        setStationsList([])
       }
     } catch (err) {
-      console.warn("Could not fetch stations from database, using cached data", err)
+      console.warn("Could not fetch stations from database:", err)
+      setStationsList([])
     } finally {
       setIsLoading(false)
     }

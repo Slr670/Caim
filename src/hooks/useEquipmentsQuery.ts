@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Asset, ASSETS } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/assetsData"
+import { type Asset } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/assetsData"
 
 export const EQUIPMENTS_QUERY_KEY = ["equipments"] as const
 
@@ -15,13 +15,14 @@ export interface EquipmentQueryState {
 }
 
 // Global Singleton Query Cache Store
-let globalEquipmentsCache: Asset[] = [...ASSETS]
-let globalTotal: number = ASSETS.length
+let globalEquipmentsCache: Asset[] = []
+let globalTotal: number = 0
 let globalIsLoading: boolean = false
 let globalIsError: boolean = false
 let globalError: string | null = null
 let globalLastUpdated: number = 0
 let activeFetchPromise: Promise<Asset[]> | null = null
+let hasEverFetched: boolean = false
 
 const subscribers = new Set<() => void>()
 
@@ -42,7 +43,7 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
   const now = Date.now()
 
   // Use cached data if not forced and fetched recently (< 5 seconds)
-  if (!force && globalLastUpdated > 0 && now - globalLastUpdated < 5000 && globalEquipmentsCache.length > 0) {
+  if (!force && globalLastUpdated > 0 && now - globalLastUpdated < 5000 && hasEverFetched) {
     return globalEquipmentsCache
   }
 
@@ -78,7 +79,7 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
       if (data && data.success && Array.isArray(data.equipments)) {
         fetchedList = data.equipments
       } else {
-        fetchedList = ASSETS
+        fetchedList = []
       }
 
       globalEquipmentsCache = fetchedList
@@ -86,6 +87,7 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
       globalIsError = false
       globalError = null
       globalLastUpdated = Date.now()
+      hasEverFetched = true
 
       return fetchedList
     } catch (err: unknown) {

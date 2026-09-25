@@ -3,6 +3,7 @@ import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { calculateDashboardMetrics, TicketItem } from "@/lib/dashboard/calculateMetrics"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { TransactionLogDocument } from "@/types/database"
+import { getPersistentTickets } from "@/lib/storage/serverTicketStorage"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -22,6 +23,9 @@ export async function GET(req: NextRequest) {
           .sort({ createdAt: -1 })
           .toArray()
       }
+    }
+    if (tickets.length === 0) {
+      tickets = getPersistentTickets() as unknown as TicketItem[]
     }
     return calculateDashboardMetrics(tickets)
   }

@@ -21,7 +21,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { type Station, STATIONS } from "./stationsData"
+import { type Station } from "./stationsData"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useTicketsQuery, type Ticket } from "@/hooks/useTicketsQuery"
 
@@ -58,7 +58,7 @@ export function buildClaimFiltersQuery(filters: ClaimFilterParams): URLSearchPar
 
 export function TicketsView() {
   const { tickets, deleteTicket, updateTicket } = useTicketsQuery()
-  const [stationsList, setStationsList] = React.useState<Station[]>(STATIONS)
+  const [stationsList, setStationsList] = React.useState<Station[]>([])
 
   // Pagination States
   const [currentPage, setCurrentPage] = React.useState(1)
@@ -97,7 +97,7 @@ export function TicketsView() {
     fetch("/api/stations")
       .then((res) => res.json())
       .then((data) => {
-        if (data && data.success && Array.isArray(data.stations) && data.stations.length > 0) {
+        if (data && data.success && Array.isArray(data.stations)) {
           setStationsList(data.stations)
         }
       })

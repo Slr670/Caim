@@ -9,78 +9,9 @@ import {
 
 export type ConnectionStatus = "connected" | "connecting" | "fallback-polling"
 
-const INITIAL_FALLBACK_TICKETS: TicketItem[] = [
-  {
-    id: "1",
-    title: "หัวข้อเลขที่เคลม",
-    problemDesc: "หัวข้ออาการเสีย ปัญหาที่พบ",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    serialNo: "1000167600349",
-    status: "รับแจ้ง",
-    statusCode: 1,
-    date: "13 ก.ย. 2569",
-    ageDays: "10 วัน",
-    isOverdue: false,
-  },
-  {
-    id: "2",
-    title: "ทดสอบระบบ",
-    problemDesc: "ทดสอบระบบทดสอบระบบ",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    serialNo: "1000167600349",
-    status: "ปิดเคส",
-    statusCode: 5,
-    date: "10 ก.ย. 2569",
-    ageDays: "19 วัน",
-    isOverdue: false,
-  },
-  {
-    id: "3",
-    title: "test2",
-    problemDesc: "testtest",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    serialNo: "1000167600349",
-    status: "ส่งศูนย์",
-    statusCode: 2,
-    date: "9 ก.ย. 2569",
-    ageDays: "13 วัน",
-    isOverdue: false,
-  },
-  {
-    id: "4",
-    title: "FORTH-2026-002",
-    problemDesc: "บอร์ดเสีย",
-    vendor: "Huawei",
-    model: "PAC80S12-CN",
-    serialNo: "2102131835USR8305867",
-    status: "ส่งศูนย์",
-    statusCode: 2,
-    date: "9 ก.ย. 2569",
-    ageDays: "13 วัน",
-    isOverdue: true,
-    overdueText: "เกินกำหนด 8 วัน",
-  },
-  {
-    id: "5",
-    title: "test",
-    problemDesc: "testtest",
-    vendor: "Huawei",
-    model: "PAC80S12-CN",
-    serialNo: "2102131835USR8305867",
-    status: "ปฏิเสธเคลม",
-    statusCode: 6,
-    date: "8 ก.ย. 2569",
-    ageDays: "15 วัน",
-    isOverdue: false,
-  },
-]
-
 export function useRealtimeDashboard() {
   const [metrics, setMetrics] = React.useState<DashboardMetrics>(() =>
-    calculateDashboardMetrics(INITIAL_FALLBACK_TICKETS)
+    calculateDashboardMetrics([])
   )
   const [connectionStatus, setConnectionStatus] =
     React.useState<ConnectionStatus>("connecting")
