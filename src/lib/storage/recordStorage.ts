@@ -191,6 +191,19 @@ export function saveCustomAsset(asset: StoredAsset): void {
   }
 }
 
+export function removeCustomAsset(serial: string): void {
+  if (typeof window === "undefined") return
+  try {
+    const existing = getCustomAssets()
+    const filtered = existing.filter(
+      (a) => a.serial.toUpperCase() !== serial.toUpperCase()
+    )
+    localStorage.setItem(STORAGE_KEYS.CUSTOM_ASSETS, JSON.stringify(filtered))
+  } catch (err) {
+    console.error("Failed to remove custom asset from localStorage", err)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Transactional API Persistence Functions
 // ---------------------------------------------------------------------------
@@ -226,6 +239,7 @@ export async function saveAssetApi(
 }
 
 export async function deleteAssetApi(serial: string): Promise<{ success: boolean; message?: string }> {
+  removeCustomAsset(serial)
   try {
     const res = await fetch(`/api/equipments?serial=${encodeURIComponent(serial)}`, {
       method: "DELETE",

@@ -185,16 +185,22 @@ export function AssetsView() {
 
       showToast(`บันทึกอุปกรณ์ ${deviceData.serial} สำเร็จแล้ว`)
 
-      setTimeout(() => {
-        setIsAddModalOpen(false)
-        setEditingAsset(null)
-        setNewSerial("")
-        setNewName("")
-        setNewVendor("")
-        setNewModel("")
-        setNewCategory("")
-        setNewDescription("")
-      }, 500)
+      // On new equipment creation, reset search and filters and go to page 1 so it appears at top
+      if (!isEdit) {
+        setSearchQuery("")
+        setSelectedVendor("all")
+        setSelectedCategory("all")
+        setCurrentPage(1)
+      }
+
+      setIsAddModalOpen(false)
+      setEditingAsset(null)
+      setNewSerial("")
+      setNewName("")
+      setNewVendor("")
+      setNewModel("")
+      setNewCategory("")
+      setNewDescription("")
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการบันทึกอุปกรณ์"
       setErrorMessage(msg)

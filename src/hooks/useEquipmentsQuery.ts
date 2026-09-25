@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Asset, ASSETS } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/assetsData"
-import { getCustomAssets } from "@/lib/storage/recordStorage"
+import { getCustomAssets, saveCustomAsset, removeCustomAsset } from "@/lib/storage/recordStorage"
 
 export const EQUIPMENTS_QUERY_KEY = ["equipments"] as const
 
@@ -16,8 +16,25 @@ export interface EquipmentQueryState {
 }
 
 // Global Singleton In-Memory Query Cache Store
-let globalEquipmentsCache: Asset[] = [...ASSETS]
-let globalTotal: number = ASSETS.length
+function getInitialCache(): { cache: Asset[]; total: number } {
+  if (typeof window !== "undefined") {
+    try {
+      const localCustom = getCustomAssets()
+      if (localCustom.length > 0) {
+        const merged = [
+          ...localCustom,
+          ...ASSETS.filter((a) => !localCustom.some((c) => c.serial.toUpperCase() === a.serial.toUpperCase())),
+        ]
+        return { cache: merged, total: merged.length }
+      }
+    } catch {}
+  }
+  return { cache: [...ASSETS], total: ASSETS.length }
+}
+
+const initial = getInitialCache()
+let globalEquipmentsCache: Asset[] = initial.cache
+let globalTotal: number = initial.total
 let globalIsLoading: boolean = false
 let globalIsError: boolean = false
 let globalError: string | null = null
@@ -41,23 +58,33 @@ function broadcastCacheUpdate() {
  * legacy un-migrated localStorage records.
  */
 export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
-  // Return active in-flight request if already in progress
-  if (activeFetchPromise) {
-    return activeFetchPromise
-  }
+  const now = Date.now()
 
   // Use cached data if not forced and fetched recently (< 10 seconds)
-  const now = Date.now()
   if (!force && globalLastUpdated > 0 && now - globalLastUpdated < 10000 && globalEquipmentsCache.length > 0) {
     return globalEquipmentsCache
+  }
+
+  // If forced and there is an active request in flight, wait for it to finish first, then do a fresh fetch
+  if (force && activeFetchPromise) {
+    try {
+      await activeFetchPromise
+    } catch {
+      // ignore
+    }
+  } else if (!force && activeFetchPromise) {
+    return activeFetchPromise
   }
 
   globalIsLoading = true
   broadcastCacheUpdate()
 
-  activeFetchPromise = (async () => {
+  const currentPromise = (async () => {
     try {
-      const res = await fetch("/api/equipments", { cache: "no-store" })
+      const res = await fetch("/api/equipments", {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      })
       if (!res.ok) {
         throw new Error(`HTTP error ${res.status}`)
       }
@@ -94,7 +121,7 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
                 )
               )
 
-              // Append synced items
+              // Prepend local custom items at the top
               fetchedList = [...missingFromDb, ...fetchedList]
             }
           }
@@ -115,6 +142,23 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
       globalIsError = true
       globalError = message
       console.warn("[EquipmentsQuery] Fetch error, using cached fallback:", message)
+
+      if (typeof window !== "undefined") {
+        try {
+          const localCustom = getCustomAssets()
+          if (localCustom.length > 0) {
+            const merged = [
+              ...localCustom,
+              ...globalEquipmentsCache.filter(
+                (g) => !localCustom.some((c) => c.serial.toUpperCase() === g.serial.toUpperCase())
+              ),
+            ]
+            globalEquipmentsCache = merged
+            globalTotal = merged.length
+          }
+        } catch {}
+      }
+
       return globalEquipmentsCache
     } finally {
       globalIsLoading = false
@@ -123,7 +167,8 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
     }
   })()
 
-  return activeFetchPromise
+  activeFetchPromise = currentPromise
+  return currentPromise
 }
 
 /**
@@ -143,14 +188,9 @@ export function applyEquipmentMutation(action: "create" | "update" | "delete", d
   const targetSerial = data.serial.toUpperCase()
 
   if (action === "create") {
-    const exists = globalEquipmentsCache.some((item) => item.serial.toUpperCase() === targetSerial)
-    if (exists) {
-      globalEquipmentsCache = globalEquipmentsCache.map((item) =>
-        item.serial.toUpperCase() === targetSerial ? { ...item, ...(data as Asset) } : item
-      )
-    } else {
-      globalEquipmentsCache = [data as Asset, ...globalEquipmentsCache]
-    }
+    // Filter out duplicate if present and prepend strictly at top (index 0)
+    const filtered = globalEquipmentsCache.filter((item) => item.serial.toUpperCase() !== targetSerial)
+    globalEquipmentsCache = [data as Asset, ...filtered]
   } else if (action === "update") {
     globalEquipmentsCache = globalEquipmentsCache.map((item) =>
       item.serial.toUpperCase() === targetSerial ? { ...item, ...data } : item
@@ -211,7 +251,7 @@ export function useEquipmentsQuery() {
   }, [])
 
   // Create mutation
-  const createEquipment = React.useCallback(async (asset: Asset): Promise<{ success: boolean; error?: string }> => {
+  const createEquipment = React.useCallback(async (asset: Asset): Promise<{ success: boolean; error?: string; equipment?: Asset }> => {
     try {
       const res = await fetch("/api/equipments", {
         method: "POST",
@@ -223,9 +263,18 @@ export function useEquipmentsQuery() {
         throw new Error(data.error || "Failed to create equipment")
       }
 
-      applyEquipmentMutation("create", asset)
-      invalidateEquipmentsCache()
-      return { success: true }
+      const createdItem: Asset = data.equipment || asset
+
+      // Save to localStorage backup store so it survives offline/reload immediately
+      saveCustomAsset(createdItem)
+
+      // Optimistically place at the very top (index 0)
+      applyEquipmentMutation("create", createdItem)
+
+      // Trigger cache invalidation and wait for server confirmation
+      await invalidateEquipmentsCache()
+
+      return { success: true, equipment: createdItem }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to create equipment"
       return { success: false, error: message }
@@ -233,7 +282,7 @@ export function useEquipmentsQuery() {
   }, [])
 
   // Update mutation
-  const updateEquipment = React.useCallback(async (asset: Asset): Promise<{ success: boolean; error?: string }> => {
+  const updateEquipment = React.useCallback(async (asset: Asset): Promise<{ success: boolean; error?: string; equipment?: Asset }> => {
     try {
       const res = await fetch("/api/equipments", {
         method: "PUT",
@@ -245,9 +294,13 @@ export function useEquipmentsQuery() {
         throw new Error(data.error || "Failed to update equipment")
       }
 
-      applyEquipmentMutation("update", asset)
-      invalidateEquipmentsCache()
-      return { success: true }
+      const updatedItem: Asset = { ...asset }
+      saveCustomAsset(updatedItem)
+
+      applyEquipmentMutation("update", updatedItem)
+      await invalidateEquipmentsCache()
+
+      return { success: true, equipment: updatedItem }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to update equipment"
       return { success: false, error: message }
@@ -257,6 +310,7 @@ export function useEquipmentsQuery() {
   // Delete mutation
   const deleteEquipment = React.useCallback(async (serial: string): Promise<{ success: boolean; error?: string }> => {
     try {
+      removeCustomAsset(serial)
       const res = await fetch(`/api/equipments?serial=${encodeURIComponent(serial)}`, {
         method: "DELETE",
       })
@@ -266,7 +320,8 @@ export function useEquipmentsQuery() {
       }
 
       applyEquipmentMutation("delete", { serial })
-      invalidateEquipmentsCache()
+      await invalidateEquipmentsCache()
+
       return { success: true }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to delete equipment"

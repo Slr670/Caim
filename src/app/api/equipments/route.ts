@@ -3,10 +3,15 @@ import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { EquipmentDocument } from "@/types/database"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { ASSETS } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/assetsData"
+import {
+  getPersistentEquipments,
+  savePersistentEquipment,
+  deletePersistentEquipment,
+} from "@/lib/storage/serverEquipmentStorage"
 
 export const dynamic = "force-dynamic"
 
-// Runtime fallback store
+// Runtime static baseline store
 const fallbackEquipments: EquipmentDocument[] = ASSETS.map((a) => ({
   serial: a.serial,
   vendor: a.vendor,
@@ -15,8 +20,8 @@ const fallbackEquipments: EquipmentDocument[] = ASSETS.map((a) => ({
   name: a.name,
   description: a.description,
   status: "active",
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
+  createdAt: "2026-09-25T02:38:12.148Z",
+  updatedAt: "2026-09-25T02:39:24.031Z",
 }))
 const deletedSerials = new Set<string>()
 
@@ -29,53 +34,95 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get("category")
     const status = searchParams.get("status")
 
+    const persistentCustom = getPersistentEquipments()
+
     if (isMongoConfigured()) {
-      const db = await getDb()
-      if (db) {
-        const collection = db.collection<EquipmentDocument>("equipments")
+      try {
+        const db = await getDb()
+        if (db) {
+          const collection = db.collection<EquipmentDocument>("equipments")
 
-        if (serial) {
-          const item = await collection.findOne({
-            serial: { $regex: new RegExp(`^${serial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
-          })
-          if (item) {
-            return NextResponse.json({ success: true, equipment: item, source: "mongodb" })
+          if (serial) {
+            const item = await collection.findOne({
+              serial: { $regex: new RegExp(`^${serial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+            })
+            if (item) {
+              return NextResponse.json(
+                { success: true, equipment: item, source: "mongodb" },
+                { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } }
+              )
+            }
           }
+
+          const query: Record<string, unknown> = {}
+          if (vendor && vendor !== "all") query.vendor = vendor
+          if (category && category !== "all") query.category = category
+          if (status && status !== "all") query.status = status
+
+          if (search) {
+            const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            query.$or = [
+              { serial: { $regex: escaped, $options: "i" } },
+              { vendor: { $regex: escaped, $options: "i" } },
+              { model: { $regex: escaped, $options: "i" } },
+              { category: { $regex: escaped, $options: "i" } },
+              { name: { $regex: escaped, $options: "i" } },
+              { description: { $regex: escaped, $options: "i" } },
+              { stationName: { $regex: escaped, $options: "i" } },
+            ]
+          }
+
+          // Always sort with newest first (createdAt / updatedAt descending)
+          const mongoEquipments = await collection
+            .find(query)
+            .sort({ createdAt: -1, updatedAt: -1, _id: -1 })
+            .toArray()
+
+          // Sync any local persistent items to mongo if missing
+          if (persistentCustom.length > 0) {
+            for (const p of persistentCustom) {
+              if (!mongoEquipments.some((m) => m.serial.toUpperCase() === p.serial.toUpperCase())) {
+                await collection.updateOne({ serial: p.serial }, { $set: p }, { upsert: true }).catch(() => {})
+                mongoEquipments.unshift(p as unknown as typeof mongoEquipments[number])
+              }
+            }
+          }
+
+          return NextResponse.json(
+            {
+              success: true,
+              source: "mongodb",
+              total: mongoEquipments.length,
+              equipments: mongoEquipments,
+            },
+            {
+              headers: {
+                "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+              },
+            }
+          )
         }
-
-        const query: Record<string, unknown> = {}
-        if (vendor && vendor !== "all") query.vendor = vendor
-        if (category && category !== "all") query.category = category
-        if (status && status !== "all") query.status = status
-
-        if (search) {
-          const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-          query.$or = [
-            { serial: { $regex: escaped, $options: "i" } },
-            { vendor: { $regex: escaped, $options: "i" } },
-            { model: { $regex: escaped, $options: "i" } },
-            { category: { $regex: escaped, $options: "i" } },
-            { name: { $regex: escaped, $options: "i" } },
-            { description: { $regex: escaped, $options: "i" } },
-            { stationName: { $regex: escaped, $options: "i" } },
-          ]
-        }
-
-        const equipments = await collection.find(query).sort({ updatedAt: -1, serial: 1 }).toArray()
-        return NextResponse.json({
-          success: true,
-          source: "mongodb",
-          total: equipments.length,
-          equipments,
-        })
+      } catch (dbErr) {
+        console.warn("[Equipments API] MongoDB query failed, using persistent disk store:", dbErr)
       }
     }
 
-    // Fallback in-memory
-    let list = fallbackEquipments.filter((e) => !deletedSerials.has(e.serial.toUpperCase()))
+    // Fallback: persistent disk store + static assets
+    let list = [
+      ...persistentCustom,
+      ...fallbackEquipments.filter(
+        (e) =>
+          !deletedSerials.has(e.serial.toUpperCase()) &&
+          !persistentCustom.some((p) => p.serial.toUpperCase() === e.serial.toUpperCase())
+      ),
+    ]
+
     if (serial) {
       const found = list.find((e) => e.serial.toUpperCase() === serial.toUpperCase())
-      return NextResponse.json({ success: true, equipment: found || null, source: "local" })
+      return NextResponse.json(
+        { success: true, equipment: found || null, source: "persistent-local" },
+        { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } }
+      )
     }
 
     if (vendor && vendor !== "all") list = list.filter((e) => e.vendor === vendor)
@@ -93,12 +140,19 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({
-      success: true,
-      source: "local",
-      total: list.length,
-      equipments: list,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        source: "persistent-local",
+        total: list.length,
+        equipments: list,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        },
+      }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch equipments"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -134,6 +188,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const persistentCustom = getPersistentEquipments()
+    const isDuplicateLocal =
+      persistentCustom.some((p) => p.serial.toUpperCase() === serial.toUpperCase()) ||
+      fallbackEquipments.some((f) => f.serial.toUpperCase() === serial.toUpperCase())
+
     const nowIso = new Date().toISOString()
     const equipmentDoc: EquipmentDocument = {
       serial,
@@ -151,42 +210,65 @@ export async function POST(request: NextRequest) {
 
     let savedToMongo = false
     if (isMongoConfigured()) {
-      const db = await getDb()
-      if (db) {
-        const col = db.collection<EquipmentDocument>("equipments")
-        await col.updateOne(
-          { serial: { $regex: new RegExp(`^${serial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
-          { $set: equipmentDoc },
-          { upsert: true }
-        )
+      try {
+        const db = await getDb()
+        if (db) {
+          const col = db.collection<EquipmentDocument>("equipments")
 
-        // Keep assets collection synced
-        await db.collection("assets").updateOne(
-          { serial: { $regex: new RegExp(`^${serial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
-          { $set: equipmentDoc },
-          { upsert: true }
-        )
+          // Duplicate check: ensure serial is unique in MongoDB
+          const existing = await col.findOne({
+            serial: { $regex: new RegExp(`^${serial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          })
 
-        // Write transaction log
-        await db.collection("transaction_logs").insertOne({
-          id: `TX-EQUIP-${Date.now()}`,
-          action: "EQUIPMENT_CREATED",
-          targetType: "equipment",
-          targetId: serial,
-          details: { vendor, model, category, serial, stationId },
-          timestamp: nowIso,
-        })
+          if (existing) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: `หมายเลขอุปกรณ์ (Serial Number) "${serial}" มีอยู่ในฐานข้อมูลแล้ว กรุณาตรวจสอบหรือใช้เมนูแก้ไขข้อมูล`,
+              },
+              { status: 409 }
+            )
+          }
 
-        savedToMongo = true
+          // Mandatory database insert
+          await col.insertOne(equipmentDoc)
+
+          // Keep assets collection synced
+          await db.collection("assets").updateOne(
+            { serial: { $regex: new RegExp(`^${serial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
+            { $set: equipmentDoc },
+            { upsert: true }
+          )
+
+          // Write transactional audit log
+          await db.collection("transaction_logs").insertOne({
+            id: `TX-EQUIP-${Date.now()}`,
+            action: "EQUIPMENT_CREATED",
+            targetType: "equipment",
+            targetId: serial,
+            details: { vendor, model, category, serial, stationId },
+            timestamp: nowIso,
+          })
+
+          savedToMongo = true
+        }
+      } catch (dbErr) {
+        console.warn("[Equipments API] Could not write to MongoDB Atlas, saving to disk store:", dbErr)
       }
     }
 
-    const idx = fallbackEquipments.findIndex((e) => e.serial.toUpperCase() === serial.toUpperCase())
-    if (idx >= 0) {
-      fallbackEquipments[idx] = equipmentDoc
-    } else {
-      fallbackEquipments.unshift(equipmentDoc)
+    if (isDuplicateLocal && !savedToMongo) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `หมายเลขอุปกรณ์ (Serial Number) "${serial}" มีอยู่ในระบบแล้ว กรุณาตรวจสอบหรือใช้เมนูแก้ไขข้อมูล`,
+        },
+        { status: 409 }
+      )
     }
+
+    // Persist to disk store so it survives any server restart / worker recycle
+    savePersistentEquipment(equipmentDoc)
     deletedSerials.delete(serial.toUpperCase())
 
     // Broadcast real-time update
@@ -201,10 +283,13 @@ export async function POST(request: NextRequest) {
       {
         success: true,
         equipment: equipmentDoc,
-        savedTo: savedToMongo ? "mongodb" : "local-memory",
+        savedTo: savedToMongo ? "mongodb" : "persistent-local",
         message: "บันทึกข้อมูลอุปกรณ์สำเร็จแล้ว",
       },
-      { status: 201 }
+      {
+        status: 201,
+        headers: { "Cache-Control": "no-store" },
+      }
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to save equipment"
@@ -230,34 +315,40 @@ export async function PUT(request: NextRequest) {
 
     let updatedInMongo = false
     if (isMongoConfigured()) {
-      const db = await getDb()
-      if (db) {
-        await db.collection<EquipmentDocument>("equipments").updateOne(
-          { serial: { $regex: new RegExp(`^${trimmedSerial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
-          { $set: setFields }
-        )
-        await db.collection("assets").updateOne(
-          { serial: { $regex: new RegExp(`^${trimmedSerial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
-          { $set: setFields }
-        )
+      try {
+        const db = await getDb()
+        if (db) {
+          await db.collection<EquipmentDocument>("equipments").updateOne(
+            { serial: { $regex: new RegExp(`^${trimmedSerial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
+            { $set: setFields }
+          )
+          await db.collection("assets").updateOne(
+            { serial: { $regex: new RegExp(`^${trimmedSerial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
+            { $set: setFields }
+          )
 
-        // Write transaction log
-        await db.collection("transaction_logs").insertOne({
-          id: `TX-EQUIP-UPD-${Date.now()}`,
-          action: "EQUIPMENT_UPDATED",
-          targetType: "equipment",
-          targetId: trimmedSerial,
-          details: updates,
-          timestamp: nowIso,
-        })
+          // Write transaction log
+          await db.collection("transaction_logs").insertOne({
+            id: `TX-EQUIP-UPD-${Date.now()}`,
+            action: "EQUIPMENT_UPDATED",
+            targetType: "equipment",
+            targetId: trimmedSerial,
+            details: updates,
+            timestamp: nowIso,
+          })
 
-        updatedInMongo = true
+          updatedInMongo = true
+        }
+      } catch (dbErr) {
+        console.warn("[Equipments API] Could not update MongoDB Atlas:", dbErr)
       }
     }
 
-    const idx = fallbackEquipments.findIndex((e) => e.serial.toUpperCase() === trimmedSerial.toUpperCase())
-    if (idx >= 0) {
-      fallbackEquipments[idx] = { ...fallbackEquipments[idx], ...setFields }
+    // Update in persistent local disk store
+    const persistent = getPersistentEquipments()
+    const existingP = persistent.find((p) => p.serial.toUpperCase() === trimmedSerial.toUpperCase())
+    if (existingP) {
+      savePersistentEquipment({ ...existingP, ...setFields })
     }
 
     // Broadcast real-time update
@@ -268,12 +359,15 @@ export async function PUT(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      serial: trimmedSerial,
-      savedTo: updatedInMongo ? "mongodb" : "local-memory",
-      message: `อัปเดตข้อมูลอุปกรณ์ ${trimmedSerial} เรียบร้อยแล้ว`,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        serial: trimmedSerial,
+        savedTo: updatedInMongo ? "mongodb" : "persistent-local",
+        message: `อัปเดตข้อมูลอุปกรณ์ ${trimmedSerial} เรียบร้อยแล้ว`,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update equipment"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -302,33 +396,35 @@ export async function DELETE(request: NextRequest) {
 
     let deletedFromMongo = false
     if (isMongoConfigured()) {
-      const db = await getDb()
-      if (db) {
-        await db.collection("equipments").deleteOne({
-          serial: { $regex: new RegExp(`^${trimmedSerial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
-        })
-        await db.collection("assets").deleteOne({
-          serial: { $regex: new RegExp(`^${trimmedSerial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
-        })
+      try {
+        const db = await getDb()
+        if (db) {
+          await db.collection("equipments").deleteOne({
+            serial: { $regex: new RegExp(`^${trimmedSerial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          })
+          await db.collection("assets").deleteOne({
+            serial: { $regex: new RegExp(`^${trimmedSerial.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          })
 
-        // Write transaction log
-        await db.collection("transaction_logs").insertOne({
-          id: `TX-EQUIP-DEL-${Date.now()}`,
-          action: "EQUIPMENT_DELETED",
-          targetType: "equipment",
-          targetId: trimmedSerial,
-          details: { deletedAt: nowIso },
-          timestamp: nowIso,
-        })
+          // Write transaction log
+          await db.collection("transaction_logs").insertOne({
+            id: `TX-EQUIP-DEL-${Date.now()}`,
+            action: "EQUIPMENT_DELETED",
+            targetType: "equipment",
+            targetId: trimmedSerial,
+            details: { deletedAt: nowIso },
+            timestamp: nowIso,
+          })
 
-        deletedFromMongo = true
+          deletedFromMongo = true
+        }
+      } catch (dbErr) {
+        console.warn("[Equipments API] Could not delete from MongoDB Atlas:", dbErr)
       }
     }
 
-    const idx = fallbackEquipments.findIndex((e) => e.serial.toUpperCase() === trimmedSerial.toUpperCase())
-    if (idx >= 0) {
-      fallbackEquipments.splice(idx, 1)
-    }
+    // Delete from persistent local disk store
+    deletePersistentEquipment(trimmedSerial)
 
     // Broadcast real-time update
     realtimeEmitter.emit(REALTIME_EVENTS.EQUIPMENTS_CHANGED, {
@@ -338,12 +434,15 @@ export async function DELETE(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      serial: trimmedSerial,
-      deletedFrom: deletedFromMongo ? "mongodb" : "local-memory",
-      message: `ลบอุปกรณ์ ${trimmedSerial} เรียบร้อยแล้ว`,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        serial: trimmedSerial,
+        deletedFrom: deletedFromMongo ? "mongodb" : "persistent-local",
+        message: `ลบอุปกรณ์ ${trimmedSerial} เรียบร้อยแล้ว`,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete equipment"
     return NextResponse.json({ success: false, error: message }, { status: 500 })

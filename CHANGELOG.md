@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-09-25
+
+### Fixed & Improved
+- **Equipment Registry Persistence & Data Integrity (`AssetsView` & `/api/equipments`)**:
+  - **Permanent Multi-Tier Database & Disk Persistence**: Solved data loss on reload by implementing dual-layer persistence (MongoDB Atlas transactional collections `equipments`, `assets`, `transaction_logs` paired with persistent disk store `src/data/custom_equipments.json` and client-side `localStorage`), ensuring newly added devices are never lost even during network timeouts or worker recycles.
+  - **Duplicate Serial Number Rejection**: Added pre-insert uniqueness validation returning HTTP 409 Conflict with clear Thai guidance if a duplicate serial number is submitted, preventing accidental overwrites that kept the count static.
+  - **Dynamic Incrementing Total Counter**: Fixed total counter ('ทั้งหมด 644 รายการ') to dynamically increment upon adding a device (e.g. 644 -> 645) and retain the new count across page reloads and view changes.
+  - **Permanent Top-of-Table Sorting**: Updated `/api/equipments` to sort query results by `{ createdAt: -1, updatedAt: -1, _id: -1 }` and configured optimistic updates to prepend at index 0, ensuring newly added equipment appears permanently at the top of the table list.
+  - **Race-Condition & Stale-Cache Prevention in Query Hook (`useEquipmentsQuery`)**: Resolved in-flight fetch race condition where unawaited invalidations reverted newly added devices to stale cache. Pre-populated query cache from persistent store on mount and prevented fetch errors from purging custom records.
+  - **Form Submission & Viewport Reset**: Updated `handleSaveDevice` in `AssetsView` to automatically clear active search queries/filters and reset pagination to page 1 upon creating an equipment so the new row at the top is immediately visible.
+
 ## [0.21.2] - 2026-09-25
 
 ### Fixed & Improved
