@@ -19,6 +19,7 @@ import {
   X
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import packageInfo from "../../../../../package.json"
 
 interface AppShellProps {
   children: React.ReactNode
@@ -237,9 +238,10 @@ export function AppShell({ children }: AppShellProps) {
                     <span className="truncate text-sm font-medium text-foreground">
                       indykantanat
                     </span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      เจ้าหน้าที่
-                    </span>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground mt-0.5">
+                      <span>เจ้าหน้าที่</span>
+                      <span className="font-mono text-[10px] text-muted-foreground/70">v{packageInfo.version}</span>
+                    </div>
                   </div>
                 )}
               </button>

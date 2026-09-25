@@ -1,27 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
-import { dashboardEmitter, DASHBOARD_EVENTS } from "@/lib/events/dashboardEmitter"
+import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
+import { TicketDocument, EquipmentDocument, StationDocument } from "@/types/database"
 
-// Runtime fallback storage for created & deleted tickets when DB is connecting/offline
-interface TicketDocument {
-  id: string
-  title: string
-  problemDesc: string
-  vendor: string
-  model: string
-  serialNo: string
-  status: string
-  statusCode: number
-  date: string
-  ageDays: string
-  isOverdue?: boolean
-  overdueText?: string
-  station?: string
-  province?: string
-  district?: string
-  subdistrict?: string
-  createdAt?: string
-}
+export const dynamic = "force-dynamic"
 
 const fallbackTickets: TicketDocument[] = []
 const serverDeletedTicketIds = new Set<string>()
@@ -49,7 +31,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fallback if MongoDB is not configured or in transition
     if (id) {
       const found = fallbackTickets.find((t) => t.id === id)
       return NextResponse.json({ success: true, ticket: found || null })
@@ -78,49 +59,157 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const newTicket: TicketDocument = {
-      id: body.id || `TICKET-${Date.now()}`,
-      title: body.title,
-      problemDesc: body.problemDesc || "",
-      vendor: body.vendor || "Other",
-      model: body.model || "",
-      serialNo: body.serialNo || "",
-      status: body.status || "รับแจ้ง",
-      statusCode: body.statusCode || 1,
-      date: body.date || new Date().toLocaleDateString("th-TH", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      }),
-      ageDays: body.ageDays || "0 วัน",
-      isOverdue: Boolean(body.isOverdue),
-      overdueText: body.overdueText || "",
-      station: body.station || "",
-      province: body.province || "",
-      district: body.district || "",
-      subdistrict: body.subdistrict || "",
-      createdAt: new Date().toISOString(),
-    }
+    const ticketId = body.id || `CLM-${Date.now().toString().slice(-4)}`
+    const nowIso = new Date().toISOString()
+    const serialNo = String(body.serialNo || "").trim()
 
-    let savedToMongo = false
+    let stationId = body.stationId ? String(body.stationId).trim() : undefined
+    let stationName = body.station ? String(body.station).trim() : undefined
+    let province = body.province ? String(body.province).trim() : undefined
+    let district = body.district ? String(body.district).trim() : undefined
+    let subdistrict = body.subdistrict ? String(body.subdistrict).trim() : undefined
+
     if (isMongoConfigured()) {
       const db = await getDb()
       if (db) {
-        await db.collection<TicketDocument>("tickets").insertOne(newTicket)
-        savedToMongo = true
+        // 1. Resolve Station Reference if stationId is missing but station name is provided
+        if (!stationId && stationName) {
+          const foundStation = await db.collection<StationDocument>("stations").findOne({
+            name: { $regex: new RegExp(`^${stationName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          })
+          if (foundStation) {
+            stationId = foundStation.id
+            province = province || foundStation.province
+            district = district || foundStation.district
+            subdistrict = subdistrict || foundStation.subdistrict
+          }
+        } else if (stationId && !stationName) {
+          const foundStation = await db.collection<StationDocument>("stations").findOne({ id: stationId })
+          if (foundStation) {
+            stationName = foundStation.name
+            province = province || foundStation.province
+            district = district || foundStation.district
+            subdistrict = subdistrict || foundStation.subdistrict
+          }
+        }
+
+        // 2. Validate and Update Equipment Reference
+        if (serialNo && serialNo !== "-") {
+          const equipCol = db.collection<EquipmentDocument>("equipments")
+          await equipCol.updateOne(
+            { serial: { $regex: new RegExp(`^${serialNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
+            {
+              $set: {
+                status: "in_claim",
+                currentClaimId: ticketId,
+                stationId: stationId || undefined,
+                stationName: stationName || undefined,
+                updatedAt: nowIso,
+              },
+            }
+          )
+        }
+
+        // 3. Insert Ticket Document
+        const newTicketDoc: TicketDocument = {
+          id: ticketId,
+          title: body.title,
+          problemDesc: body.problemDesc || "",
+          vendor: body.vendor || "Other",
+          model: body.model || "-",
+          serialNo: serialNo || "-",
+          status: body.status || "รับแจ้ง",
+          statusCode: body.statusCode || 1,
+          date: body.date || new Date().toLocaleDateString("th-TH", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }),
+          ageDays: body.ageDays || "0 วัน",
+          isOverdue: Boolean(body.isOverdue),
+          overdueText: body.overdueText || "",
+          stationId,
+          station: stationName,
+          province,
+          district,
+          subdistrict,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        }
+
+        await db.collection<TicketDocument>("tickets").insertOne(newTicketDoc)
+
+        // 4. Record Transaction Log
+        await db.collection("transaction_logs").insertOne({
+          id: `TX-CLAIM-OPEN-${Date.now()}`,
+          action: "CLAIM_OPENED",
+          targetType: "ticket",
+          targetId: ticketId,
+          details: {
+            title: newTicketDoc.title,
+            serialNo: newTicketDoc.serialNo,
+            stationId: newTicketDoc.stationId,
+            station: newTicketDoc.station,
+            status: newTicketDoc.status,
+          },
+          timestamp: nowIso,
+        })
+
+        // 5. Real-Time Broadcast
+        realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
+          type: "ticket",
+          action: "create",
+          data: newTicketDoc,
+          timestamp: nowIso,
+        })
+        realtimeEmitter.emit(REALTIME_EVENTS.METRICS_CHANGED, {
+          type: "metrics",
+          action: "update",
+          data: {},
+          timestamp: nowIso,
+        })
+
+        return NextResponse.json({
+          success: true,
+          ticket: newTicketDoc,
+          savedTo: "mongodb",
+          message: "เปิดเคสแจ้งเคลมและบันทึกประวัติการทำรายการเรียบร้อยแล้ว",
+        })
       }
     }
 
-    // Also cache in fallback store
-    fallbackTickets.unshift(newTicket)
+    // Fallback store
+    const fallbackDoc: TicketDocument = {
+      id: ticketId,
+      title: body.title,
+      problemDesc: body.problemDesc || "",
+      vendor: body.vendor || "Other",
+      model: body.model || "-",
+      serialNo: serialNo || "-",
+      status: body.status || "รับแจ้ง",
+      statusCode: body.statusCode || 1,
+      date: body.date || new Date().toLocaleDateString("th-TH"),
+      ageDays: body.ageDays || "0 วัน",
+      stationId,
+      station: stationName,
+      province,
+      district,
+      subdistrict,
+      createdAt: nowIso,
+    }
+    fallbackTickets.unshift(fallbackDoc)
 
-    // Broadcast instant update to all connected dashboard SSE subscribers
-    dashboardEmitter.emit(DASHBOARD_EVENTS.TICKETS_CHANGED, { action: "create", ticket: newTicket })
+    realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
+      type: "ticket",
+      action: "create",
+      data: fallbackDoc,
+      timestamp: nowIso,
+    })
 
     return NextResponse.json({
       success: true,
-      ticket: newTicket,
-      savedTo: savedToMongo ? "mongodb" : "local-memory",
+      ticket: fallbackDoc,
+      savedTo: "local-memory",
       message: "บันทึกเคสแจ้งเคลมเรียบร้อยแล้ว",
     })
   } catch (error: unknown) {
@@ -141,19 +230,54 @@ export async function PUT(request: NextRequest) {
       )
     }
 
+    const nowIso = new Date().toISOString()
+    const setFields = { ...updates, updatedAt: nowIso }
+
     if (isMongoConfigured()) {
       const db = await getDb()
       if (db) {
-        await db.collection("tickets").updateOne({ id }, { $set: updates })
+        await db.collection("tickets").updateOne({ id }, { $set: setFields })
+
+        // If status changed to closed ("ปิดเคส"), free up equipment
+        if (updates.status === "ปิดเคส") {
+          const currentTicket = await db.collection<TicketDocument>("tickets").findOne({ id })
+          if (currentTicket && currentTicket.serialNo) {
+            await db.collection<EquipmentDocument>("equipments").updateOne(
+              { serial: currentTicket.serialNo },
+              { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
+            )
+          }
+        }
+
+        // Record Transaction Log
+        await db.collection("transaction_logs").insertOne({
+          id: `TX-CLAIM-UPD-${Date.now()}`,
+          action: "CLAIM_UPDATED",
+          targetType: "ticket",
+          targetId: id,
+          details: updates,
+          timestamp: nowIso,
+        })
       }
     }
 
     const idx = fallbackTickets.findIndex((t) => t.id === id)
     if (idx !== -1) {
-      fallbackTickets[idx] = { ...fallbackTickets[idx], ...updates }
+      fallbackTickets[idx] = { ...fallbackTickets[idx], ...setFields }
     }
 
-    dashboardEmitter.emit(DASHBOARD_EVENTS.TICKETS_CHANGED, { action: "update", id, updates })
+    realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
+      type: "ticket",
+      action: "update",
+      data: { id, updates: setFields },
+      timestamp: nowIso,
+    })
+    realtimeEmitter.emit(REALTIME_EVENTS.METRICS_CHANGED, {
+      type: "metrics",
+      action: "update",
+      data: {},
+      timestamp: nowIso,
+    })
 
     return NextResponse.json({
       success: true,
@@ -182,12 +306,32 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    const nowIso = new Date().toISOString()
     serverDeletedTicketIds.add(id)
 
     if (isMongoConfigured()) {
       const db = await getDb()
       if (db) {
+        const currentTicket = await db.collection<TicketDocument>("tickets").findOne({ id })
+        if (currentTicket && currentTicket.serialNo) {
+          // Free equipment
+          await db.collection<EquipmentDocument>("equipments").updateOne(
+            { serial: currentTicket.serialNo },
+            { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
+          )
+        }
+
         await db.collection("tickets").deleteOne({ id })
+
+        // Record Transaction Log
+        await db.collection("transaction_logs").insertOne({
+          id: `TX-CLAIM-DEL-${Date.now()}`,
+          action: "CLAIM_DELETED",
+          targetType: "ticket",
+          targetId: id,
+          details: { deletedAt: nowIso },
+          timestamp: nowIso,
+        })
       }
     }
 
@@ -196,19 +340,27 @@ export async function DELETE(request: NextRequest) {
       fallbackTickets.splice(idx, 1)
     }
 
-    dashboardEmitter.emit(DASHBOARD_EVENTS.TICKETS_CHANGED, { action: "delete", id })
+    realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
+      type: "ticket",
+      action: "delete",
+      data: { id },
+      timestamp: nowIso,
+    })
+    realtimeEmitter.emit(REALTIME_EVENTS.METRICS_CHANGED, {
+      type: "metrics",
+      action: "update",
+      data: {},
+      timestamp: nowIso,
+    })
 
     return NextResponse.json({
       success: true,
       id,
       message: `Ticket record ${id} has been permanently deleted from database.`,
-      timestamp: new Date().toISOString(),
+      timestamp: nowIso,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete ticket record"
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 }

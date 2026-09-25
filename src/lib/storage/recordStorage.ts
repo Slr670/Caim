@@ -1,9 +1,11 @@
-// Storage & API persistence helper for Ticket and RMA records
+// Storage & API persistence helper for CAIM system (Equipments, Stations, Tickets, RMA)
+
 export const STORAGE_KEYS = {
   DELETED_TICKETS: "forth_caim_deleted_ticket_ids_v1",
   DELETED_RMA: "forth_caim_deleted_rma_ids_v1",
   CUSTOM_TICKETS: "forth_caim_custom_tickets_v1",
   CUSTOM_ASSETS: "forth_caim_custom_assets_v1",
+  CUSTOM_STATIONS: "forth_caim_custom_stations_v1",
 }
 
 export interface StoredTicket {
@@ -19,15 +21,80 @@ export interface StoredTicket {
   ageDays: string
   isOverdue?: boolean
   overdueText?: string
+  stationId?: string
   station?: string
   province?: string
   district?: string
   subdistrict?: string
 }
 
-/**
- * Get the list of custom created tickets from localStorage
- */
+export interface StoredAsset {
+  serial: string
+  vendor: string
+  model: string
+  category: string
+  name?: string
+  description?: string
+  stationId?: string
+  stationName?: string
+  status?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface StoredStation {
+  id: string
+  code: string
+  name: string
+  subdistrict: string
+  district: string
+  province: string
+  area: string
+  zone: string
+  siteType: string
+  contractor: string
+  towerType: string
+  height: number
+  seaLevel: number
+  lat: number
+  lng: number
+  category: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface StoredRma {
+  id: string
+  rmaNo: string
+  caseName?: string
+  ticketId?: string
+  serialNo: string
+  vendor: string
+  model: string
+  destination?: string
+  status?: string
+  statusBadge?: "in_progress" | "returned"
+  statusBadgeText?: string
+  currentStageNumber?: number
+  totalStages?: number
+  currentStageName?: string
+  stageWaitDays?: string
+  openDate?: string
+  sentDate?: string
+  trackNo?: string
+  carrier?: string
+  notes?: string
+  remarks?: string
+  totalDays?: string
+  penaltyDays?: string
+  penaltyStandard?: string
+  isOverduePenalty?: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Custom Local Fallback Cache
+// ---------------------------------------------------------------------------
+
 export function getCustomTickets(): StoredTicket[] {
   if (typeof window === "undefined") return []
   try {
@@ -39,9 +106,6 @@ export function getCustomTickets(): StoredTicket[] {
   }
 }
 
-/**
- * Add or update a custom ticket in localStorage
- */
 export function addCustomTicket(ticket: StoredTicket): void {
   if (typeof window === "undefined") return
   try {
@@ -54,9 +118,6 @@ export function addCustomTicket(ticket: StoredTicket): void {
   }
 }
 
-/**
- * Get the list of permanently deleted ticket IDs from localStorage
- */
 export function getDeletedTicketIds(): string[] {
   if (typeof window === "undefined") return []
   try {
@@ -68,9 +129,6 @@ export function getDeletedTicketIds(): string[] {
   }
 }
 
-/**
- * Persist a deleted ticket ID to localStorage
- */
 export function addDeletedTicketId(id: string): void {
   if (typeof window === "undefined") return
   try {
@@ -84,9 +142,6 @@ export function addDeletedTicketId(id: string): void {
   }
 }
 
-/**
- * Get the list of permanently deleted RMA IDs from localStorage
- */
 export function getDeletedRmaIds(): string[] {
   if (typeof window === "undefined") return []
   try {
@@ -98,9 +153,6 @@ export function getDeletedRmaIds(): string[] {
   }
 }
 
-/**
- * Persist a deleted RMA ID to localStorage
- */
 export function addDeletedRmaId(id: string): void {
   if (typeof window === "undefined") return
   try {
@@ -114,66 +166,6 @@ export function addDeletedRmaId(id: string): void {
   }
 }
 
-/**
- * Send a delete request to the backend/database API for a ticket
- */
-export async function deleteTicketApi(id: string): Promise<{ success: boolean; message?: string }> {
-  try {
-    addDeletedTicketId(id)
-
-    const res = await fetch(`/api/tickets?id=${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-    })
-
-    if (!res.ok) {
-      console.warn(`API DELETE returned status ${res.status}, local persistence retained.`)
-    }
-
-    return { success: true, message: `เคส ${id} ถูกลบออกจากระบบอย่างถาวรแล้ว` }
-  } catch (err: unknown) {
-    console.warn("Backend API not reachable or network error, stored in local persistence", err)
-    return { success: true, message: `เคส ${id} ถูกลบออกจากเครื่องของคุณเรียบร้อยแล้ว` }
-  }
-}
-
-/**
- * Send a delete request to the backend/database API for an RMA record
- */
-export async function deleteRmaApi(id: string): Promise<{ success: boolean; message?: string }> {
-  try {
-    addDeletedRmaId(id)
-
-    const res = await fetch(`/api/rma?id=${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-    })
-
-    if (!res.ok) {
-      console.warn(`API DELETE returned status ${res.status}, local persistence retained.`)
-    }
-
-    return { success: true, message: `ใบ RMA ${id} ถูกลบออกจากระบบอย่างถาวรแล้ว` }
-  } catch (err: unknown) {
-    console.warn("Backend API not reachable or network error, stored in local persistence", err)
-    return { success: true, message: `ใบ RMA ${id} ถูกลบออกจากเครื่องของคุณเรียบร้อยแล้ว` }
-  }
-}
-
-export interface StoredAsset {
-  serial: string
-  vendor: string
-  model: string
-  category: string
-  name?: string
-  description?: string
-  createdAt?: string
-  updatedAt?: string
-}
-
-/**
- * Get the list of custom created assets from localStorage
- */
 export function getCustomAssets(): StoredAsset[] {
   if (typeof window === "undefined") return []
   try {
@@ -185,9 +177,6 @@ export function getCustomAssets(): StoredAsset[] {
   }
 }
 
-/**
- * Add or update a custom asset in localStorage
- */
 export function saveCustomAsset(asset: StoredAsset): void {
   if (typeof window === "undefined") return
   try {
@@ -202,31 +191,27 @@ export function saveCustomAsset(asset: StoredAsset): void {
   }
 }
 
-/**
- * Persist asset to both MongoDB API and localStorage
- */
+// ---------------------------------------------------------------------------
+// Transactional API Persistence Functions
+// ---------------------------------------------------------------------------
+
 export async function saveAssetApi(
   asset: StoredAsset
 ): Promise<{ success: boolean; asset?: StoredAsset; message?: string }> {
-  // 1. Immediately cache locally
   saveCustomAsset(asset)
-
   try {
-    // 2. HTTP POST to /api/assets
-    const res = await fetch("/api/assets", {
+    const res = await fetch("/api/equipments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(asset),
     })
-
     const data = await res.json()
     if (!res.ok || !data.success) {
       throw new Error(data.error || `HTTP error ${res.status}`)
     }
-
     return {
       success: true,
-      asset: data.asset || asset,
+      asset: data.equipment || asset,
       message: data.message || "บันทึกข้อมูลอุปกรณ์สำเร็จแล้ว",
     }
   } catch (err: unknown) {
@@ -237,5 +222,113 @@ export async function saveAssetApi(
       asset,
       message: "บันทึกข้อมูลลงเครื่องของคุณเรียบร้อยแล้ว (จะซิงก์เข้าฐานข้อมูลเมื่อเชื่อมต่อได้)",
     }
+  }
+}
+
+export async function deleteAssetApi(serial: string): Promise<{ success: boolean; message?: string }> {
+  try {
+    const res = await fetch(`/api/equipments?serial=${encodeURIComponent(serial)}`, {
+      method: "DELETE",
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || `HTTP error ${res.status}`)
+    return { success: true, message: data.message || `ลบอุปกรณ์ ${serial} เรียบร้อยแล้ว` }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to delete"
+    return { success: false, message: msg }
+  }
+}
+
+export async function saveStationApi(
+  station: StoredStation,
+  isEdit = false
+): Promise<{ success: boolean; station?: StoredStation; message?: string }> {
+  try {
+    const res = await fetch("/api/stations", {
+      method: isEdit ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(station),
+    })
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || `HTTP error ${res.status}`)
+    }
+    return {
+      success: true,
+      station: data.station || station,
+      message: data.message || "บันทึกข้อมูลสถานีสำเร็จแล้ว",
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาด"
+    return { success: false, message: msg }
+  }
+}
+
+export async function deleteStationApi(id: string): Promise<{ success: boolean; message?: string }> {
+  try {
+    const res = await fetch(`/api/stations?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || `HTTP error ${res.status}`)
+    return { success: true, message: data.message || `ลบสถานี ${id} เรียบร้อยแล้ว` }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to delete station"
+    return { success: false, message: msg }
+  }
+}
+
+export async function saveRmaApi(
+  rma: StoredRma,
+  isEdit = false
+): Promise<{ success: boolean; rma?: StoredRma; message?: string }> {
+  try {
+    const res = await fetch("/api/rma", {
+      method: isEdit ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rma),
+    })
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || `HTTP error ${res.status}`)
+    }
+    return {
+      success: true,
+      rma: data.rma || rma,
+      message: data.message || "บันทึกใบส่งซ่อมเรียบร้อยแล้ว",
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาด"
+    return { success: false, message: msg }
+  }
+}
+
+export async function deleteRmaApi(id: string): Promise<{ success: boolean; message?: string }> {
+  try {
+    addDeletedRmaId(id)
+    const res = await fetch(`/api/rma?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    })
+    const data = await res.json()
+    return { success: true, message: data.message || `ใบ RMA ${id} ถูกลบออกจากระบบเรียบร้อยแล้ว` }
+  } catch (err: unknown) {
+    console.warn("Backend API not reachable or network error, stored in local persistence", err)
+    return { success: true, message: `ใบ RMA ${id} ถูกลบออกจากเครื่องของคุณเรียบร้อยแล้ว` }
+  }
+}
+
+export async function deleteTicketApi(id: string): Promise<{ success: boolean; message?: string }> {
+  try {
+    addDeletedTicketId(id)
+    const res = await fetch(`/api/tickets?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    })
+    const data = await res.json()
+    return { success: true, message: data.message || `เคส ${id} ถูกลบออกจากระบบอย่างถาวรแล้ว` }
+  } catch (err: unknown) {
+    console.warn("Backend API not reachable or network error, stored in local persistence", err)
+    return { success: true, message: `เคส ${id} ถูกลบออกจากเครื่องของคุณเรียบร้อยแล้ว` }
   }
 }

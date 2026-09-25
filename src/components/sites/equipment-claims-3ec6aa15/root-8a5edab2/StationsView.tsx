@@ -22,14 +22,21 @@ import {
   Compass,
   Mountain,
   TowerControl,
-  Plus
+  Plus,
+  Edit2,
+  Trash2,
+  Loader2,
+  Wifi
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { type Station, STATIONS } from "./stationsData"
+import { saveStationApi, deleteStationApi } from "@/lib/storage/recordStorage"
+import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 
 export function StationsView() {
-  const [stationsList] = React.useState<Station[]>(STATIONS)
+  const [stationsList, setStationsList] = React.useState<Station[]>(STATIONS)
+  const [isLoading, setIsLoading] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState("")
   const [selectedHeight, setSelectedHeight] = React.useState<string>("all")
   const [selectedArea, setSelectedArea] = React.useState<string>("all")
@@ -38,7 +45,83 @@ export function StationsView() {
   const [pageSize, setPageSize] = React.useState<number>(25)
   const [currentPage, setCurrentPage] = React.useState<number>(1)
   const [copiedCode, setCopiedCode] = React.useState<string | null>(null)
+  const [toastMessage, setToastMessage] = React.useState<string | null>(null)
+
+  // Modals
   const [detailStation, setDetailStation] = React.useState<Station | null>(null)
+  const [isAddModalOpen, setIsAddModalOpen] = React.useState(false)
+  const [editingStation, setEditingStation] = React.useState<Station | null>(null)
+  const [deletingStation, setDeletingStation] = React.useState<Station | null>(null)
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  // Form states for Add/Edit
+  const [formData, setFormData] = React.useState({
+    name: "",
+    code: "",
+    subdistrict: "",
+    district: "",
+    province: "กาญจนบุรี",
+    area: "ภาคกลาง",
+    zone: "เขต 1",
+    siteType: "ที่ว่าการอำเภอ",
+    contractor: "FORTH",
+    towerType: "Self-Support",
+    height: 60,
+    seaLevel: 50,
+    lat: 14.0,
+    lng: 99.5,
+    category: "เสาสัญญาณหลัก 60 เมตร",
+  })
+
+  const showToast = React.useCallback((msg: string) => {
+    setToastMessage(msg)
+    setTimeout(() => setToastMessage(null), 3500)
+  }, [])
+
+  // Fetch stations from database
+  const fetchStations = React.useCallback(async () => {
+    try {
+      setIsLoading(true)
+      const res = await fetch("/api/stations", { cache: "no-store" })
+      if (!res.ok) throw new Error("Failed to load stations")
+      const data = await res.json()
+      if (data && data.success && Array.isArray(data.stations)) {
+        setStationsList(data.stations)
+      }
+    } catch (err) {
+      console.warn("Could not fetch stations from database, using cached data", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  // Real-time synchronization subscription
+  const { isConnected } = useRealtimeSync({
+    onStationChange: (raw) => {
+      const payload = raw as { action?: string; data?: Station } | undefined
+      if (!payload || !payload.data) return
+      const { action, data } = payload
+      setStationsList((prev) => {
+        if (action === "create") {
+          const exists = prev.some((s) => s.id === data.id)
+          return exists ? prev.map((s) => (s.id === data.id ? data : s)) : [data, ...prev]
+        }
+        if (action === "update") {
+          return prev.map((s) => (s.id === data.id ? { ...s, ...data } : s))
+        }
+        if (action === "delete") {
+          return prev.filter((s) => s.id !== data.id)
+        }
+        return prev
+      })
+      showToast("ข้อมูลสถานีได้รับการอัปเดตแบบเรียลไทม์")
+    },
+  })
+
+  // Initial load
+  React.useEffect(() => {
+    fetchStations()
+  }, [fetchStations])
 
   const deferredQuery = React.useDeferredValue(searchQuery)
 
@@ -67,32 +150,19 @@ export function StationsView() {
   const filtered = React.useMemo(() => {
     const q = deferredQuery.trim().toLowerCase()
     return stationsList.filter((s) => {
-      // Height filter
-      if (selectedHeight !== "all" && s.height !== Number(selectedHeight)) {
-        return false
-      }
-      // Area filter
-      if (selectedArea !== "all" && s.area !== selectedArea) {
-        return false
-      }
-      // Province filter
-      if (selectedProvince !== "all" && s.province !== selectedProvince) {
-        return false
-      }
-      // Site type filter
-      if (selectedSiteType !== "all" && s.siteType !== selectedSiteType) {
-        return false
-      }
-      // Search query
+      if (selectedHeight !== "all" && s.height !== Number(selectedHeight)) return false
+      if (selectedArea !== "all" && s.area !== selectedArea) return false
+      if (selectedProvince !== "all" && s.province !== selectedProvince) return false
+      if (selectedSiteType !== "all" && s.siteType !== selectedSiteType) return false
       if (q) {
         const matchesName = s.name.toLowerCase().includes(q)
         const matchesCode = s.code.toLowerCase().includes(q)
         const matchesProvince = s.province.toLowerCase().includes(q)
         const matchesDistrict = s.district.toLowerCase().includes(q)
         const matchesSubdistrict = s.subdistrict.toLowerCase().includes(q)
-        const matchesZone = s.zone.toLowerCase().includes(q)
-        const matchesCategory = s.category.toLowerCase().includes(q)
-        const matchesSiteType = s.siteType.toLowerCase().includes(q)
+        const matchesZone = s.zone ? s.zone.toLowerCase().includes(q) : false
+        const matchesCategory = s.category ? s.category.toLowerCase().includes(q) : false
+        const matchesSiteType = s.siteType ? s.siteType.toLowerCase().includes(q) : false
         if (
           !matchesName &&
           !matchesCode &&
@@ -110,71 +180,56 @@ export function StationsView() {
     })
   }, [stationsList, deferredQuery, selectedHeight, selectedArea, selectedProvince, selectedSiteType])
 
-  // Reset page when filter changes
+  // Reset page on filter changes
   React.useEffect(() => {
     setCurrentPage(1)
   }, [deferredQuery, selectedHeight, selectedArea, selectedProvince, selectedSiteType, pageSize])
 
-  // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const paginatedStations = React.useMemo(() => {
     const start = (currentPage - 1) * pageSize
     return filtered.slice(start, start + pageSize)
   }, [filtered, currentPage, pageSize])
 
-  // Copy handler
   const handleCopyCode = (code: string) => {
     navigator.clipboard.writeText(code)
     setCopiedCode(code)
-    setTimeout(() => setCopiedCode(null), 2000)
+    setTimeout(() => setCopiedCode(null), 1500)
   }
 
-  // Reset all filters
-  const handleResetFilters = () => {
-    setSearchQuery("")
-    setSelectedHeight("all")
-    setSelectedArea("all")
-    setSelectedProvince("all")
-    setSelectedSiteType("all")
-    setCurrentPage(1)
-  }
-
-  // Export CSV
   const handleExportCSV = () => {
     const headers = [
-      "รหัสสถานี",
-      "ชื่อสถานที่ติดตั้ง",
-      "ตำบล",
-      "อำเภอ",
-      "จังหวัด",
-      "ภาค",
-      "เขตศูนย์สื่อสาร",
-      "ความสูงเสา (เมตร)",
-      "ชนิดเสา",
-      "ผู้รับเหมา",
-      "พื้นที่ติดตั้ง",
-      "Sea Level (ม.)",
-      "Latitude",
-      "Longitude",
-      "หมวดหมู่"
+      "รหัสสถานี (Code)",
+      "ชื่อสถานี (Station Name)",
+      "ประเภทสถานที่ (Site Type)",
+      "ความสูงเสา (Height m)",
+      "ชนิดเสา (Tower Type)",
+      "ตำบล (Subdistrict)",
+      "อำเภอ (District)",
+      "จังหวัด (Province)",
+      "ภาค (Area)",
+      "เขต (Zone)",
+      "ละติจูด (Lat)",
+      "ลองจิจูด (Lng)",
+      "ระดับน้ำทะเล (Sea Level m)",
+      "ผู้รับเหมา (Contractor)",
     ]
 
-    const rows = filtered.map((s) => [
-      `"${s.code}"`,
-      `"${s.name.replace(/"/g, '""')}"`,
-      `"${s.subdistrict.replace(/"/g, '""')}"`,
-      `"${s.district.replace(/"/g, '""')}"`,
-      `"${s.province.replace(/"/g, '""')}"`,
-      `"${s.area.replace(/"/g, '""')}"`,
-      `"${s.zone.replace(/"/g, '""')}"`,
-      s.height,
-      `"${s.towerType.replace(/"/g, '""')}"`,
-      `"${s.contractor.replace(/"/g, '""')}"`,
-      `"${s.siteType.replace(/"/g, '""')}"`,
-      s.seaLevel,
-      s.lat,
-      s.lng,
-      `"${s.category.replace(/"/g, '""')}"`
+    const rows = filtered.map((item) => [
+      `"${item.code}"`,
+      `"${item.name.replace(/"/g, '""')}"`,
+      `"${item.siteType}"`,
+      item.height,
+      `"${item.towerType || ""}"`,
+      `"${item.subdistrict}"`,
+      `"${item.district}"`,
+      `"${item.province}"`,
+      `"${item.area}"`,
+      `"${item.zone || ""}"`,
+      item.lat,
+      item.lng,
+      item.seaLevel,
+      `"${item.contractor || ""}"`,
     ])
 
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n")
@@ -188,7 +243,108 @@ export function StationsView() {
     document.body.removeChild(link)
   }
 
-  // KPI Calculations
+  // Handle Create or Update Station
+  const handleSaveStation = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name.trim()) return
+
+    setIsSubmitting(true)
+    const isEdit = Boolean(editingStation)
+    const payload = {
+      id: editingStation ? editingStation.id : `st-${Date.now()}`,
+      code: formData.code.trim() || `ST-${String(Math.floor(Math.random() * 900 + 100))}`,
+      name: formData.name.trim(),
+      subdistrict: formData.subdistrict.trim(),
+      district: formData.district.trim(),
+      province: formData.province.trim(),
+      area: formData.area.trim(),
+      zone: formData.zone.trim(),
+      siteType: formData.siteType.trim(),
+      contractor: formData.contractor.trim(),
+      towerType: formData.towerType.trim(),
+      height: Number(formData.height) || 60,
+      seaLevel: Number(formData.seaLevel) || 0,
+      lat: Number(formData.lat) || 0,
+      lng: Number(formData.lng) || 0,
+      category: formData.category.trim(),
+    }
+
+    const res = await saveStationApi(payload, isEdit)
+    setIsSubmitting(false)
+
+    if (res.success) {
+      if (isEdit) {
+        setStationsList((prev) => prev.map((s) => (s.id === payload.id ? (res.station as Station) || payload : s)))
+      } else {
+        setStationsList((prev) => [(res.station as Station) || payload, ...prev])
+      }
+      setIsAddModalOpen(false)
+      setEditingStation(null)
+      showToast(res.message || "บันทึกข้อมูลสถานีสำเร็จแล้ว")
+    } else {
+      showToast(res.message || "เกิดข้อผิดพลาดในการบันทึก")
+    }
+  }
+
+  // Handle Delete Station
+  const handleDeleteStation = async () => {
+    if (!deletingStation) return
+    setIsSubmitting(true)
+    const res = await deleteStationApi(deletingStation.id)
+    setIsSubmitting(false)
+    if (res.success) {
+      setStationsList((prev) => prev.filter((s) => s.id !== deletingStation.id))
+      setDeletingStation(null)
+      showToast(res.message || "ลบสถานีเรียบร้อยแล้ว")
+    } else {
+      showToast(res.message || "เกิดข้อผิดพลาดในการลบ")
+    }
+  }
+
+  const openEditModal = (station: Station) => {
+    setEditingStation(station)
+    setFormData({
+      name: station.name,
+      code: station.code,
+      subdistrict: station.subdistrict,
+      district: station.district,
+      province: station.province,
+      area: station.area,
+      zone: station.zone || "",
+      siteType: station.siteType,
+      contractor: station.contractor || "FORTH",
+      towerType: station.towerType || "Self-Support",
+      height: station.height,
+      seaLevel: station.seaLevel,
+      lat: station.lat,
+      lng: station.lng,
+      category: station.category,
+    })
+    setIsAddModalOpen(true)
+  }
+
+  const openAddModal = () => {
+    setEditingStation(null)
+    setFormData({
+      name: "",
+      code: `ST-${String(Math.floor(Math.random() * 900 + 100))}`,
+      subdistrict: "",
+      district: "",
+      province: provinces[0] || "กาญจนบุรี",
+      area: "ภาคกลาง",
+      zone: "เขต 1",
+      siteType: "ที่ว่าการอำเภอ",
+      contractor: "FORTH",
+      towerType: "Self-Support",
+      height: 60,
+      seaLevel: 50,
+      lat: 14.0,
+      lng: 99.5,
+      category: "เสาสัญญาณหลัก 60 เมตร",
+    })
+    setIsAddModalOpen(true)
+  }
+
   const statsTotal = stationsList.length
   const stats60m = stationsList.filter((s) => s.height === 60).length
   const statsRepeaters = stationsList.filter((s) => s.height < 60).length
@@ -204,6 +360,14 @@ export function StationsView() {
   return (
     <main id="main" className="flex-1 bg-background">
       <div className="mx-auto flex max-w-350 flex-col gap-6 px-4 py-5 sm:px-6 sm:py-6">
+        {/* Toast Notification */}
+        {toastMessage && (
+          <div className="fixed top-5 right-5 z-50 flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-xs font-semibold text-white shadow-xl animate-in slide-in-from-top-2">
+            <Check className="size-4" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+
         {/* Breadcrumb and Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -228,11 +392,19 @@ export function StationsView() {
                 <Radio className="size-6 text-brand-gold" />
               </span>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-                  จัดการข้อมูลสถานีและจุดติดตั้งเสาสัญญาณ
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                    จัดการข้อมูลสถานีและจุดติดตั้งเสาสัญญาณ
+                  </h1>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    isConnected ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"
+                  }`}>
+                    <Wifi className="size-3" />
+                    {isConnected ? "ซิงก์เรียลไทม์" : "ออฟไลน์/แคช"}
+                  </span>
+                </div>
                 <p className="text-xs sm:text-sm text-muted-foreground">
-                  ทะเบียนข้อมูลสถานีฐานและจุดติดตั้งเสารับ-ส่งสัญญาณระบบวิทยุ SHF ในพื้นที่ 10 จังหวัด (รวม 197 จุดติดตั้ง)
+                  ทะเบียนข้อมูลสถานีฐานและจุดติดตั้งเสารับ-ส่งสัญญาณระบบวิทยุ SHF ในพื้นที่ 10 จังหวัด (รวม {statsTotal} จุดติดตั้ง)
                 </p>
               </div>
             </div>
@@ -248,6 +420,14 @@ export function StationsView() {
               <Download className="size-3.5" />
               ส่งออก CSV
             </Button>
+            <Button
+              size="sm"
+              onClick={openAddModal}
+              className="h-9 gap-1.5 bg-brand text-white hover:bg-brand/90 text-xs font-medium shadow-xs"
+            >
+              <Plus className="size-3.5" />
+              เพิ่มสถานีใหม่
+            </Button>
             <Link href="/tickets/new">
               <Button
                 size="sm"
@@ -260,222 +440,208 @@ export function StationsView() {
           </div>
         </div>
 
-        {/* KPI Summary Cards */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-          <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-xs font-medium">สถานีทั้งหมด</span>
-              <Radio className="size-4 text-brand-navy" />
+        {/* 4 Stat Overview Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-border bg-card p-4 shadow-xs flex items-center justify-between">
+            <div>
+              <span className="text-xs font-medium text-muted-foreground">จุดติดตั้งทั้งหมด</span>
+              <p className="text-2xl font-bold tracking-tight text-foreground mt-1">
+                {statsTotal} <span className="text-xs font-normal text-muted-foreground">สถานี</span>
+              </p>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-foreground">{statsTotal}</span>
-              <span className="text-xs text-muted-foreground">จุดติดตั้ง</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">โครงข่ายวิทยุสื่อสาร SHF</p>
+            <span className="flex size-10 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
+              <MapPin className="size-5" />
+            </span>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-xs font-medium">เสาหลัก 60 ม.</span>
-              <TowerControl className="size-4 text-blue-600" />
+          <div className="rounded-xl border border-border bg-card p-4 shadow-xs flex items-center justify-between">
+            <div>
+              <span className="text-xs font-medium text-muted-foreground">เสาหลัก 60 เมตร</span>
+              <p className="text-2xl font-bold tracking-tight text-foreground mt-1">
+                {stats60m} <span className="text-xs font-normal text-muted-foreground">ต้น</span>
+              </p>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-blue-700">{stats60m}</span>
-              <span className="text-xs text-muted-foreground">สถานีหลัก</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">8 ที่ว่าการอำเภอ + 8 สถานีฐาน</p>
+            <span className="flex size-10 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600">
+              <TowerControl className="size-5" />
+            </span>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-xs font-medium">เสารับ-ส่ง 9-30 ม.</span>
-              <Building2 className="size-4 text-emerald-600" />
+          <div className="rounded-xl border border-border bg-card p-4 shadow-xs flex items-center justify-between">
+            <div>
+              <span className="text-xs font-medium text-muted-foreground">สถานีทวนสัญญาณ (ต่ำกว่า 60 ม.)</span>
+              <p className="text-2xl font-bold tracking-tight text-foreground mt-1">
+                {statsRepeaters} <span className="text-xs font-normal text-muted-foreground">ต้น</span>
+              </p>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-emerald-700">{statsRepeaters}</span>
-              <span className="text-xs text-muted-foreground">จุดเชื่อมโยง</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">กระจายตามระดับตำบล/หมู่บ้าน</p>
+            <span className="flex size-10 items-center justify-center rounded-lg bg-purple-500/10 text-purple-600">
+              <Radio className="size-5" />
+            </span>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span className="text-xs font-medium">พื้นที่ให้บริการ</span>
-              <MapPin className="size-4 text-amber-600" />
+          <div className="rounded-xl border border-border bg-card p-4 shadow-xs flex items-center justify-between">
+            <div>
+              <span className="text-xs font-medium text-muted-foreground">พื้นที่ครอบคลุม</span>
+              <p className="text-2xl font-bold tracking-tight text-foreground mt-1">
+                {statsProvinces} <span className="text-xs font-normal text-muted-foreground">จังหวัด</span>
+              </p>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-amber-700">{statsProvinces}</span>
-              <span className="text-xs text-muted-foreground">จังหวัด</span>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">ครอบคลุม 5 ภาคทั่วประเทศ</p>
+            <span className="flex size-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+              <Building2 className="size-5" />
+            </span>
           </div>
         </div>
 
         {/* Filter Toolbar */}
-        <div className="rounded-xl border border-border bg-card p-4 shadow-xs flex flex-col gap-3.5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            {/* Search */}
-            <div className="relative w-full sm:max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+        <div className="rounded-xl border border-border bg-card p-4 shadow-xs flex flex-col gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            {/* Search Input */}
+            <div className="relative sm:col-span-2">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input
-                placeholder="ค้นหาชื่อสถานี, รหัส, ตำบล, อำเภอ, จังหวัด หรือศูนย์สื่อสาร..."
+                placeholder="ค้นหาชื่อสถานี, รหัส, จังหวัด, อำเภอ, ตำบล..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 h-9 text-xs"
               />
             </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              {hasActiveFilters && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleResetFilters}
-                  className="h-9 gap-1 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <RotateCcw className="size-3.5" />
-                  ล้างตัวกรอง
-                </Button>
-              )}
-              <span className="text-xs text-muted-foreground">
-                พบ <strong className="text-foreground">{filtered.length}</strong> จาก {statsTotal} รายการ
-              </span>
-            </div>
+            {/* Province Filter */}
+            <select
+              value={selectedProvince}
+              onChange={(e) => setSelectedProvince(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+            >
+              <option value="all">ทุกจังหวัด ({provinces.length})</option>
+              {provinces.map((prov) => (
+                <option key={prov} value={prov}>
+                  {prov}
+                </option>
+              ))}
+            </select>
+
+            {/* Height Filter */}
+            <select
+              value={selectedHeight}
+              onChange={(e) => setSelectedHeight(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+            >
+              <option value="all">ทุกความสูงเสา ({heights.length})</option>
+              {heights.map((h) => (
+                <option key={h} value={String(h)}>
+                  {h} เมตร
+                </option>
+              ))}
+            </select>
+
+            {/* Area Filter */}
+            <select
+              value={selectedArea}
+              onChange={(e) => setSelectedArea(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+            >
+              <option value="all">ทุกภาค ({areas.length})</option>
+              {areas.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+
+            {/* Site Type Filter */}
+            <select
+              value={selectedSiteType}
+              onChange={(e) => setSelectedSiteType(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+            >
+              <option value="all">ทุกสถานที่ ({siteTypes.length})</option>
+              {siteTypes.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Filter Dropdowns Grid */}
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-            {/* ความสูงเสา */}
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                ความสูงเสา
-              </label>
-              <select
-                value={selectedHeight}
-                onChange={(e) => setSelectedHeight(e.target.value)}
-                className="w-full h-8.5 rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:border-brand-navy focus:outline-none"
+          {/* Active Filter Row & Reset */}
+          {hasActiveFilters && (
+            <div className="flex items-center justify-between border-t border-border pt-2.5 text-xs text-muted-foreground">
+              <span>พบทั้งหมด {filtered.length} สถานีจากตัวกรอง</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("")
+                  setSelectedHeight("all")
+                  setSelectedArea("all")
+                  setSelectedProvince("all")
+                  setSelectedSiteType("all")
+                }}
+                className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1"
               >
-                <option value="all">ความสูงเสาทั้งหมด</option>
-                {heights.map((h) => (
-                  <option key={h} value={h}>
-                    เสาสูง {h} เมตร {h === 60 ? "(เสาหลัก)" : ""}
-                  </option>
-                ))}
-              </select>
+                <RotateCcw className="size-3" />
+                ล้างตัวกรองทั้งหมด
+              </Button>
             </div>
-
-            {/* ภาค */}
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                ภูมิภาค
-              </label>
-              <select
-                value={selectedArea}
-                onChange={(e) => setSelectedArea(e.target.value)}
-                className="w-full h-8.5 rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:border-brand-navy focus:outline-none"
-              >
-                <option value="all">ทุกภูมิภาค</option>
-                {areas.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* จังหวัด */}
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                จังหวัด
-              </label>
-              <select
-                value={selectedProvince}
-                onChange={(e) => setSelectedProvince(e.target.value)}
-                className="w-full h-8.5 rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:border-brand-navy focus:outline-none"
-              >
-                <option value="all">ทุกจังหวัด (10 จังหวัด)</option>
-                {provinces.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* ชนิดพื้นที่ติดตั้ง */}
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-muted-foreground">
-                สถานที่ติดตั้ง
-              </label>
-              <select
-                value={selectedSiteType}
-                onChange={(e) => setSelectedSiteType(e.target.value)}
-                className="w-full h-8.5 rounded-lg border border-border bg-background px-2.5 text-xs text-foreground focus:border-brand-navy focus:outline-none"
-              >
-                <option value="all">ทุกสถานที่ติดตั้ง</option>
-                {siteTypes.map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          )}
         </div>
 
-        {/* Table Container */}
+        {/* Stations Table */}
         <div className="rounded-xl border border-border bg-card shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-border bg-muted/50 font-semibold text-muted-foreground">
-                <tr>
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border bg-muted/40 text-muted-foreground font-medium">
+                  <th className="py-3 px-4 w-12 text-center">#</th>
                   <th className="py-3 px-4 w-28">รหัสสถานี</th>
-                  <th className="py-3 px-4 min-w-56">ชื่อสถานที่ติดตั้ง</th>
-                  <th className="py-3 px-4 text-center w-24">ความสูงเสา</th>
-                  <th className="py-3 px-4">ตำบล / อำเภอ</th>
-                  <th className="py-3 px-4">จังหวัด / ภาค</th>
-                  <th className="py-3 px-4">พิกัด GPS & Sea Level</th>
-                  <th className="py-3 px-4 text-right w-24">การจัดการ</th>
+                  <th className="py-3 px-4 min-w-56">ชื่อสถานี / สถานที่ติดตั้ง</th>
+                  <th className="py-3 px-4 text-center">ความสูงเสา</th>
+                  <th className="py-3 px-4 min-w-36">ตำบล / อำเภอ</th>
+                  <th className="py-3 px-4 min-w-36">จังหวัด / เขต</th>
+                  <th className="py-3 px-4 min-w-36">พิกัด GPS</th>
+                  <th className="py-3 px-4 text-right w-36">จัดการ</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/70">
-                {paginatedStations.length === 0 ? (
+              <tbody className="divide-y divide-border">
+                {isLoading && paginatedStations.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                    <td colSpan={8} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
-                        <Radio className="size-8 text-muted-foreground/50" />
-                        <p className="text-sm font-medium">ไม่พบข้อมูลสถานีที่ตรงกับเงื่อนไขการค้นหา</p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleResetFilters}
-                          className="mt-2 text-xs"
-                        >
-                          ล้างตัวกรองทั้งหมด
-                        </Button>
+                        <Loader2 className="size-6 animate-spin text-brand" />
+                        <span>กำลังโหลดข้อมูลสถานีจากฐานข้อมูลกลาง...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : paginatedStations.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <MapPin className="size-8 text-muted-foreground/40" />
+                        <span className="font-medium text-foreground">ไม่พบข้อมูลสถานีที่ค้นหา</span>
+                        <span className="text-xs">ลองเปลี่ยนคำค้นหาหรือล้างตัวกรองเพื่อดูข้อมูลทั้งหมด</span>
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  paginatedStations.map((item) => (
-                    <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                  paginatedStations.map((item, idx) => (
+                    <tr
+                      key={item.id}
+                      className="hover:bg-muted/30 transition-colors group"
+                    >
+                      <td className="py-3.5 px-4 text-center font-mono text-muted-foreground">
+                        {(currentPage - 1) * pageSize + idx + 1}
+                      </td>
+
                       {/* Code */}
-                      <td className="py-3.5 px-4 font-mono font-medium text-foreground">
+                      <td className="py-3.5 px-4">
                         <div className="flex items-center gap-1.5">
-                          <span
-                            className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-wide ${
-                              item.height === 60
-                                ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200"
-                                : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                            }`}
-                          >
+                          <span className="font-mono font-bold text-foreground">
                             {item.code}
                           </span>
                           <button
                             type="button"
                             onClick={() => handleCopyCode(item.code)}
+                            className="text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                             title="คัดลอกรหัสสถานี"
-                            className="text-muted-foreground hover:text-foreground transition-colors"
                           >
                             {copiedCode === item.code ? (
                               <Check className="size-3 text-emerald-600" />
@@ -487,25 +653,15 @@ export function StationsView() {
                       </td>
 
                       {/* Name & Site Type */}
-                      <td className="py-3.5 px-4 font-medium text-foreground">
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-1.5">
-                            {item.height === 60 ? (
-                              <TowerControl className="size-3.5 text-blue-600 shrink-0" />
-                            ) : (
-                              <Building2 className="size-3.5 text-brand shrink-0" />
-                            )}
-                            <span className="font-semibold text-foreground">{item.name}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span>{item.siteType}</span>
-                            {item.contractor && (
-                              <>
-                                <span>•</span>
-                                <span>ผู้รับเหมา: {item.contractor}</span>
-                              </>
-                            )}
-                          </div>
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-foreground text-xs leading-snug">
+                            {item.name}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Building2 className="size-3 shrink-0" />
+                            {item.siteType} {item.towerType ? `· ${item.towerType}` : ""}
+                          </span>
                         </div>
                       </td>
 
@@ -562,17 +718,37 @@ export function StationsView() {
                         </div>
                       </td>
 
-                      {/* Action */}
+                      {/* Actions */}
                       <td className="py-3.5 px-4 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDetailStation(item)}
-                          className="h-8 gap-1 text-xs font-medium text-brand hover:text-brand hover:bg-brand/10"
-                        >
-                          <Eye className="size-3.5" />
-                          ดูข้อมูล
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDetailStation(item)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                            title="ดูรายละเอียด"
+                          >
+                            <Eye className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditModal(item)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-blue-600"
+                            title="แก้ไขข้อมูล"
+                          >
+                            <Edit2 className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeletingStation(item)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            title="ลบสถานี"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -588,118 +764,277 @@ export function StationsView() {
                 แสดง {filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} -{" "}
                 {Math.min(currentPage * pageSize, filtered.length)} จาก {filtered.length} รายการ
               </span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">แถวต่อหน้า:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="h-7 rounded border border-border bg-background px-1.5 text-xs text-foreground focus:outline-none"
-                >
-                  <option value={15}>15</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>ทั้งหมด ({statsTotal})</option>
-                </select>
-              </div>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="h-7 rounded border border-input bg-background px-2 text-xs"
+              >
+                <option value={15}>15 รายการ/หน้า</option>
+                <option value={25}>25 รายการ/หน้า</option>
+                <option value={50}>50 รายการ/หน้า</option>
+                <option value={100}>100 รายการ/หน้า</option>
+              </select>
             </div>
 
-            {/* Pagination buttons */}
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1 self-center sm:self-auto">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage === 1}
-                  className="size-7 border-border bg-card p-0"
-                  title="หน้าแรก"
-                >
-                  <ChevronsLeft className="size-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="size-7 border-border bg-card p-0"
-                  title="หน้าก่อนหน้า"
-                >
-                  <ChevronLeft className="size-3.5" />
-                </Button>
-
-                <span className="px-2 font-medium text-foreground">
-                  หน้า {currentPage} จาก {totalPages}
-                </span>
-
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="size-7 border-border bg-card p-0"
-                  title="หน้าถัดไป"
-                >
-                  <ChevronRight className="size-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage === totalPages}
-                  className="size-7 border-border bg-card p-0"
-                  title="หน้าสุดท้าย"
-                >
-                  <ChevronsRight className="size-3.5" />
-                </Button>
-              </div>
-            )}
+            <div className="flex items-center gap-1 self-center sm:self-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage <= 1}
+                className="h-7 w-7 p-0"
+                title="หน้าแรก"
+              >
+                <ChevronsLeft className="size-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="h-7 w-7 p-0"
+                title="หน้าก่อนหน้า"
+              >
+                <ChevronLeft className="size-3.5" />
+              </Button>
+              <span className="px-2 font-medium text-foreground">
+                หน้า {currentPage} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="h-7 w-7 p-0"
+                title="หน้าถัดไป"
+              >
+                <ChevronRight className="size-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage >= totalPages}
+                className="h-7 w-7 p-0"
+                title="หน้าสุดท้าย"
+              >
+                <ChevronsRight className="size-3.5" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Station Detail Modal */}
-      {detailStation && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in duration-200"
-          onClick={() => setDetailStation(null)}
-        >
-          <div
-            className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-start justify-between border-b border-border pb-4">
-              <div className="flex items-center gap-3">
-                <span className="flex size-11 items-center justify-center rounded-xl bg-brand-navy text-white">
-                  {detailStation.height === 60 ? (
-                    <TowerControl className="size-6 text-brand-gold" />
-                  ) : (
-                    <Radio className="size-6 text-brand-gold" />
-                  )}
-                </span>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold text-foreground">{detailStation.name}</h2>
-                    <span className="font-mono text-xs rounded bg-muted px-2 py-0.5 text-muted-foreground font-semibold">
-                      {detailStation.code}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{detailStation.category}</p>
-                </div>
+      {/* Add / Edit Station Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-xl rounded-xl border border-border bg-card p-6 shadow-xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <Radio className="size-5 text-brand" />
+                <h3 className="text-base font-bold text-foreground">
+                  {editingStation ? "แก้ไขข้อมูลสถานี" : "เพิ่มสถานีใหม่เข้าสู่ระบบ"}
+                </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setDetailStation(null)}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setIsAddModalOpen(false)}
+                className="text-muted-foreground hover:text-foreground"
               >
                 <X className="size-5" />
               </button>
             </div>
 
-            {/* Content Details */}
+            <form onSubmit={handleSaveStation} className="flex flex-col gap-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5 col-span-2">
+                  <label className="font-medium text-foreground">
+                    ชื่อสถานี / จุดติดตั้ง <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    required
+                    placeholder="เช่น ที่ว่าการอำเภอเลาขวัญ, อบต.หมูสี"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">
+                    รหัสสถานี (Station Code) <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    required
+                    placeholder="เช่น GOV-03"
+                    value={formData.code}
+                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">ความสูงเสา (เมตร)</label>
+                  <Input
+                    type="number"
+                    value={formData.height}
+                    onChange={(e) => setFormData({ ...formData, height: Number(e.target.value) })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">จังหวัด</label>
+                  <Input
+                    value={formData.province}
+                    onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">อำเภอ</label>
+                  <Input
+                    value={formData.district}
+                    onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">ตำบล</label>
+                  <Input
+                    value={formData.subdistrict}
+                    onChange={(e) => setFormData({ ...formData, subdistrict: e.target.value })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">สถานที่ติดตั้ง</label>
+                  <Input
+                    value={formData.siteType}
+                    onChange={(e) => setFormData({ ...formData, siteType: e.target.value })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">ละติจูด (Lat)</label>
+                  <Input
+                    type="number"
+                    step="0.000001"
+                    value={formData.lat}
+                    onChange={(e) => setFormData({ ...formData, lat: Number(e.target.value) })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-medium text-foreground">ลองจิจูด (Lng)</label>
+                  <Input
+                    type="number"
+                    step="0.000001"
+                    value={formData.lng}
+                    onChange={(e) => setFormData({ ...formData, lng: Number(e.target.value) })}
+                    className="h-9 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="h-8.5 text-xs"
+                >
+                  ยกเลิก
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isSubmitting}
+                  className="h-8.5 gap-1.5 bg-brand text-white hover:bg-brand/90 text-xs font-medium"
+                >
+                  {isSubmitting && <Loader2 className="size-3.5 animate-spin" />}
+                  {editingStation ? "บันทึกการแก้ไข" : "บันทึกเข้าฐานข้อมูล"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingStation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <Trash2 className="size-5" />
+              </span>
+              <div>
+                <h3 className="text-base font-bold text-foreground">ยืนยันการลบสถานี</h3>
+                <p className="text-xs text-muted-foreground">
+                  คุณต้องการลบสถานี <span className="font-semibold text-foreground">{deletingStation.name}</span> ({deletingStation.code}) หรือไม่?
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground bg-destructive/5 p-3 rounded-lg border border-destructive/20">
+              การลบนี้จะถูกบันทึกลงฐานข้อมูลและประวัติการทำรายการ (Transaction Log) แบบเรียลไทม์
+            </p>
+            <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeletingStation(null)}
+                className="h-8.5 text-xs"
+              >
+                ยกเลิก
+              </Button>
+              <Button
+                size="sm"
+                disabled={isSubmitting}
+                onClick={handleDeleteStation}
+                className="h-8.5 gap-1.5 bg-destructive text-white hover:bg-destructive/90 text-xs font-medium"
+              >
+                {isSubmitting && <Loader2 className="size-3.5 animate-spin" />}
+                ยืนยันการลบ
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Detail Modal */}
+      {detailStation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-2xl rounded-xl border border-border bg-card p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="flex size-9 items-center justify-center rounded-lg bg-brand-navy text-white">
+                  <Radio className="size-5 text-brand-gold" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">
+                    {detailStation.name}
+                  </h3>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    รหัสสถานี: {detailStation.code} · หมวดหมู่: {detailStation.category}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailStation(null)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
             <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
               <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
                 <span className="text-[11px] font-medium text-muted-foreground">รหัสสถานี</span>
@@ -765,7 +1100,6 @@ export function StationsView() {
               </div>
             </div>
 
-            {/* Footer Buttons */}
             <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
               <a
                 href={`https://www.google.com/maps?q=${detailStation.lat},${detailStation.lng}`}

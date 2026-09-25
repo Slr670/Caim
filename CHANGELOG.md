@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-09-25
+
+### Added
+- **Centralized Database Migration & Real-Time Bidirectional Synchronization**:
+  - **Database Schemas & Data Migration**:
+    - Designed structured document & relational schemas (`StationDocument`, `EquipmentDocument`, `TicketDocument`, `RmaDocument`, `TransactionLogDocument`) in `src/types/database.ts`.
+    - Implemented high-performance migration script (`scripts/migrate_and_seed.mjs`) with `bulkWrite` indexing, foreign key linking, and audit logging into `caim.stations` (197 stations), `caim.equipments` & `caim.assets` (644 equipments), `caim.tickets`, `caim.rma`, and `caim.transaction_logs`.
+  - **Full CRUD & Transactional Mutation Pipeline**:
+    - `/api/stations`: Added full CRUD endpoints (`GET`, `POST`, `PUT`, `DELETE`) with transaction log recording and real-time event broadcasting.
+    - `/api/equipments` & `/api/assets`: Added full CRUD endpoints with foreign key validation (`stationId`), transaction logging, and real-time events.
+    - `/api/tickets`: Refactored opening new claims ('เปิดเคสใหม่') to validate equipment serial and station references, transition equipment state to `in_claim`, and record `CLAIM_OPENED` in transaction logs.
+    - `/api/rma`: Refactored overseas RMA dispatch ('เปิดใบส่งซ่อม') to reference equipment and claim records, transition equipment state to `in_rma`, and record `RMA_DISPATCHED` in transaction logs.
+  - **Unified Real-Time Web Synchronization Engine**:
+    - Created unified SSE streaming endpoint `/api/realtime/stream` broadcasting `station`, `equipment`, `ticket`, `rma`, and recalculating `metrics`.
+    - Created centralized frontend real-time hook `useRealtimeSync` with automatic reconnection, visibility/focus revalidation, and optimistic state updates.
+    - Updated `StationsView` with live DB data and full CRUD modals (Add, Edit, Delete station) without requiring page reload.
+    - Updated `AssetsView` with live DB data and full CRUD modals (Add, Edit, Delete equipment).
+    - Upgraded `NewTicketView` with live DB equipment lookup and cascaded station selection (Province -> District -> Station).
+    - Upgraded `TicketsView` with dynamic cascading location dropdowns from live stations DB and real-time ticket synchronization.
+    - Upgraded `OverseasView` with live DB case & equipment options, transactional RMA creation, and real-time sync.
+
 ## [0.20.0] - 2026-09-24
 
 ### Added

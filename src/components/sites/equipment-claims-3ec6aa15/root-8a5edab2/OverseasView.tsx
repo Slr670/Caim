@@ -18,12 +18,14 @@ import {
   ChevronDown,
   ChevronLeft,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
+  Wifi
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ASSETS } from "./assetsData"
-import { getDeletedRmaIds, deleteRmaApi } from "@/lib/storage/recordStorage"
+import { getDeletedRmaIds, deleteRmaApi, saveRmaApi } from "@/lib/storage/recordStorage"
+import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 
 interface ClaimCaseOption {
   id: string
@@ -167,13 +169,86 @@ export function OverseasView() {
     setTimeout(() => setToastMessage(null), 3500)
   }
 
-  // Sync deleted RMA records from persistence storage on mount
+  // Real-time synchronization for Overseas RMA records
+  const { isConnected } = useRealtimeSync({
+    onRmaChange: (raw) => {
+      const payload = raw as { action?: string; data?: RmaItem } | undefined
+      if (!payload || !payload.data) return
+      const { action, data } = payload
+      setRmaList((prev) => {
+        if (action === "create") {
+          const exists = prev.some((r) => r.id === data.id)
+          return exists ? prev.map((r) => (r.id === data.id ? data : r)) : [data, ...prev]
+        }
+        if (action === "update") {
+          return prev.map((r) => (r.id === data.id ? { ...r, ...data } : r))
+        }
+        if (action === "delete") {
+          return prev.filter((r) => r.id !== data.id)
+        }
+        return prev
+      })
+      showToast("ข้อมูลใบส่งซ่อมต่างประเทศได้รับการอัปเดตแบบเรียลไทม์")
+    },
+  })
+
+  // State for available claim cases & equipments from DB
+  const [availableCases, setAvailableCases] = React.useState<ClaimCaseOption[]>(AVAILABLE_CASES)
+  const [equipmentsData, setEquipmentsData] = React.useState<(typeof ASSETS)>(ASSETS)
+
+  // Sync RMA records, tickets, and equipments from DB on mount
   React.useEffect(() => {
     if (typeof window !== "undefined") {
       const deletedIds = getDeletedRmaIds()
       if (deletedIds.length > 0) {
         setRmaList((prev) => prev.filter((item) => !deletedIds.includes(item.id)))
       }
+
+      // 1. Fetch live RMA records from backend
+      fetch("/api/rma")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.success && Array.isArray(data.items) && data.items.length > 0) {
+            setRmaList((prev) => {
+              const apiItems: RmaItem[] = data.items
+              const merged = [
+                ...apiItems,
+                ...prev.filter((p) => !apiItems.some((a) => a.id === p.id)),
+              ]
+              return merged.filter((item) => !deletedIds.includes(item.id))
+            })
+          }
+        })
+        .catch((err) => console.warn("Could not sync RMA records:", err))
+
+      // 2. Fetch live tickets for case options
+      fetch("/api/tickets")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.success && Array.isArray(data.tickets) && data.tickets.length > 0) {
+            const mappedCases: ClaimCaseOption[] = data.tickets.map((t: { id: string; title?: string; problemDesc?: string; serialNo?: string; vendor?: string; model?: string; status?: string }) => ({
+              id: t.id,
+              caseNo: t.title || t.id,
+              title: t.problemDesc || t.title,
+              serialNo: t.serialNo,
+              vendor: t.vendor,
+              model: t.model,
+              status: t.status,
+            }))
+            setAvailableCases(mappedCases)
+          }
+        })
+        .catch((err) => console.warn("Could not sync tickets for RMA:", err))
+
+      // 3. Fetch live equipments
+      fetch("/api/equipments")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.success && Array.isArray(data.equipments) && data.equipments.length > 0) {
+            setEquipmentsData(data.equipments)
+          }
+        })
+        .catch((err) => console.warn("Could not sync equipments for RMA:", err))
     }
   }, [])
 
@@ -196,16 +271,16 @@ export function OverseasView() {
   // Selected item for timeline modal
   const [timelineItem, setTimelineItem] = React.useState<RmaItem | null>(null)
 
-  // Equipment options from ASSETS
+  // Equipment options from live DB equipments
   const equipmentOptions = React.useMemo(() => {
     const map = new Map<string, (typeof ASSETS)[0]>()
-    for (const a of ASSETS) {
+    for (const a of equipmentsData) {
       if (a.serial && !map.has(a.serial)) {
         map.set(a.serial, a)
       }
     }
     return Array.from(map.values()).slice(0, 150)
-  }, [])
+  }, [equipmentsData])
 
   // New RMA Modal state
   const [newRmaModalOpen, setNewRmaModalOpen] = React.useState(false)
@@ -225,7 +300,7 @@ export function OverseasView() {
     setNewRmaForm((prev) => {
       const updated = { ...prev, linkedCaseId: caseId }
       if (caseId && caseId !== "none") {
-        const foundCase = AVAILABLE_CASES.find((c) => c.id === caseId)
+        const foundCase = availableCases.find((c) => c.id === caseId)
         if (foundCase) {
           if (!prev.serviceCenter) {
             updated.serviceCenter = foundCase.vendor
@@ -245,7 +320,7 @@ export function OverseasView() {
     setNewRmaForm((prev) => {
       const updated = { ...prev, selectedAssetSerial: serial }
       if (serial) {
-        const foundAsset = ASSETS.find((a) => a.serial === serial)
+        const foundAsset = equipmentsData.find((a) => a.serial === serial)
         if (foundAsset) {
           if (!prev.serviceCenter && foundAsset.vendor) {
             updated.serviceCenter = foundAsset.vendor
@@ -376,7 +451,7 @@ export function OverseasView() {
     let resolvedModel = "อุปกรณ์สื่อสาร"
 
     if (hasCase) {
-      const foundCase = AVAILABLE_CASES.find((c) => c.id === newRmaForm.linkedCaseId)
+      const foundCase = availableCases.find((c) => c.id === newRmaForm.linkedCaseId)
       if (foundCase) {
         resolvedCaseName = foundCase.caseNo
         resolvedSerial = foundCase.serialNo
@@ -386,7 +461,7 @@ export function OverseasView() {
     }
 
     if (hasEquipment) {
-      const foundAsset = ASSETS.find((a) => a.serial === newRmaForm.selectedAssetSerial)
+      const foundAsset = equipmentsData.find((a) => a.serial === newRmaForm.selectedAssetSerial)
       if (foundAsset) {
         resolvedSerial = foundAsset.serial
         resolvedVendor = foundAsset.vendor || resolvedVendor
@@ -435,7 +510,34 @@ export function OverseasView() {
       isOverduePenalty: false,
     }
 
+    // 1. Optimistic UI update
     setRmaList((prev) => [newItem, ...prev])
+
+    // 2. Persist to Database API & Transaction Log
+    saveRmaApi({
+      id: newItem.id,
+      rmaNo: newItem.rmaNo,
+      caseName: newItem.caseName,
+      ticketId: newRmaForm.linkedCaseId && newRmaForm.linkedCaseId !== "none" ? newRmaForm.linkedCaseId : undefined,
+      serialNo: newItem.serialNo,
+      vendor: newItem.vendor,
+      model: newItem.model,
+      destination: newRmaForm.destination || "ต่างประเทศ",
+      status: newRmaForm.status,
+      statusBadge: newItem.statusBadge,
+      statusBadgeText: newItem.statusBadgeText,
+      currentStageNumber: newItem.currentStageNumber,
+      totalStages: newItem.totalStages,
+      currentStageName: newItem.currentStageName,
+      stageWaitDays: newItem.stageWaitDays,
+      openDate: newItem.openDate,
+      totalDays: newItem.totalDays,
+      penaltyDays: newItem.penaltyDays,
+      penaltyStandard: newItem.penaltyStandard,
+      isOverduePenalty: newItem.isOverduePenalty,
+      remarks: newRmaForm.remarks,
+    }).catch((err) => console.warn("Failed to persist RMA:", err))
+
     setNewRmaModalOpen(false)
     setNewRmaForm({
       rmaNo: "",
@@ -447,15 +549,16 @@ export function OverseasView() {
       openDate: getInitialDateTime(),
       remarks: "",
     })
-    showToast(`เปิดใบส่งซ่อม ${generatedRmaNo} เรียบร้อยแล้ว`)
+    showToast(`เปิดใบส่งซ่อม ${generatedRmaNo} และบันทึกเข้าฐานข้อมูลเรียบร้อยแล้ว`)
   }
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingItem) return
     setRmaList((prev) => prev.map((item) => (item.id === editingItem.id ? editingItem : item)))
+    saveRmaApi(editingItem, true).catch((err) => console.warn("Failed to update RMA:", err))
     setEditingItem(null)
-    showToast("บันทึกข้อมูลใบส่งซ่อมเรียบร้อยแล้ว")
+    showToast("บันทึกข้อมูลใบส่งซ่อมลงฐานข้อมูลเรียบร้อยแล้ว")
   }
 
   return (
@@ -501,9 +604,17 @@ export function OverseasView() {
                 <PlaneTakeoff className="size-5.5 text-white" />
               </span>
               <div>
-                <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                  ส่งเคลมต่างประเทศ
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                    ส่งเคลมต่างประเทศ
+                  </h1>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    isConnected ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"
+                  }`}>
+                    <Wifi className="size-3" />
+                    {isConnected ? "ซิงก์เรียลไทม์" : "ออฟไลน์/แคช"}
+                  </span>
+                </div>
                 <p className="text-xs text-slate-500 sm:text-sm">
                   ติดตามอุปกรณ์ที่ส่งเคลมไปต่างประเทศทีละขั้น พร้อมนาฬิกาบทปรับของผู้ขาย
                 </p>

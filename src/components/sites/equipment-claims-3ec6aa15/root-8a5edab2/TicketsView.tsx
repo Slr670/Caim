@@ -16,12 +16,14 @@ import {
   X,
   MapPin,
   RotateCcw,
-  Trash2
+  Trash2,
+  Wifi
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { STATIONS } from "./stationsData"
+import { type Station, STATIONS } from "./stationsData"
 import { getDeletedTicketIds, deleteTicketApi, getCustomTickets } from "@/lib/storage/recordStorage"
+import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 
 export interface Ticket {
   id: string
@@ -164,6 +166,7 @@ const INITIAL_TICKETS: Ticket[] = [
 
 export function TicketsView() {
   const [tickets, setTickets] = React.useState<Ticket[]>(INITIAL_TICKETS)
+  const [stationsList, setStationsList] = React.useState<Station[]>(STATIONS)
 
   // Empty Table State flag on filter reset
   const [isTableCleared, setIsTableCleared] = React.useState(false)
@@ -178,7 +181,41 @@ export function TicketsView() {
     setTimeout(() => setToastMessage(null), 3500)
   }, [])
 
-  // Sync tickets from local storage and backend API on mount
+  // Real-time synchronization subscription for Tickets and Stations
+  const { isConnected } = useRealtimeSync({
+    onTicketChange: (raw) => {
+      const payload = raw as { action?: string; data?: Ticket } | undefined
+      if (!payload || !payload.data) return
+      const { action, data } = payload
+      setTickets((prev) => {
+        if (action === "create") {
+          const exists = prev.some((t) => t.id === data.id)
+          return exists ? prev.map((t) => (t.id === data.id ? data : t)) : [data, ...prev]
+        }
+        if (action === "update") {
+          return prev.map((t) => (t.id === data.id ? { ...t, ...data } : t))
+        }
+        if (action === "delete") {
+          return prev.filter((t) => t.id !== data.id)
+        }
+        return prev
+      })
+      showToast("รายการงานเคลมได้รับการอัปเดตแบบเรียลไทม์")
+    },
+    onStationChange: (raw) => {
+      const payload = raw as { action?: string; data?: Station } | undefined
+      if (!payload || !payload.data) return
+      const { action, data } = payload
+      setStationsList((prev) => {
+        if (action === "create") return [data, ...prev]
+        if (action === "update") return prev.map((s) => (s.id === data.id ? { ...s, ...data } : s))
+        if (action === "delete") return prev.filter((s) => s.id !== data.id)
+        return prev
+      })
+    },
+  })
+
+  // Sync tickets and stations from backend API on mount
   React.useEffect(() => {
     if (typeof window !== "undefined") {
       const deletedIds = getDeletedTicketIds()
@@ -210,6 +247,16 @@ export function TicketsView() {
           }
         })
         .catch((err) => console.warn("Could not sync tickets from backend API:", err))
+
+      // 3. Fetch latest stations from backend API
+      fetch("/api/stations")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.success && Array.isArray(data.stations) && data.stations.length > 0) {
+            setStationsList(data.stations)
+          }
+        })
+        .catch((err) => console.warn("Could not sync stations:", err))
     }
   }, [])
 
@@ -252,29 +299,29 @@ export function TicketsView() {
   // CASCADING LOCATION & STATION DATA EXTRACTION FROM STATIONS DATABASE
   // =========================================================================
 
-  // 1. Province ('จังหวัด'): Distinct provinces extracted directly from STATIONS
+  // 1. Province ('จังหวัด'): Distinct provinces extracted directly from stationsList
   const availableProvinces = React.useMemo(() => {
-    const set = new Set(STATIONS.map((s) => s.province).filter(Boolean))
+    const set = new Set(stationsList.map((s) => s.province).filter(Boolean))
     return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
-  }, [])
+  }, [stationsList])
 
   // 2. District ('อำเภอ'): Filter districts based on selected province
   const availableDistricts = React.useMemo(() => {
     if (provinceFilter === "all") return []
     const set = new Set(
-      STATIONS
+      stationsList
         .filter((s) => s.province === provinceFilter)
         .map((s) => s.district)
         .filter(Boolean)
     )
     return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
-  }, [provinceFilter])
+  }, [provinceFilter, stationsList])
 
   // 3. Sub-district ('ตำบล'): Filter sub-districts based on selected district & province
   const availableSubdistricts = React.useMemo(() => {
     if (districtFilter === "all" || provinceFilter === "all") return []
     const set = new Set(
-      STATIONS
+      stationsList
         .filter(
           (s) =>
             s.province === provinceFilter &&
@@ -284,17 +331,17 @@ export function TicketsView() {
         .filter(Boolean)
     )
     return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
-  }, [provinceFilter, districtFilter])
+  }, [provinceFilter, districtFilter, stationsList])
 
   // 4. Station Linking ('สถานี'): Matching selected location hierarchy
   const availableStations = React.useMemo(() => {
-    return STATIONS.filter((s) => {
+    return stationsList.filter((s) => {
       if (provinceFilter !== "all" && s.province !== provinceFilter) return false
       if (districtFilter !== "all" && s.district !== districtFilter) return false
       if (subdistrictFilter !== "all" && s.subdistrict !== subdistrictFilter) return false
       return true
     })
-  }, [provinceFilter, districtFilter, subdistrictFilter])
+  }, [provinceFilter, districtFilter, subdistrictFilter, stationsList])
 
   // Cascading Handlers
   const handleProvinceChange = React.useCallback((newProvince: string) => {
@@ -565,21 +612,35 @@ export function TicketsView() {
   }, [])
 
   const handleSaveTicket = React.useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault()
       if (!editForm) return
 
+      // Optimistic UI update
       setTickets((prev) =>
         prev.map((t) => (t.id === editForm.id ? editForm : t))
       )
       setSelectedTicket(editForm)
       setSaveSuccess(true)
+
+      // Transactional Database Update
+      try {
+        await fetch("/api/tickets", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(editForm),
+        })
+        showToast(`อัปเดตข้อมูลเคส ${editForm.id} ในฐานข้อมูลเรียบร้อยแล้ว`)
+      } catch (err) {
+        console.warn("API update failed, local state retained", err)
+      }
+
       setTimeout(() => {
         setSaveSuccess(false)
         setModalMode("view")
       }, 700)
     },
-    [editForm]
+    [editForm, showToast]
   )
 
   return (
@@ -588,17 +649,27 @@ export function TicketsView() {
         {/* =========================================================================
             1. HEADER SECTION
            ========================================================================= */}
-        <div className="flex items-center gap-3">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#0c1a30] text-white shadow-xs">
-            <ClipboardList className="size-5.5 text-white" />
-          </span>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-              รายการงานเคลม
-            </h1>
-            <p className="text-xs text-slate-500 sm:text-sm">
-              ทุกเคสเคลมที่บันทึกไว้ เลือกเงื่อนไขในการ์ดค้นหาแล้วกดค้นหา
-            </p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#0c1a30] text-white shadow-xs">
+              <ClipboardList className="size-5.5 text-white" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                  รายการงานเคลม
+                </h1>
+                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  isConnected ? "bg-emerald-500/10 text-emerald-600" : "bg-amber-500/10 text-amber-600"
+                }`}>
+                  <Wifi className="size-3" />
+                  {isConnected ? "ซิงก์เรียลไทม์" : "ออฟไลน์/แคช"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 sm:text-sm">
+                ทุกเคสเคลมที่บันทึกไว้ในฐานข้อมูลกลาง เลือกเงื่อนไขในการ์ดค้นหาแล้วกดค้นหา
+              </p>
+            </div>
           </div>
         </div>
 

@@ -11,58 +11,154 @@ import {
   Save,
   Search,
   HardDrive,
-  Info
+  Info,
+  MapPin,
+  Building2,
+  Radio,
+  Loader2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ASSETS } from "./assetsData"
+import { ASSETS, type Asset } from "./assetsData"
+import { STATIONS, type Station } from "./stationsData"
 import { addCustomTicket, StoredTicket } from "@/lib/storage/recordStorage"
 
 export function NewTicketView() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialSerial = searchParams.get("serial") || ""
+  const initialStation = searchParams.get("station") || ""
+
+  // Database-backed states
+  const [equipments, setEquipments] = React.useState<Asset[]>(ASSETS)
+  const [stations, setStations] = React.useState<Station[]>(STATIONS)
 
   const [selectedSerial, setSelectedSerial] = React.useState<string>(initialSerial)
   const [deviceSearch, setDeviceSearch] = React.useState<string>("")
-  const [ticketTitle, setTicketTitle] = React.useState<string>("CLM-2026-0043")
+  const [ticketTitle, setTicketTitle] = React.useState<string>(
+    () => `CLM-2026-${String(Math.floor(Math.random() * 9000 + 1000))}`
+  )
   const [receivedDate, setReceivedDate] = React.useState<string>(
     new Date().toISOString().split("T")[0]
   )
   const [warranty, setWarranty] = React.useState<string>("warranty")
   const [problemDesc, setProblemDesc] = React.useState<string>("")
-  const [serviceCenter, setServiceCenter] = React.useState<string>("huawei")
+  const [serviceCenter, setServiceCenter] = React.useState<string>("Huawei")
   const [dueDate, setDueDate] = React.useState<string>("2026-11-21")
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [isSaved, setIsSaved] = React.useState(false)
 
+  // Cascading Location & Station States
+  const [selectedProvince, setSelectedProvince] = React.useState<string>("")
+  const [selectedDistrict, setSelectedDistrict] = React.useState<string>("")
+  const [selectedStationId, setSelectedStationId] = React.useState<string>("")
+
+  // Fetch live equipments and stations from Database
+  React.useEffect(() => {
+    async function loadData() {
+      try {
+        const [eqRes, stRes] = await Promise.all([
+          fetch("/api/equipments", { cache: "no-store" }),
+          fetch("/api/stations", { cache: "no-store" }),
+        ])
+        if (eqRes.ok) {
+          const eqData = await eqRes.json()
+          if (eqData.success && Array.isArray(eqData.equipments) && eqData.equipments.length > 0) {
+            setEquipments(eqData.equipments)
+          }
+        }
+        if (stRes.ok) {
+          const stData = await stRes.json()
+          if (stData.success && Array.isArray(stData.stations) && stData.stations.length > 0) {
+            setStations(stData.stations)
+          }
+        }
+      } catch (err) {
+        console.warn("Fallback to bundled data on initial load:", err)
+      }
+    }
+    loadData()
+  }, [])
+
+  // Auto-populate initial serial or station if query param present
+  React.useEffect(() => {
+    if (initialSerial) setSelectedSerial(initialSerial)
+  }, [initialSerial])
+
+  React.useEffect(() => {
+    if (initialStation && stations.length > 0) {
+      const match = stations.find((s) => s.name === initialStation)
+      if (match) {
+        setSelectedProvince(match.province)
+        setSelectedDistrict(match.district)
+        setSelectedStationId(match.id)
+      }
+    }
+  }, [initialStation, stations])
+
   // Find selected asset
   const selectedAsset = React.useMemo(() => {
     if (!selectedSerial) return null
-    return ASSETS.find(
-      (a) => a.serial.toUpperCase() === selectedSerial.toUpperCase()
-    ) || null
-  }, [selectedSerial])
+    return (
+      equipments.find((a) => a.serial.toUpperCase() === selectedSerial.toUpperCase()) || null
+    )
+  }, [selectedSerial, equipments])
 
   // Filtered dropdown options based on search
   const filteredAssets = React.useMemo(() => {
     const q = deviceSearch.trim().toLowerCase()
-    if (!q) return ASSETS.slice(0, 50) // Top 50 default
-    return ASSETS.filter(
-      (a) =>
-        a.serial.toLowerCase().includes(q) ||
-        a.vendor.toLowerCase().includes(q) ||
-        a.model.toLowerCase().includes(q) ||
-        (a.name && a.name.toLowerCase().includes(q))
-    ).slice(0, 50)
-  }, [deviceSearch])
+    if (!q) return equipments.slice(0, 50)
+    return equipments
+      .filter(
+        (a) =>
+          a.serial.toLowerCase().includes(q) ||
+          a.vendor.toLowerCase().includes(q) ||
+          a.model.toLowerCase().includes(q) ||
+          (a.name && a.name.toLowerCase().includes(q))
+      )
+      .slice(0, 50)
+  }, [deviceSearch, equipments])
 
-  // Auto-populate initial serial if matched
-  React.useEffect(() => {
-    if (initialSerial) {
-      setSelectedSerial(initialSerial)
+  // Cascading Location Dropdowns
+  const availableProvinces = React.useMemo(() => {
+    const set = new Set(stations.map((s) => s.province).filter(Boolean))
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
+  }, [stations])
+
+  const availableDistricts = React.useMemo(() => {
+    if (!selectedProvince) return []
+    const set = new Set(
+      stations
+        .filter((s) => s.province === selectedProvince)
+        .map((s) => s.district)
+        .filter(Boolean)
+    )
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
+  }, [selectedProvince, stations])
+
+  const availableStations = React.useMemo(() => {
+    if (!selectedProvince) return stations.slice(0, 50)
+    return stations.filter((s) => {
+      if (selectedProvince && s.province !== selectedProvince) return false
+      if (selectedDistrict && s.district !== selectedDistrict) return false
+      return true
+    })
+  }, [selectedProvince, selectedDistrict, stations])
+
+  const selectedStation = React.useMemo(() => {
+    if (!selectedStationId) return null
+    return stations.find((s) => s.id === selectedStationId) || null
+  }, [selectedStationId, stations])
+
+  // Handle station dropdown change
+  const handleStationChange = (stId: string) => {
+    setSelectedStationId(stId)
+    const st = stations.find((s) => s.id === stId)
+    if (st) {
+      setSelectedProvince(st.province)
+      setSelectedDistrict(st.district)
     }
-  }, [initialSerial])
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -88,22 +184,26 @@ export function NewTicketView() {
       date: dateFormatted,
       ageDays: "0 วัน",
       isOverdue: false,
-      station: "",
-      province: "",
-      district: "",
-      subdistrict: "",
+      stationId: selectedStation?.id || undefined,
+      station: selectedStation?.name || "",
+      province: selectedStation?.province || selectedProvince || "",
+      district: selectedStation?.district || selectedDistrict || "",
+      subdistrict: selectedStation?.subdistrict || "",
     }
 
     // 1. Dual persistence: Save to localStorage immediately
     addCustomTicket(newTicket)
 
-    // 2. Dispatch to Backend API / MongoDB
+    // 2. Dispatch to Backend API / MongoDB (with transaction logging & equipment status update)
     try {
-      await fetch("/api/tickets", {
+      const res = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newTicket),
       })
+      if (!res.ok) {
+        console.warn("Backend API returned status", res.status)
+      }
     } catch (err) {
       console.warn("Backend API offline or unreachable, saved locally", err)
     }
@@ -155,10 +255,10 @@ export function NewTicketView() {
             </span>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-                เปิดเคสใหม่
+                เปิดเคสแจ้งเคลมใหม่ (Transactional)
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground">
-                เลือกอุปกรณ์จากฐานข้อมูลและระบุรายละเอียดการแจ้งเคลม
+                เลือกอุปกรณ์และจุดติดตั้งจากฐานข้อมูลกลาง ข้อมูลจะบันทึกพร้อมประวัติการทำรายการแบบเรียลไทม์
               </p>
             </div>
           </div>
@@ -177,14 +277,14 @@ export function NewTicketView() {
           <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-border pb-2.5">
               <h2 className="text-base font-semibold text-foreground">
-                1. อุปกรณ์
+                1. อุปกรณ์ที่แจ้งเคลม
               </h2>
               <Link
                 href="/assets"
                 className="text-xs text-brand hover:underline flex items-center gap-1"
               >
                 <HardDrive className="size-3.5" />
-                ดูทะเบียนอุปกรณ์ทั้งหมด ({ASSETS.length})
+                ดูทะเบียนอุปกรณ์ทั้งหมด ({equipments.length})
               </Link>
             </div>
 
@@ -206,7 +306,7 @@ export function NewTicketView() {
 
               <div className="flex flex-col gap-1.5">
                 <label className="font-medium text-foreground">
-                  เลือกอุปกรณ์จากทะเบียน <span className="text-destructive">*</span>
+                  เลือกอุปกรณ์จากทะเบียนฐานข้อมูลกลาง <span className="text-destructive">*</span>
                 </label>
                 <select
                   required
@@ -253,7 +353,7 @@ export function NewTicketView() {
                   </div>
                 </div>
                 <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 shrink-0">
-                  ทะเบียนพร้อมใช้งาน
+                  ทะเบียนฐานข้อมูลกลาง
                 </span>
               </div>
             ) : (
@@ -264,10 +364,114 @@ export function NewTicketView() {
             )}
           </div>
 
-          {/* Section 2: ข้อมูลเคส */}
+          {/* Section 2: ข้อมูลสถานีและสถานที่ติดตั้ง (Cascaded Selection) */}
+          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-border pb-2.5">
+              <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
+                <MapPin className="size-4 text-brand" />
+                <span>2. ข้อมูลสถานีและสถานที่ติดตั้ง (ฐานข้อมูลสถานี 197 จุด)</span>
+              </h2>
+              <Link
+                href="/stations"
+                className="text-xs text-brand hover:underline flex items-center gap-1"
+              >
+                <Radio className="size-3.5" />
+                ดูสถานีทั้งหมด ({stations.length})
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              {/* Province */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">จังหวัด</label>
+                <select
+                  value={selectedProvince}
+                  onChange={(e) => {
+                    setSelectedProvince(e.target.value)
+                    setSelectedDistrict("")
+                    setSelectedStationId("")
+                  }}
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                >
+                  <option value="">-- ทุกจังหวัด ({availableProvinces.length}) --</option>
+                  {availableProvinces.map((prov) => (
+                    <option key={prov} value={prov}>
+                      {prov}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* District */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">อำเภอ</label>
+                <select
+                  value={selectedDistrict}
+                  onChange={(e) => {
+                    setSelectedDistrict(e.target.value)
+                    setSelectedStationId("")
+                  }}
+                  disabled={!selectedProvince}
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none disabled:opacity-50"
+                >
+                  <option value="">-- ทุกอำเภอ ({availableDistricts.length}) --</option>
+                  {availableDistricts.map((dist) => (
+                    <option key={dist} value={dist}>
+                      {dist}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Station Dropdown */}
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground">จุดติดตั้ง / สถานี</label>
+                <select
+                  value={selectedStationId}
+                  onChange={(e) => handleStationChange(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                >
+                  <option value="">-- เลือกสถานี ({availableStations.length}) --</option>
+                  {availableStations.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name} ({st.code}) - {st.height} ม.
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Selected Station Preview Card */}
+            {selectedStation && (
+              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3.5 text-xs text-foreground flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+                <div className="flex items-start gap-2.5">
+                  <Building2 className="size-4 text-blue-600 mt-0.5 shrink-0" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-foreground">{selectedStation.name}</span>
+                      <span className="font-mono text-[10px] rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
+                        {selectedStation.code}
+                      </span>
+                      <span className="rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        {selectedStation.height} เมตร
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      ต.{selectedStation.subdistrict} อ.{selectedStation.district} จ.{selectedStation.province} ({selectedStation.zone || selectedStation.area})
+                    </p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-700 shrink-0">
+                  พิกัด: {selectedStation.lat.toFixed(4)}, {selectedStation.lng.toFixed(4)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Section 3: ข้อมูลเคส */}
           <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
             <h2 className="text-base font-semibold text-foreground border-b border-border pb-2.5">
-              2. ข้อมูลเคส
+              3. ข้อมูลการแจ้งเคลม
             </h2>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
@@ -283,7 +487,7 @@ export function NewTicketView() {
                   className="h-9 text-xs"
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  กรอกเองตามที่หน่วยงานกำหนด ห้ามซ้ำกับเคสที่มีอยู่แล้ว
+                  กำหนดเลขอ้างอิงเคส ห้ามซ้ำกับเคสที่มีอยู่แล้ว
                 </p>
               </div>
 
@@ -326,10 +530,10 @@ export function NewTicketView() {
             </div>
           </div>
 
-          {/* Section 3: กำหนดการและศูนย์บริการ */}
+          {/* Section 4: กำหนดการและศูนย์บริการ */}
           <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
             <h2 className="text-base font-semibold text-foreground border-b border-border pb-2.5">
-              3. กำหนดการและศูนย์บริการ
+              4. กำหนดการและศูนย์บริการ
             </h2>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
@@ -340,14 +544,14 @@ export function NewTicketView() {
                   onChange={(e) => setServiceCenter(e.target.value)}
                   className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
                 >
-                  <option value="huawei">Huawei</option>
-                  <option value="hytera">Hytera</option>
-                  <option value="dell">Dell</option>
-                  <option value="lenovo">Lenovo</option>
-                  <option value="syndome">Syndome</option>
-                  <option value="motorola">Motorola</option>
-                  <option value="transpower">Transpower</option>
-                  <option value="vertiv">Vertiv</option>
+                  <option value="Huawei">Huawei</option>
+                  <option value="Hytera">Hytera</option>
+                  <option value="Motorola">Motorola</option>
+                  <option value="Dell">Dell</option>
+                  <option value="Lenovo">Lenovo</option>
+                  <option value="Syndome">Syndome</option>
+                  <option value="Transpower">Transpower</option>
+                  <option value="Vertiv">Vertiv</option>
                 </select>
               </div>
 
@@ -359,9 +563,6 @@ export function NewTicketView() {
                   onChange={(e) => setDueDate(e.target.value)}
                   className="h-9 text-xs"
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  เติมให้อัตโนมัติจากวันที่รับแจ้ง แก้ทับได้ถ้าตกลงกับศูนย์เป็นอย่างอื่น
-                </p>
               </div>
             </div>
           </div>
@@ -379,8 +580,17 @@ export function NewTicketView() {
               disabled={isSubmitting}
               className="gap-2 bg-brand text-white hover:bg-brand-dark cursor-pointer disabled:opacity-50"
             >
-              <Save className="size-4" />
-              <span>{isSubmitting ? "กำลังบันทึก..." : "บันทึกเคสเคลม"}</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  <span>กำลังบันทึกเข้าฐานข้อมูล...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="size-4" />
+                  <span>บันทึกเคสเคลมและบันทึกธุรกรรม</span>
+                </>
+              )}
             </Button>
           </div>
         </form>
