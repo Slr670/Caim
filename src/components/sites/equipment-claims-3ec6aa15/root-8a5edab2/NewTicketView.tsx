@@ -15,13 +15,18 @@ import {
   MapPin,
   Building2,
   Radio,
-  Loader2
+  Loader2,
+  ExternalLink,
+  X,
+  ChevronLeft,
+  RotateCcw
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ASSETS, type Asset } from "./assetsData"
 import { STATIONS, type Station } from "./stationsData"
 import { addCustomTicket, StoredTicket } from "@/lib/storage/recordStorage"
+import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 
 export function NewTicketView() {
   const router = useRouter()
@@ -53,6 +58,51 @@ export function NewTicketView() {
   const [selectedDistrict, setSelectedDistrict] = React.useState<string>("")
   const [selectedStationId, setSelectedStationId] = React.useState<string>("")
 
+  // Equipment Registry Modal State
+  const [isRegistryModalOpen, setIsRegistryModalOpen] = React.useState(false)
+  const [modalSearch, setModalSearch] = React.useState("")
+  const [modalVendor, setModalVendor] = React.useState("all")
+  const [modalCategory, setModalCategory] = React.useState("all")
+  const [modalPage, setModalPage] = React.useState(1)
+  const modalPageSize = 10
+
+  // Real-time synchronization
+  useRealtimeSync({
+    onEquipmentChange: (raw) => {
+      const payload = raw as { action?: string; data?: Asset & { stationId?: string; stationName?: string } } | undefined
+      if (!payload || !payload.data) return
+      const { action, data } = payload
+      setEquipments((prev) => {
+        if (action === "create") {
+          const exists = prev.some((e) => e.serial.toUpperCase() === data.serial.toUpperCase())
+          return exists
+            ? prev.map((e) => (e.serial.toUpperCase() === data.serial.toUpperCase() ? data : e))
+            : [data, ...prev]
+        }
+        if (action === "update") {
+          return prev.map((e) =>
+            e.serial.toUpperCase() === data.serial.toUpperCase() ? { ...e, ...data } : e
+          )
+        }
+        if (action === "delete") {
+          return prev.filter((e) => e.serial.toUpperCase() !== data.serial.toUpperCase())
+        }
+        return prev
+      })
+    },
+    onStationChange: (raw) => {
+      const payload = raw as { action?: string; data?: Station } | undefined
+      if (!payload || !payload.data) return
+      const { action, data } = payload
+      setStations((prev) => {
+        if (action === "create") return [data, ...prev]
+        if (action === "update") return prev.map((s) => (s.id === data.id ? { ...s, ...data } : s))
+        if (action === "delete") return prev.filter((s) => s.id !== data.id)
+        return prev
+      })
+    },
+  })
+
   // Fetch live equipments and stations from Database
   React.useEffect(() => {
     async function loadData() {
@@ -63,13 +113,13 @@ export function NewTicketView() {
         ])
         if (eqRes.ok) {
           const eqData = await eqRes.json()
-          if (eqData.success && Array.isArray(eqData.equipments) && eqData.equipments.length > 0) {
+          if (eqData.success && Array.isArray(eqData.equipments)) {
             setEquipments(eqData.equipments)
           }
         }
         if (stRes.ok) {
           const stData = await stRes.json()
-          if (stData.success && Array.isArray(stData.stations) && stData.stations.length > 0) {
+          if (stData.success && Array.isArray(stData.stations)) {
             setStations(stData.stations)
           }
         }
@@ -104,20 +154,75 @@ export function NewTicketView() {
     )
   }, [selectedSerial, equipments])
 
-  // Filtered dropdown options based on search
+  // Filtered dropdown options based on search (Full complete list, no 50 limit)
   const filteredAssets = React.useMemo(() => {
     const q = deviceSearch.trim().toLowerCase()
-    if (!q) return equipments.slice(0, 50)
-    return equipments
-      .filter(
-        (a) =>
+    if (!q) return equipments
+    return equipments.filter(
+      (a) =>
+        a.serial.toLowerCase().includes(q) ||
+        a.vendor.toLowerCase().includes(q) ||
+        a.model.toLowerCase().includes(q) ||
+        (a.name && a.name.toLowerCase().includes(q)) ||
+        (a.description && a.description.toLowerCase().includes(q))
+    )
+  }, [deviceSearch, equipments])
+
+  // Unique vendors and categories for modal
+  const modalVendors = React.useMemo(() => {
+    const set = new Set(equipments.map((a) => a.vendor).filter(Boolean))
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [equipments])
+
+  const modalCategories = React.useMemo(() => {
+    const set = new Set(equipments.map((a) => a.category).filter(Boolean))
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "th"))
+  }, [equipments])
+
+  const filteredModalEquipments = React.useMemo(() => {
+    const q = modalSearch.trim().toLowerCase()
+    return equipments.filter((a) => {
+      if (modalVendor !== "all" && a.vendor !== modalVendor) return false
+      if (modalCategory !== "all" && a.category !== modalCategory) return false
+      if (q) {
+        return (
           a.serial.toLowerCase().includes(q) ||
           a.vendor.toLowerCase().includes(q) ||
           a.model.toLowerCase().includes(q) ||
-          (a.name && a.name.toLowerCase().includes(q))
-      )
-      .slice(0, 50)
-  }, [deviceSearch, equipments])
+          (a.name && a.name.toLowerCase().includes(q)) ||
+          (a.description && a.description.toLowerCase().includes(q))
+        )
+      }
+      return true
+    })
+  }, [equipments, modalSearch, modalVendor, modalCategory])
+
+  React.useEffect(() => {
+    setModalPage(1)
+  }, [modalSearch, modalVendor, modalCategory])
+
+  const modalTotalPages = Math.max(1, Math.ceil(filteredModalEquipments.length / modalPageSize))
+  const paginatedModalEquipments = React.useMemo(() => {
+    const start = (modalPage - 1) * modalPageSize
+    return filteredModalEquipments.slice(start, start + modalPageSize)
+  }, [filteredModalEquipments, modalPage, modalPageSize])
+
+  const handleSelectDevice = React.useCallback(
+    (asset: Asset) => {
+      setSelectedSerial(asset.serial)
+      const linkedStationId = (asset as { stationId?: string })?.stationId
+      if (linkedStationId) {
+        const match = stations.find((s) => s.id === linkedStationId)
+        if (match) {
+          setSelectedProvince(match.province)
+          setSelectedDistrict(match.district)
+          setSelectedStationId(match.id)
+        }
+      }
+      setIsRegistryModalOpen(false)
+    },
+    [stations]
+  )
 
   // Cascading Location Dropdowns
   const availableProvinces = React.useMemo(() => {
@@ -279,45 +384,103 @@ export function NewTicketView() {
               <h2 className="text-base font-semibold text-foreground">
                 1. อุปกรณ์ที่แจ้งเคลม
               </h2>
-              <Link
-                href="/assets"
-                className="text-xs text-brand hover:underline flex items-center gap-1"
-              >
-                <HardDrive className="size-3.5" />
-                ดูทะเบียนอุปกรณ์ทั้งหมด ({equipments.length})
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRegistryModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:underline cursor-pointer group"
+                  title="คลิกเพื่อเปิดดูทะเบียนอุปกรณ์ทั้งหมดและเลือกใช้งาน"
+                >
+                  <HardDrive className="size-3.5 text-brand transition-transform group-hover:scale-110" />
+                  <span>ดูทะเบียนอุปกรณ์ทั้งหมด</span>
+                  <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-bold text-brand tabular-nums">
+                    {equipments.length}
+                  </span>
+                </button>
+                <span className="text-muted-foreground/30">•</span>
+                <Link
+                  href="/assets"
+                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                  title="เปิดหน้าจัดการข้อมูลอุปกรณ์แบบเต็มจอ"
+                >
+                  <span>หน้าจัดการ</span>
+                  <ExternalLink className="size-3" />
+                </Link>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div className="flex flex-col gap-1.5">
-                <label className="font-medium text-foreground">
-                  ค้นหาอุปกรณ์ในระบบ (S/N หรือ ชื่อรุ่น)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="font-medium text-foreground">
+                    ค้นหาอุปกรณ์ในระบบ (S/N หรือ ชื่อรุ่น)
+                  </label>
+                  {deviceSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setDeviceSearch("")}
+                      className="text-[11px] text-muted-foreground hover:text-foreground hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <RotateCcw className="size-3" />
+                      <span>ล้างการค้นหา</span>
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                   <Input
                     placeholder="พิมพ์เพื่อค้นหา เช่น 1025B... หรือ Huawei..."
                     value={deviceSearch}
                     onChange={(e) => setDeviceSearch(e.target.value)}
-                    className="pl-8 h-9 text-xs"
+                    className="pl-8 pr-8 h-9 text-xs"
                   />
+                  {deviceSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setDeviceSearch("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="font-medium text-foreground">
-                  เลือกอุปกรณ์จากทะเบียนฐานข้อมูลกลาง <span className="text-destructive">*</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="font-medium text-foreground">
+                    เลือกอุปกรณ์จากทะเบียนฐานข้อมูลกลาง <span className="text-destructive">*</span>
+                  </label>
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    {filteredAssets.length} / {equipments.length} รายการ
+                  </span>
+                </div>
                 <select
                   required
                   value={selectedSerial}
-                  onChange={(e) => setSelectedSerial(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setSelectedSerial(val)
+                    const found = equipments.find((a) => a.serial === val)
+                    if (found && (found as { stationId?: string }).stationId) {
+                      const match = stations.find((s) => s.id === (found as { stationId?: string }).stationId)
+                      if (match) {
+                        setSelectedProvince(match.province)
+                        setSelectedDistrict(match.district)
+                        setSelectedStationId(match.id)
+                      }
+                    }
+                  }}
                   className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
                 >
-                  <option value="">-- เลือกอุปกรณ์ ({filteredAssets.length} รายการที่ค้นพบ) --</option>
+                  <option value="">
+                    {deviceSearch
+                      ? `-- ค้นพบ ${filteredAssets.length} รายการ (จากทั้งหมด ${equipments.length} รายการ) --`
+                      : `-- เลือกอุปกรณ์จากทะเบียนฐานข้อมูลกลาง (${equipments.length} รายการ) --`}
+                  </option>
                   {selectedSerial && !filteredAssets.some((a) => a.serial === selectedSerial) && selectedAsset && (
                     <option value={selectedAsset.serial}>
-                      {selectedAsset.vendor} / {selectedAsset.model} (S/N: {selectedAsset.serial})
+                      {selectedAsset.vendor} / {selectedAsset.model} (S/N: {selectedAsset.serial}) {selectedAsset.name ? `- ${selectedAsset.name}` : ""}
                     </option>
                   )}
                   {filteredAssets.map((asset) => (
@@ -595,6 +758,256 @@ export function NewTicketView() {
           </div>
         </form>
       </div>
+
+      {/* Central Equipment Registry Modal */}
+      {isRegistryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-5 animate-in fade-in">
+          <div className="relative flex flex-col w-full max-w-4xl max-h-[90vh] rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-border bg-muted/30 px-5 py-4">
+              <div className="flex items-center gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white shadow-xs">
+                  <HardDrive className="size-5" />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-foreground">
+                      ทะเบียนอุปกรณ์ในฐานข้อมูลกลาง
+                    </h3>
+                    <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
+                      {equipments.length} รายการ
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    ค้นหาและคลิก &ldquo;เลือกอุปกรณ์นี้&rdquo; เพื่อนำข้อมูลเข้าสู่แบบฟอร์มเปิดเคสทันที
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRegistryModalOpen(false)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                title="ปิดหน้าต่าง"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            {/* Modal Filter Toolbar */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 border-b border-border bg-muted/15 p-3.5 text-xs">
+              <div className="relative sm:col-span-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="ค้นหา S/N, ยี่ห้อ, รุ่น, ชื่ออุปกรณ์..."
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                  className="pl-8 pr-7 h-8.5 text-xs"
+                />
+                {modalSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setModalSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <select
+                  value={modalVendor}
+                  onChange={(e) => setModalVendor(e.target.value)}
+                  className="w-full h-8.5 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:border-ring focus-visible:outline-none"
+                >
+                  <option value="all">ทุกยี่ห้อ (All Vendors)</option>
+                  {modalVendors.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={modalCategory}
+                  onChange={(e) => setModalCategory(e.target.value)}
+                  className="w-full h-8.5 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:border-ring focus-visible:outline-none truncate"
+                >
+                  <option value="all">ทุกหมวดหมู่ (All Categories)</option>
+                  {modalCategories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                {(modalSearch || modalVendor !== "all" || modalCategory !== "all") && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setModalSearch("")
+                      setModalVendor("all")
+                      setModalCategory("all")
+                    }}
+                    className="h-8.5 text-xs px-2 shrink-0 text-muted-foreground hover:text-foreground"
+                    title="ล้างตัวกรอง"
+                  >
+                    <RotateCcw className="size-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Table Content */}
+            <div className="flex-1 overflow-y-auto min-h-75 max-h-[55vh]">
+              {paginatedModalEquipments.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground">
+                  <HardDrive className="size-10 text-muted-foreground/40 mb-2" />
+                  <p className="text-sm font-medium text-foreground">ไม่พบรายการอุปกรณ์ที่ค้นหา</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    ลองปรับเปลี่ยนคำค้นหา หรือรีเซ็ตตัวกรองยี่ห้อ/หมวดหมู่
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setModalSearch("")
+                      setModalVendor("all")
+                      setModalCategory("all")
+                    }}
+                    className="mt-3 text-xs gap-1.5"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    <span>ล้างคำค้นหา</span>
+                  </Button>
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 z-10 bg-muted/60 text-muted-foreground uppercase text-[10px] tracking-wider border-b border-border backdrop-blur-xs">
+                    <tr>
+                      <th className="py-2.5 px-3.5 font-semibold">Serial Number</th>
+                      <th className="py-2.5 px-3.5 font-semibold">ยี่ห้อ / รุ่น</th>
+                      <th className="py-2.5 px-3.5 font-semibold">ชื่อ / หมวดหมู่อุปกรณ์</th>
+                      <th className="py-2.5 px-3.5 font-semibold text-right">การดำเนินการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {paginatedModalEquipments.map((asset) => {
+                      const isCurrent = asset.serial === selectedSerial
+                      return (
+                        <tr
+                          key={asset.serial}
+                          className={`transition-colors hover:bg-muted/40 ${
+                            isCurrent ? "bg-brand/5 font-medium" : ""
+                          }`}
+                        >
+                          <td className="py-3 px-3.5">
+                            <span className="font-mono font-bold text-foreground">
+                              {asset.serial}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="rounded bg-brand-navy/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand-navy dark:text-blue-300">
+                                {asset.vendor}
+                              </span>
+                              <span className="text-foreground">{asset.model}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-3.5">
+                            <div className="flex flex-col">
+                              {asset.name && (
+                                <span className="font-medium text-foreground">{asset.name}</span>
+                              )}
+                              <span className="text-[11px] text-muted-foreground truncate max-w-sm">
+                                {asset.category}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-3.5 text-right">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={isCurrent ? "secondary" : "default"}
+                              onClick={() => handleSelectDevice(asset)}
+                              className={`h-7 px-2.5 text-xs gap-1 cursor-pointer ${
+                                isCurrent
+                                  ? "bg-brand/15 text-brand hover:bg-brand/25 font-semibold"
+                                  : "bg-brand text-white hover:bg-brand-dark"
+                              }`}
+                            >
+                              <Check className="size-3" />
+                              <span>{isCurrent ? "เลือกอยู่" : "เลือกอุปกรณ์นี้"}</span>
+                            </Button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-border bg-muted/20 px-5 py-3 text-xs">
+              <div className="text-muted-foreground">
+                แสดง {paginatedModalEquipments.length} จาก {filteredModalEquipments.length} รายการ (ทั้งหมด {equipments.length} รายการในระบบ)
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={modalPage <= 1}
+                  onClick={() => setModalPage((p) => Math.max(1, p - 1))}
+                  className="h-8 px-2 text-xs"
+                >
+                  <ChevronLeft className="size-3.5" />
+                  <span>ก่อนหน้า</span>
+                </Button>
+                <span className="text-muted-foreground px-1 font-mono">
+                  {modalPage} / {modalTotalPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={modalPage >= modalTotalPages}
+                  onClick={() => setModalPage((p) => Math.min(modalTotalPages, p + 1))}
+                  className="h-8 px-2 text-xs"
+                >
+                  <span>ถัดไป</span>
+                  <ChevronRight className="size-3.5" />
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/assets"
+                  target="_blank"
+                  className="inline-flex items-center gap-1.5 text-xs text-brand hover:underline font-medium"
+                >
+                  <span>เปิดหน้าข้อมูลอุปกรณ์เต็ม</span>
+                  <ExternalLink className="size-3" />
+                </Link>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsRegistryModalOpen(false)}
+                  className="h-8 text-xs"
+                >
+                  ปิด
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

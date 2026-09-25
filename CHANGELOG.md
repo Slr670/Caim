@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-09-25
+
+### Fixed & Improved
+- **Device Registry Dropdown & Action Link Synchronization (`NewTicketView`)**:
+  - **Complete Device Registry Dropdown**: Removed hardcoded 50-item limit (`.slice(0, 50)`), now querying and displaying the complete equipment registry (all 644+ items) directly from database.
+  - **Live Search & Autocomplete**: Upgraded real-time search across Serial Number, Vendor, Model, Device Name, and Description with clear button.
+  - **Dynamic View-All Link & Registry Modal**: Made 'ดูทะเบียนอุปกรณ์ทั้งหมด' interactive with live dynamic count badge bound directly to database count (`equipments.length`), opening a full Equipment Registry Modal with search, filters, and 1-click equipment selection into the claim form.
+  - **Real-Time Data Consistency**: Integrated `useRealtimeSync` hook into `NewTicketView` to ensure equipment creation, updates, and deletions immediately update the dropdown list and counter badge across all browser tabs without manual refresh.
+
 ## [0.21.0] - 2026-09-25
 
 ### Added
