@@ -6,7 +6,6 @@ import {
   calculateDashboardMetrics,
   TicketItem,
 } from "@/lib/dashboard/calculateMetrics"
-import { getCustomTickets, getDeletedTicketIds } from "@/lib/storage/recordStorage"
 
 export type ConnectionStatus = "connected" | "connecting" | "fallback-polling"
 
@@ -88,26 +87,15 @@ export function useRealtimeDashboard() {
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | null>(null)
   const [isRefreshing, setIsRefreshing] = React.useState(false)
 
-  // Merge optimistic local changes (created or deleted tickets from other tabs)
-  const applyOptimisticTickets = React.useCallback(
+  // Direct calculation from authoritative server tickets without local device storage skew
+  const applyServerTickets = React.useCallback(
     (serverTickets?: TicketItem[]) => {
       if (typeof window === "undefined") return
-      const custom = getCustomTickets()
-      const deletedIds = getDeletedTicketIds()
-
-      const base: TicketItem[] =
-        serverTickets && serverTickets.length > 0
-          ? serverTickets
-          : INITIAL_FALLBACK_TICKETS
-
-      const merged = [
-        ...custom,
-        ...base.filter((b) => !custom.some((c) => c.id === b.id)),
-      ].filter((t) => !deletedIds.includes(t.id))
-
-      const computed = calculateDashboardMetrics(merged)
-      setMetrics(computed)
-      setLastSyncTime(new Date())
+      if (serverTickets && Array.isArray(serverTickets)) {
+        const computed = calculateDashboardMetrics(serverTickets)
+        setMetrics(computed)
+        setLastSyncTime(new Date())
+      }
     },
     []
   )
@@ -116,29 +104,32 @@ export function useRealtimeDashboard() {
   const fetchStats = React.useCallback(async () => {
     setIsRefreshing(true)
     try {
-      const res = await fetch("/api/tickets", { cache: "no-store" })
+      const res = await fetch("/api/tickets", {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+        },
+      })
       if (res.ok) {
         const data = await res.json()
         if (data.success && Array.isArray(data.tickets)) {
-          applyOptimisticTickets(data.tickets)
+          applyServerTickets(data.tickets)
           return
         }
       }
-      applyOptimisticTickets()
     } catch (err) {
-      console.warn("Direct stats fetch warning, applying optimistic sync", err)
-      applyOptimisticTickets()
+      console.warn("Direct stats fetch warning:", err)
     } finally {
       setIsRefreshing(false)
     }
-  }, [applyOptimisticTickets])
+  }, [applyServerTickets])
 
   // Setup Real-Time Server-Sent Events (SSE) + Auto-Revalidation Fallback
   React.useEffect(() => {
     if (typeof window === "undefined") return
 
-    // 1. Initial fast sync from local & API
-    applyOptimisticTickets()
+    // 1. Initial fast sync from API
     fetchStats()
 
     let eventSource: EventSource | null = null
@@ -198,15 +189,24 @@ export function useRealtimeDashboard() {
     window.addEventListener("visibilitychange", handleVisibilityChange)
     window.addEventListener("focus", handleVisibilityChange)
 
+    // Real-time custom event listeners from SSE & cross-client sync
+    const handleTicketChange = () => {
+      fetchStats()
+    }
+    window.addEventListener("caim:realtime:ticket", handleTicketChange)
+    window.addEventListener("caim:realtime:metrics", handleTicketChange)
+
     return () => {
       if (eventSource) {
         eventSource.close()
       }
       stopFallbackPolling()
+      window.removeEventListener("caim:realtime:ticket", handleTicketChange)
+      window.removeEventListener("caim:realtime:metrics", handleTicketChange)
       window.removeEventListener("visibilitychange", handleVisibilityChange)
       window.removeEventListener("focus", handleVisibilityChange)
     }
-  }, [applyOptimisticTickets, fetchStats])
+  }, [fetchStats])
 
   return {
     metrics,

@@ -299,7 +299,11 @@ export async function saveRmaApi(
   try {
     const res = await fetch("/api/rma", {
       method: isEdit ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+      },
       body: JSON.stringify(rma),
     })
     const data = await res.json()
@@ -319,12 +323,11 @@ export async function saveRmaApi(
 
 export async function deleteRmaApi(id: string): Promise<{ success: boolean; message?: string }> {
   try {
-    addDeletedRmaId(id)
     const res = await fetch(`/api/rma?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
         Pragma: "no-cache",
       },
     })
@@ -341,12 +344,11 @@ export async function deleteRmaApi(id: string): Promise<{ success: boolean; mess
 
 export async function deleteTicketApi(id: string): Promise<{ success: boolean; message?: string }> {
   try {
-    addDeletedTicketId(id)
     const res = await fetch(`/api/tickets?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
         Pragma: "no-cache",
       },
     })

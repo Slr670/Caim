@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch stations"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }
 
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     if (!body || !body.name) {
       return NextResponse.json(
         { success: false, error: "กรุณาระบุชื่อสถานี (Station Name)" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create station"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }
 
@@ -202,7 +202,7 @@ export async function PUT(request: NextRequest) {
     if (!id) {
       return NextResponse.json(
         { success: false, error: "Missing station id for update" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -253,7 +253,7 @@ export async function PUT(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update station"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }
 
@@ -269,7 +269,7 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json(
         { success: false, error: "Missing station id for deletion" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -319,6 +319,6 @@ export async function DELETE(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete station"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }

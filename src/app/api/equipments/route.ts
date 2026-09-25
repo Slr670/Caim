@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch equipments"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }
 
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     if (!body || typeof body !== "object") {
-      return NextResponse.json({ success: false, error: "Invalid payload" }, { status: 400 })
+      return NextResponse.json({ success: false, error: "Invalid payload" }, { status: 400, headers: NO_CACHE_HEADERS })
     }
 
     const serial = String(body.serial || "").trim()
@@ -177,13 +177,13 @@ export async function POST(request: NextRequest) {
     if (!serial) {
       return NextResponse.json(
         { success: false, error: "กรุณาระบุหมายเลขอุปกรณ์ (Serial Number)" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
     if (!vendor) {
       return NextResponse.json(
         { success: false, error: "กรุณาระบุยี่ห้อ (Vendor)" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
                 success: false,
                 error: `หมายเลขอุปกรณ์ (Serial Number) "${serial}" มีอยู่ในฐานข้อมูลแล้ว กรุณาตรวจสอบหรือใช้เมนูแก้ไขข้อมูล`,
               },
-              { status: 409 }
+              { status: 409, headers: NO_CACHE_HEADERS }
             )
           }
 
@@ -262,7 +262,7 @@ export async function POST(request: NextRequest) {
           success: false,
           error: `หมายเลขอุปกรณ์ (Serial Number) "${serial}" มีอยู่ในระบบแล้ว กรุณาตรวจสอบหรือใช้เมนูแก้ไขข้อมูล`,
         },
-        { status: 409 }
+        { status: 409, headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -369,7 +369,7 @@ export async function PUT(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update equipment"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }
 
@@ -385,7 +385,7 @@ export async function DELETE(request: NextRequest) {
     if (!serial) {
       return NextResponse.json(
         { success: false, error: "Serial number is required for deletion" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -444,6 +444,6 @@ export async function DELETE(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete equipment"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }

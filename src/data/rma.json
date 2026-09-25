@@ -1,0 +1,40 @@
+[
+  {
+    "id": "1",
+    "rmaNo": "TEST20",
+    "caseName": "ทดสอบระบบ",
+    "serialNo": "200426",
+    "vendor": "Hytera",
+    "model": "DIB-R5 outdoor",
+    "currentStageNumber": 6,
+    "totalStages": 8,
+    "currentStageName": "6. จีน — ซ่อม",
+    "stageWaitDays": "ค้างมา 0 วัน",
+    "openDate": "11 ก.ย. 2569",
+    "totalDays": "11 วัน",
+    "statusBadge": "in_progress",
+    "statusBadgeText": "กำลังดำเนินการ",
+    "penaltyDays": "0 วัน",
+    "penaltyStandard": "จาก 14 วัน",
+    "isOverduePenalty": false
+  },
+  {
+    "id": "2",
+    "rmaNo": "test14",
+    "caseName": "ไม่ผูกเคส",
+    "serialNo": "1000167600349",
+    "vendor": "Huawei",
+    "model": "OMXD30000",
+    "currentStageNumber": 8,
+    "totalStages": 8,
+    "currentStageName": "8. เคลียร์ศุลกากร",
+    "stageWaitDays": "ค้างมา 0 วัน",
+    "openDate": "11 ก.ย. 2569",
+    "totalDays": "66 วัน",
+    "statusBadge": "returned",
+    "statusBadgeText": "ของกลับถึงแล้ว",
+    "penaltyDays": "เกิน 7 วัน",
+    "penaltyStandard": "จาก 14 วัน · ซ่อมเสร็จแล้ว",
+    "isOverduePenalty": true
+  }
+]

@@ -24,8 +24,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ASSETS } from "./assetsData"
-import { getDeletedRmaIds, deleteRmaApi, saveRmaApi } from "@/lib/storage/recordStorage"
+import { saveRmaApi } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
+import { useRmaQuery, type RmaItem } from "@/hooks/useRmaQuery"
 
 interface ClaimCaseOption {
   id: string
@@ -90,69 +91,8 @@ function getInitialDateTime() {
   return `${year}-${month}-${day} ${strHours}:${minutes} ${ampm}`
 }
 
-interface RmaItem {
-  id: string
-  rmaNo: string
-  caseName: string
-  serialNo: string
-  vendor: string
-  model: string
-  currentStageNumber: number
-  totalStages: number
-  currentStageName: string
-  stageWaitDays: string
-  openDate: string
-  totalDays: string
-  statusBadge: "in_progress" | "returned"
-  statusBadgeText: string
-  penaltyDays: string
-  penaltyStandard: string
-  isOverduePenalty?: boolean
-}
-
-const INITIAL_RMA_ITEMS: RmaItem[] = [
-  {
-    id: "1",
-    rmaNo: "TEST20",
-    caseName: "ทดสอบระบบ",
-    serialNo: "200426",
-    vendor: "Hytera",
-    model: "DIB-R5 outdoor",
-    currentStageNumber: 6,
-    totalStages: 8,
-    currentStageName: "6. จีน — ซ่อม",
-    stageWaitDays: "ค้างมา 0 วัน",
-    openDate: "11 ก.ย. 2569",
-    totalDays: "11 วัน",
-    statusBadge: "in_progress",
-    statusBadgeText: "กำลังดำเนินการ",
-    penaltyDays: "0 วัน",
-    penaltyStandard: "จาก 14 วัน",
-    isOverduePenalty: false,
-  },
-  {
-    id: "2",
-    rmaNo: "test14",
-    caseName: "ไม่ผูกเคส",
-    serialNo: "1000167600349",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    currentStageNumber: 8,
-    totalStages: 8,
-    currentStageName: "8. เคลียร์ศุลกากร",
-    stageWaitDays: "ค้างมา 0 วัน",
-    openDate: "11 ก.ย. 2569",
-    totalDays: "66 วัน",
-    statusBadge: "returned",
-    statusBadgeText: "ของกลับถึงแล้ว",
-    penaltyDays: "เกิน 7 วัน",
-    penaltyStandard: "จาก 14 วัน · ซ่อมเสร็จแล้ว",
-    isOverduePenalty: true,
-  },
-]
-
 export function OverseasView() {
-  const [rmaList, setRmaList] = React.useState<RmaItem[]>(INITIAL_RMA_ITEMS)
+  const { rmaList, deleteRma, updateRma, refetch: refetchRma } = useRmaQuery()
 
   // Empty Table State flag on filter reset
   const [isTableCleared, setIsTableCleared] = React.useState(false)
@@ -170,58 +110,15 @@ export function OverseasView() {
   }
 
   // Real-time synchronization for Overseas RMA records
-  const { isConnected } = useRealtimeSync({
-    onRmaChange: (raw) => {
-      const payload = raw as { action?: string; data?: RmaItem } | undefined
-      if (!payload || !payload.data) return
-      const { action, data } = payload
-      setRmaList((prev) => {
-        if (action === "create") {
-          const exists = prev.some((r) => r.id === data.id)
-          return exists ? prev.map((r) => (r.id === data.id ? data : r)) : [data, ...prev]
-        }
-        if (action === "update") {
-          return prev.map((r) => (r.id === data.id ? { ...r, ...data } : r))
-        }
-        if (action === "delete") {
-          return prev.filter((r) => r.id !== data.id)
-        }
-        return prev
-      })
-      showToast("ข้อมูลใบส่งซ่อมต่างประเทศได้รับการอัปเดตแบบเรียลไทม์")
-    },
-  })
+  const { isConnected } = useRealtimeSync()
 
   // State for available claim cases & equipments from DB
   const [availableCases, setAvailableCases] = React.useState<ClaimCaseOption[]>(AVAILABLE_CASES)
   const [equipmentsData, setEquipmentsData] = React.useState<(typeof ASSETS)>(ASSETS)
 
-  // Sync RMA records, tickets, and equipments from DB on mount
+  // Sync available tickets for case options from DB on mount
   React.useEffect(() => {
     if (typeof window !== "undefined") {
-      const deletedIds = getDeletedRmaIds()
-      if (deletedIds.length > 0) {
-        setRmaList((prev) => prev.filter((item) => !deletedIds.includes(item.id)))
-      }
-
-      // 1. Fetch live RMA records from backend
-      fetch("/api/rma")
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.success && Array.isArray(data.items) && data.items.length > 0) {
-            setRmaList((prev) => {
-              const apiItems: RmaItem[] = data.items
-              const merged = [
-                ...apiItems,
-                ...prev.filter((p) => !apiItems.some((a) => a.id === p.id)),
-              ]
-              return merged.filter((item) => !deletedIds.includes(item.id))
-            })
-          }
-        })
-        .catch((err) => console.warn("Could not sync RMA records:", err))
-
-      // 2. Fetch live tickets for case options
       fetch("/api/tickets")
         .then((res) => res.json())
         .then((data) => {
@@ -384,12 +281,10 @@ export function OverseasView() {
     setIsDeleting(true)
 
     try {
-      // 1. Immediate UI update
-      setRmaList((prev) => prev.filter((item) => item.id !== targetId))
-
-      // 2. Permanent persistence via localStorage & backend DELETE API request
-      const res = await deleteRmaApi(targetId)
-
+      const res = await deleteRma(targetId)
+      if (!res.success) {
+        throw new Error(res.error || "Failed to delete RMA")
+      }
       showToast(res.message || `ลบใบส่งซ่อม "${targetRmaNo}" ถาวรเรียบร้อยแล้ว`)
     } catch (err) {
       console.error("Failed to delete RMA record", err)
@@ -398,7 +293,7 @@ export function OverseasView() {
       setIsDeleting(false)
       setItemToDelete(null)
     }
-  }, [itemToDelete])
+  }, [itemToDelete, deleteRma])
 
   const filteredItems = React.useMemo(() => {
     // Empty Table State: When filters are cleared, completely clear all rendered records
@@ -510,10 +405,7 @@ export function OverseasView() {
       isOverduePenalty: false,
     }
 
-    // 1. Optimistic UI update
-    setRmaList((prev) => [newItem, ...prev])
-
-    // 2. Persist to Database API & Transaction Log
+    // 1. Persist to Database API & Transaction Log, then refetch
     saveRmaApi({
       id: newItem.id,
       rmaNo: newItem.rmaNo,
@@ -536,7 +428,11 @@ export function OverseasView() {
       penaltyStandard: newItem.penaltyStandard,
       isOverduePenalty: newItem.isOverduePenalty,
       remarks: newRmaForm.remarks,
-    }).catch((err) => console.warn("Failed to persist RMA:", err))
+    })
+      .then(() => {
+        refetchRma()
+      })
+      .catch((err) => console.warn("Failed to persist RMA:", err))
 
     setNewRmaModalOpen(false)
     setNewRmaForm({
@@ -555,8 +451,7 @@ export function OverseasView() {
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingItem) return
-    setRmaList((prev) => prev.map((item) => (item.id === editingItem.id ? editingItem : item)))
-    saveRmaApi(editingItem, true).catch((err) => console.warn("Failed to update RMA:", err))
+    updateRma(editingItem)
     setEditingItem(null)
     showToast("บันทึกข้อมูลใบส่งซ่อมลงฐานข้อมูลเรียบร้อยแล้ว")
   }

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.6] - 2026-09-25
+
+### Fixed & Improved
+- **Cross-Device & Cross-Browser Data Synchronization (`useRmaQuery`, `useRealtimeDashboard`, `useTicketsQuery`)**:
+  - **Removed Browser-Specific Storage Dependencies**:
+    - Eliminated `localStorage` (`getDeletedRmaIds`, `getDeletedTicketIds`, `getCustomTickets`, `addCustomTicket`, `addDeletedTicketId`, `addDeletedRmaId`) as an authority for data fetching across client machines, ensuring all devices fetch directly from the shared remote database without local state partitioning.
+    - Updated `NewTicketView.tsx` to dispatch case creation exclusively to `/api/tickets` with automatic cache invalidation (`invalidateTicketsCache()`).
+    - Updated `useRealtimeDashboard.ts` to compute metrics purely from server records (`/api/tickets` and `/api/dashboard/stats`) without mixing browser-local tickets.
+  - **Eliminated Mock Fallback Resurrection in Overseas RMA**:
+    - Created `src/data/rma.json` and `src/data/deleted_rma.json` server-side data files paired with `src/lib/storage/serverRmaStorage.ts` to guarantee durable persistence across Vercel serverless worker recycles.
+    - Created unified `useRmaQuery` hook replacing local `INITIAL_RMA_ITEMS` and preventing stale mock lists from reappearing on external machines.
+    - Wired `OverseasView.tsx` directly to `useRmaQuery` with optimistic updates and immediate database deletion.
+  - **Strict No-Cache Headers & Dynamic Execution Enforced**:
+    - Applied `NO_CACHE_HEADERS` (`Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0`, `Pragma: no-cache`, `Expires: 0`, `Surrogate-Control: no-store`, `X-Accel-Buffering: no`) to all success and error responses (400, 404, 409, 500) across `/api/stations`, `/api/equipments`, `/api/tickets`, `/api/rma`, `/api/assets`, and `/api/dashboard/stats`.
+    - Added `X-Accel-Buffering: no` to `next.config.ts` for all `/api/:path*` routes.
+  - **Window Focus & Real-Time Cache Revalidation**:
+    - Added `refetchOnWindowFocus` and `visibilitychange` listeners across all query hooks (`useEquipmentsQuery`, `useTicketsQuery`, `useRmaQuery`, `useRealtimeDashboard`, `useRealtimeSync`) to immediately re-sync data whenever a device/browser tab becomes active.
+
 ## [0.21.5] - 2026-09-25
 
 ### Fixed & Improved

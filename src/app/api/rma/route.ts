@@ -3,57 +3,76 @@ import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { RmaDocument, EquipmentDocument, TicketDocument } from "@/types/database"
 import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
+import {
+  getPersistentRma,
+  savePersistentRma,
+  deletePersistentRma,
+  getPersistentDeletedRmaIds,
+} from "@/lib/storage/serverRmaStorage"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 export const fetchCache = "force-no-store"
 
-const fallbackRmaList: RmaDocument[] = []
-const serverDeletedRmaIds = new Set<string>()
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
+    const persistentDeletedIds = getPersistentDeletedRmaIds()
+    const deletedSet = new Set(persistentDeletedIds)
 
     if (isMongoConfigured()) {
       const db = await getDb()
       if (db) {
         const collection = db.collection<RmaDocument>("rma")
         if (id) {
+          if (deletedSet.has(id)) {
+            return NextResponse.json(
+              { success: true, rma: null, isDeleted: true },
+              { headers: NO_CACHE_HEADERS }
+            )
+          }
           const item = await collection.findOne({ id })
           return NextResponse.json({ success: true, rma: item }, { headers: NO_CACHE_HEADERS })
         }
         const list = await collection.find({}).sort({ createdAt: -1 }).toArray()
+        const filteredList = list.filter((r) => !deletedSet.has(r.id))
         return NextResponse.json(
           {
             success: true,
             source: "mongodb",
-            items: list,
-            deletedIds: Array.from(serverDeletedRmaIds),
+            items: filteredList,
+            deletedIds: persistentDeletedIds,
           },
           { headers: NO_CACHE_HEADERS }
         )
       }
     }
 
+    const diskRma = getPersistentRma()
     if (id) {
-      const found = fallbackRmaList.find((r) => r.id === id)
+      if (deletedSet.has(id)) {
+        return NextResponse.json(
+          { success: true, rma: null, isDeleted: true },
+          { headers: NO_CACHE_HEADERS }
+        )
+      }
+      const found = diskRma.find((r) => r.id === id)
       return NextResponse.json({ success: true, rma: found || null }, { headers: NO_CACHE_HEADERS })
     }
 
     return NextResponse.json(
       {
         success: true,
-        source: "local",
-        items: fallbackRmaList.filter((r) => !serverDeletedRmaIds.has(r.id)),
-        deletedIds: Array.from(serverDeletedRmaIds),
+        source: "persistent-disk",
+        items: diskRma,
+        deletedIds: persistentDeletedIds,
       },
       { headers: NO_CACHE_HEADERS }
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch RMA items"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }
 
@@ -64,7 +83,7 @@ export async function POST(request: NextRequest) {
     if (!body || !body.rmaNo) {
       return NextResponse.json(
         { success: false, error: "Missing required RMA data (rmaNo)" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -102,6 +121,9 @@ export async function POST(request: NextRequest) {
       createdAt: nowIso,
       updatedAt: nowIso,
     }
+
+    // Always persist to server disk store
+    savePersistentRma(newRma)
 
     let savedToMongo = false
     if (isMongoConfigured()) {
@@ -146,8 +168,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    fallbackRmaList.unshift(newRma)
-
     // Broadcast real-time update
     realtimeEmitter.emit(REALTIME_EVENTS.RMA_CHANGED, {
       type: "rma",
@@ -160,14 +180,14 @@ export async function POST(request: NextRequest) {
       {
         success: true,
         rma: newRma,
-        savedTo: savedToMongo ? "mongodb" : "local-memory",
+        savedTo: savedToMongo ? "mongodb" : "persistent-disk",
         message: "บันทึกใบส่งเคลมต่างประเทศและประวัติการส่งซ่อมเรียบร้อยแล้ว",
       },
       { status: 201, headers: NO_CACHE_HEADERS }
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to save RMA"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }
 
@@ -179,12 +199,19 @@ export async function PUT(request: NextRequest) {
     if (!id) {
       return NextResponse.json(
         { success: false, error: "Missing RMA id for update" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
 
     const nowIso = new Date().toISOString()
     const setFields = { ...updates, updatedAt: nowIso }
+
+    // Update persistent disk
+    const diskItems = getPersistentRma()
+    const foundItem = diskItems.find((r) => r.id === id)
+    if (foundItem) {
+      savePersistentRma({ ...foundItem, ...setFields })
+    }
 
     if (isMongoConfigured()) {
       const db = await getDb()
@@ -214,11 +241,6 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    const idx = fallbackRmaList.findIndex((r) => r.id === id)
-    if (idx !== -1) {
-      fallbackRmaList[idx] = { ...fallbackRmaList[idx], ...setFields }
-    }
-
     realtimeEmitter.emit(REALTIME_EVENTS.RMA_CHANGED, {
       type: "rma",
       action: "update",
@@ -235,7 +257,7 @@ export async function PUT(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update RMA record"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }
 
@@ -252,13 +274,16 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json(
         { success: false, error: "Missing RMA id parameter" },
-        { status: 400 }
+        { status: 400, headers: NO_CACHE_HEADERS }
       )
     }
 
     const nowIso = new Date().toISOString()
-    serverDeletedRmaIds.add(id)
 
+    // 1. Delete from persistent disk store
+    deletePersistentRma(id)
+
+    // 2. Delete from MongoDB Atlas if configured
     if (isMongoConfigured()) {
       const db = await getDb()
       if (db) {
@@ -284,11 +309,6 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    const idx = fallbackRmaList.findIndex((r) => r.id === id)
-    if (idx !== -1) {
-      fallbackRmaList.splice(idx, 1)
-    }
-
     realtimeEmitter.emit(REALTIME_EVENTS.RMA_CHANGED, {
       type: "rma",
       action: "delete",
@@ -307,6 +327,6 @@ export async function DELETE(request: NextRequest) {
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete RMA record"
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json({ success: false, error: message }, { status: 500, headers: NO_CACHE_HEADERS })
   }
 }

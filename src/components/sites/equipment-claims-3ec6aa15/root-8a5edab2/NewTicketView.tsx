@@ -25,9 +25,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { type Asset } from "./assetsData"
 import { STATIONS, type Station } from "./stationsData"
-import { addCustomTicket, StoredTicket } from "@/lib/storage/recordStorage"
+import { StoredTicket } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useEquipmentsQuery } from "@/hooks/useEquipmentsQuery"
+import { invalidateTicketsCache } from "@/hooks/useTicketsQuery"
 
 export function NewTicketView() {
   const router = useRouter()
@@ -266,21 +267,24 @@ export function NewTicketView() {
       subdistrict: selectedStation?.subdistrict || "",
     }
 
-    // 1. Dual persistence: Save to localStorage immediately
-    addCustomTicket(newTicket)
-
-    // 2. Dispatch to Backend API / MongoDB (with transaction logging & equipment status update)
+    // 1. Dispatch to Backend API / MongoDB (with transaction logging & equipment status update)
     try {
       const res = await fetch("/api/tickets", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
+          Pragma: "no-cache",
+        },
         body: JSON.stringify(newTicket),
       })
       if (!res.ok) {
         console.warn("Backend API returned status", res.status)
+      } else {
+        await invalidateTicketsCache()
       }
     } catch (err) {
-      console.warn("Backend API offline or unreachable, saved locally", err)
+      console.warn("Backend API offline or unreachable:", err)
     }
 
     setIsSaved(true)

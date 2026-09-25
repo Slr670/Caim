@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { addDeletedTicketId, getDeletedTicketIds } from "@/lib/storage/recordStorage"
 
 export const TICKETS_QUERY_KEY = ["tickets"] as const
 
@@ -81,14 +80,11 @@ export async function fetchTicketsFromApi(force = false): Promise<Ticket[]> {
       const data = await res.json()
 
       let fetchedList: Ticket[] = []
-      const localDeletedIds = new Set(getDeletedTicketIds())
       const serverDeletedIds = new Set<string>(Array.isArray(data?.deletedIds) ? data.deletedIds : [])
 
       if (data && data.success && Array.isArray(data.tickets)) {
         // Prevent fallback/mock datasets from re-populating deleted records
-        fetchedList = data.tickets.filter(
-          (t: Ticket) => !localDeletedIds.has(t.id) && !serverDeletedIds.has(t.id)
-        )
+        fetchedList = data.tickets.filter((t: Ticket) => !serverDeletedIds.has(t.id))
       } else {
         fetchedList = []
       }
@@ -216,7 +212,6 @@ export function useTicketsQuery() {
 
       // 2. Optimistic UI update: remove row immediately and recalculate count
       applyTicketMutation("delete", { id })
-      addDeletedTicketId(id)
 
       try {
         // 3. Attach real API DELETE request to backend database
@@ -224,7 +219,7 @@ export function useTicketsQuery() {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
             Pragma: "no-cache",
           },
         })
