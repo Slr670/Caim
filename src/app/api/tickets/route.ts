@@ -3,51 +3,70 @@ import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { TicketDocument, EquipmentDocument, StationDocument } from "@/types/database"
 import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
+import {
+  getPersistentTickets,
+  savePersistentTicket,
+  deletePersistentTicket,
+  getPersistentDeletedTicketIds,
+} from "@/lib/storage/serverTicketStorage"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 export const fetchCache = "force-no-store"
 
-const fallbackTickets: TicketDocument[] = []
-const serverDeletedTicketIds = new Set<string>()
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
+    const persistentDeletedIds = getPersistentDeletedTicketIds()
 
     if (isMongoConfigured()) {
-      const db = await getDb()
-      if (db) {
-        const collection = db.collection<TicketDocument>("tickets")
-        if (id) {
-          const item = await collection.findOne({ id })
-          return NextResponse.json({ success: true, ticket: item }, { headers: NO_CACHE_HEADERS })
+      try {
+        const db = await getDb()
+        if (db) {
+          const collection = db.collection<TicketDocument>("tickets")
+          if (id) {
+            const item = await collection.findOne({ id })
+            if (item && !persistentDeletedIds.includes(item.id)) {
+              return NextResponse.json({ success: true, ticket: item, source: "mongodb" }, { headers: NO_CACHE_HEADERS })
+            }
+          } else {
+            const tickets = await collection.find({}).sort({ createdAt: -1 }).toArray()
+            const filteredTickets = tickets.filter((t) => !persistentDeletedIds.includes(t.id))
+            return NextResponse.json(
+              {
+                success: true,
+                source: "mongodb",
+                tickets: filteredTickets,
+                total: filteredTickets.length,
+                deletedIds: persistentDeletedIds,
+              },
+              { headers: NO_CACHE_HEADERS }
+            )
+          }
         }
-        const tickets = await collection.find({}).sort({ createdAt: -1 }).toArray()
-        return NextResponse.json(
-          {
-            success: true,
-            source: "mongodb",
-            tickets,
-            deletedIds: Array.from(serverDeletedTicketIds),
-          },
-          { headers: NO_CACHE_HEADERS }
-        )
+      } catch (dbErr) {
+        console.warn("[Tickets API] MongoDB query failed, using persistent disk store:", dbErr)
       }
     }
 
+    const diskTickets = getPersistentTickets()
+
     if (id) {
-      const found = fallbackTickets.find((t) => t.id === id)
-      return NextResponse.json({ success: true, ticket: found || null }, { headers: NO_CACHE_HEADERS })
+      const found = diskTickets.find((t) => t.id === id)
+      return NextResponse.json(
+        { success: true, ticket: found || null, source: "persistent-local" },
+        { headers: NO_CACHE_HEADERS }
+      )
     }
 
     return NextResponse.json(
       {
         success: true,
-        source: "local",
-        tickets: fallbackTickets.filter((t) => !serverDeletedTicketIds.has(t.id)),
-        deletedIds: Array.from(serverDeletedTicketIds),
+        source: "persistent-local",
+        tickets: diskTickets,
+        total: diskTickets.length,
+        deletedIds: persistentDeletedIds,
       },
       { headers: NO_CACHE_HEADERS }
     )
@@ -178,6 +197,9 @@ export async function POST(request: NextRequest) {
           timestamp: nowIso,
         })
 
+        // Save to persistent disk store as dual-layer backup
+        savePersistentTicket(newTicketDoc)
+
         return NextResponse.json(
           {
             success: true,
@@ -208,8 +230,9 @@ export async function POST(request: NextRequest) {
       district,
       subdistrict,
       createdAt: nowIso,
+      updatedAt: nowIso,
     }
-    fallbackTickets.unshift(fallbackDoc)
+    savePersistentTicket(fallbackDoc)
 
     realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
       type: "ticket",
@@ -222,7 +245,7 @@ export async function POST(request: NextRequest) {
       {
         success: true,
         ticket: fallbackDoc,
-        savedTo: "local-memory",
+        savedTo: "persistent-local",
         message: "บันทึกเคสแจ้งเคลมเรียบร้อยแล้ว",
       },
       { status: 201, headers: NO_CACHE_HEADERS }
@@ -249,36 +272,42 @@ export async function PUT(request: NextRequest) {
     const setFields = { ...updates, updatedAt: nowIso }
 
     if (isMongoConfigured()) {
-      const db = await getDb()
-      if (db) {
-        await db.collection("tickets").updateOne({ id }, { $set: setFields })
+      try {
+        const db = await getDb()
+        if (db) {
+          await db.collection("tickets").updateOne({ id }, { $set: setFields })
 
-        // If status changed to closed ("ปิดเคส"), free up equipment
-        if (updates.status === "ปิดเคส") {
-          const currentTicket = await db.collection<TicketDocument>("tickets").findOne({ id })
-          if (currentTicket && currentTicket.serialNo) {
-            await db.collection<EquipmentDocument>("equipments").updateOne(
-              { serial: currentTicket.serialNo },
-              { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
-            )
+          // If status changed to closed ("ปิดเคส"), free up equipment
+          if (updates.status === "ปิดเคส") {
+            const currentTicket = await db.collection<TicketDocument>("tickets").findOne({ id })
+            if (currentTicket && currentTicket.serialNo) {
+              await db.collection<EquipmentDocument>("equipments").updateOne(
+                { serial: currentTicket.serialNo },
+                { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
+              )
+            }
           }
-        }
 
-        // Record Transaction Log
-        await db.collection("transaction_logs").insertOne({
-          id: `TX-CLAIM-UPD-${Date.now()}`,
-          action: "CLAIM_UPDATED",
-          targetType: "ticket",
-          targetId: id,
-          details: updates,
-          timestamp: nowIso,
-        })
+          // Record Transaction Log
+          await db.collection("transaction_logs").insertOne({
+            id: `TX-CLAIM-UPD-${Date.now()}`,
+            action: "CLAIM_UPDATED",
+            targetType: "ticket",
+            targetId: id,
+            details: updates,
+            timestamp: nowIso,
+          })
+        }
+      } catch (dbErr) {
+        console.warn("[Tickets API] MongoDB update failed:", dbErr)
       }
     }
 
-    const idx = fallbackTickets.findIndex((t) => t.id === id)
-    if (idx !== -1) {
-      fallbackTickets[idx] = { ...fallbackTickets[idx], ...setFields }
+    // Always update persistent disk store
+    const existingTickets = getPersistentTickets()
+    const target = existingTickets.find((t) => t.id === id)
+    if (target) {
+      savePersistentTicket({ ...target, ...setFields })
     }
 
     realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
@@ -325,39 +354,42 @@ export async function DELETE(request: NextRequest) {
     }
 
     const nowIso = new Date().toISOString()
-    serverDeletedTicketIds.add(id)
 
+    // 1. Delete from MongoDB Atlas & update equipment status
     if (isMongoConfigured()) {
-      const db = await getDb()
-      if (db) {
-        const currentTicket = await db.collection<TicketDocument>("tickets").findOne({ id })
-        if (currentTicket && currentTicket.serialNo) {
-          // Free equipment
-          await db.collection<EquipmentDocument>("equipments").updateOne(
-            { serial: currentTicket.serialNo },
-            { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
-          )
+      try {
+        const db = await getDb()
+        if (db) {
+          const currentTicket = await db.collection<TicketDocument>("tickets").findOne({ id })
+          if (currentTicket && currentTicket.serialNo) {
+            // Free equipment
+            await db.collection<EquipmentDocument>("equipments").updateOne(
+              { serial: currentTicket.serialNo },
+              { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
+            )
+          }
+
+          await db.collection("tickets").deleteOne({ id })
+
+          // Record Transaction Log
+          await db.collection("transaction_logs").insertOne({
+            id: `TX-CLAIM-DEL-${Date.now()}`,
+            action: "CLAIM_DELETED",
+            targetType: "ticket",
+            targetId: id,
+            details: { deletedAt: nowIso },
+            timestamp: nowIso,
+          })
         }
-
-        await db.collection("tickets").deleteOne({ id })
-
-        // Record Transaction Log
-        await db.collection("transaction_logs").insertOne({
-          id: `TX-CLAIM-DEL-${Date.now()}`,
-          action: "CLAIM_DELETED",
-          targetType: "ticket",
-          targetId: id,
-          details: { deletedAt: nowIso },
-          timestamp: nowIso,
-        })
+      } catch (dbErr) {
+        console.warn("[Tickets API] MongoDB deletion warning:", dbErr)
       }
     }
 
-    const idx = fallbackTickets.findIndex((t) => t.id === id)
-    if (idx !== -1) {
-      fallbackTickets.splice(idx, 1)
-    }
+    // 2. Delete permanently from persistent disk store
+    deletePersistentTicket(id)
 
+    // 3. Broadcast real-time deletion event across all active clients
     realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
       type: "ticket",
       action: "delete",
@@ -375,7 +407,7 @@ export async function DELETE(request: NextRequest) {
       {
         success: true,
         id,
-        message: `Ticket record ${id} has been permanently deleted from database.`,
+        message: `ลบเคสแจ้งเคลม ${id} ออกจากฐานข้อมูลเรียบร้อยแล้ว`,
         timestamp: nowIso,
       },
       { headers: NO_CACHE_HEADERS }

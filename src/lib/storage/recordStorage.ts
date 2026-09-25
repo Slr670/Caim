@@ -322,13 +322,20 @@ export async function deleteRmaApi(id: string): Promise<{ success: boolean; mess
     addDeletedRmaId(id)
     const res = await fetch(`/api/rma?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+      },
     })
     const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "Failed to delete RMA")
+    }
     return { success: true, message: data.message || `ใบ RMA ${id} ถูกลบออกจากระบบเรียบร้อยแล้ว` }
   } catch (err: unknown) {
-    console.warn("Backend API not reachable or network error, stored in local persistence", err)
-    return { success: true, message: `ใบ RMA ${id} ถูกลบออกจากเครื่องของคุณเรียบร้อยแล้ว` }
+    const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการลบใบส่งซ่อม"
+    return { success: false, message: msg }
   }
 }
 
@@ -337,12 +344,19 @@ export async function deleteTicketApi(id: string): Promise<{ success: boolean; m
     addDeletedTicketId(id)
     const res = await fetch(`/api/tickets?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+      },
     })
     const data = await res.json()
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "Failed to delete ticket")
+    }
     return { success: true, message: data.message || `เคส ${id} ถูกลบออกจากระบบอย่างถาวรแล้ว` }
   } catch (err: unknown) {
-    console.warn("Backend API not reachable or network error, stored in local persistence", err)
-    return { success: true, message: `เคส ${id} ถูกลบออกจากเครื่องของคุณเรียบร้อยแล้ว` }
+    const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการลบเคส"
+    return { success: false, message: msg }
   }
 }

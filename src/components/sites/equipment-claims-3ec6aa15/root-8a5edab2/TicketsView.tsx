@@ -22,27 +22,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { type Station, STATIONS } from "./stationsData"
-import { getDeletedTicketIds, deleteTicketApi, getCustomTickets } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
-
-export interface Ticket {
-  id: string
-  title: string
-  problemDesc: string
-  vendor: string
-  model: string
-  serialNo: string
-  status: string
-  statusCode: number
-  date: string
-  ageDays: string
-  isOverdue?: boolean
-  overdueText?: string
-  station?: string
-  province?: string
-  district?: string
-  subdistrict?: string
-}
+import { useTicketsQuery, type Ticket } from "@/hooks/useTicketsQuery"
 
 /**
  * Helper to construct URLSearchParams for claim list API queries
@@ -75,98 +56,13 @@ export function buildClaimFiltersQuery(filters: ClaimFilterParams): URLSearchPar
   return params
 }
 
-const INITIAL_TICKETS: Ticket[] = [
-  {
-    id: "1",
-    title: "หัวข้อเลขที่เคลม",
-    problemDesc: "หัวข้ออาการเสีย ปัญหาที่พบ",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    serialNo: "1000167600349",
-    status: "รับแจ้ง",
-    statusCode: 1,
-    date: "13 ก.ย. 2569",
-    ageDays: "10 วัน",
-    isOverdue: false,
-    station: "ที่ว่าการอำเภอเลาขวัญ",
-    province: "กาญจนบุรี",
-    district: "เลาขวัญ",
-    subdistrict: "เลาขวัญ",
-  },
-  {
-    id: "2",
-    title: "ทดสอบระบบ",
-    problemDesc: "ทดสอบระบบทดสอบระบบ",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    serialNo: "1000167600349",
-    status: "ปิดเคส",
-    statusCode: 5,
-    date: "10 ก.ย. 2569",
-    ageDays: "19 วัน",
-    isOverdue: false,
-    station: "ที่ว่าการอำเภอคลองลาน",
-    province: "กำแพงเพชร",
-    district: "คลองลาน",
-    subdistrict: "คลองน้ำไหล",
-  },
-  {
-    id: "3",
-    title: "test2",
-    problemDesc: "testtest",
-    vendor: "Huawei",
-    model: "OMXD30000",
-    serialNo: "1000167600349",
-    status: "ส่งศูนย์",
-    statusCode: 2,
-    date: "9 ก.ย. 2569",
-    ageDays: "13 วัน",
-    isOverdue: false,
-    station: "อบต.เขาสวนกวาง",
-    province: "ขอนแก่น",
-    district: "เขาสวนกวาง",
-    subdistrict: "เขาสวนกวาง",
-  },
-  {
-    id: "4",
-    title: "FORTH-2026-002",
-    problemDesc: "บอร์ดเสีย",
-    vendor: "Huawei",
-    model: "PAC80S12-CN",
-    serialNo: "2102131835USR8305867",
-    status: "ส่งศูนย์",
-    statusCode: 2,
-    date: "9 ก.ย. 2569",
-    ageDays: "13 วัน",
-    isOverdue: true,
-    overdueText: "เกินกำหนด 8 วัน",
-    station: "อบต.หมูสี",
-    province: "นครราชสีมา",
-    district: "ปากช่อง",
-    subdistrict: "หมูสี",
-  },
-  {
-    id: "5",
-    title: "test",
-    problemDesc: "testtest",
-    vendor: "Huawei",
-    model: "PAC80S12-CN",
-    serialNo: "2102131835USR8305867",
-    status: "ปฏิเสธเคลม",
-    statusCode: 6,
-    date: "8 ก.ย. 2569",
-    ageDays: "15 วัน",
-    isOverdue: false,
-    station: "อบต.ปากช่อง",
-    province: "นครราชสีมา",
-    district: "ปากช่อง",
-    subdistrict: "ปากช่อง",
-  },
-]
-
 export function TicketsView() {
-  const [tickets, setTickets] = React.useState<Ticket[]>(INITIAL_TICKETS)
+  const { tickets, deleteTicket, updateTicket } = useTicketsQuery()
   const [stationsList, setStationsList] = React.useState<Station[]>(STATIONS)
+
+  // Pagination States
+  const [currentPage, setCurrentPage] = React.useState(1)
+  const [pageSize, setPageSize] = React.useState(10)
 
   // Empty Table State flag on filter reset
   const [isTableCleared, setIsTableCleared] = React.useState(false)
@@ -181,27 +77,8 @@ export function TicketsView() {
     setTimeout(() => setToastMessage(null), 3500)
   }, [])
 
-  // Real-time synchronization subscription for Tickets and Stations
+  // Real-time synchronization subscription for Stations
   const { isConnected } = useRealtimeSync({
-    onTicketChange: (raw) => {
-      const payload = raw as { action?: string; data?: Ticket } | undefined
-      if (!payload || !payload.data) return
-      const { action, data } = payload
-      setTickets((prev) => {
-        if (action === "create") {
-          const exists = prev.some((t) => t.id === data.id)
-          return exists ? prev.map((t) => (t.id === data.id ? data : t)) : [data, ...prev]
-        }
-        if (action === "update") {
-          return prev.map((t) => (t.id === data.id ? { ...t, ...data } : t))
-        }
-        if (action === "delete") {
-          return prev.filter((t) => t.id !== data.id)
-        }
-        return prev
-      })
-      showToast("รายการงานเคลมได้รับการอัปเดตแบบเรียลไทม์")
-    },
     onStationChange: (raw) => {
       const payload = raw as { action?: string; data?: Station } | undefined
       if (!payload || !payload.data) return
@@ -215,49 +92,16 @@ export function TicketsView() {
     },
   })
 
-  // Sync tickets and stations from backend API on mount
+  // Sync stations from backend API on mount
   React.useEffect(() => {
-    if (typeof window !== "undefined") {
-      const deletedIds = getDeletedTicketIds()
-      const customTickets = getCustomTickets()
-
-      // 1. Initial local sync with custom tickets created by user
-      setTickets((prev) => {
-        const combined = [
-          ...customTickets,
-          ...prev.filter((p) => !customTickets.some((c) => c.id === p.id)),
-        ]
-        return combined.filter((t) => !deletedIds.includes(t.id))
+    fetch("/api/stations")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && Array.isArray(data.stations) && data.stations.length > 0) {
+          setStationsList(data.stations)
+        }
       })
-
-      // 2. Fetch latest records from backend API / MongoDB Atlas
-      fetch("/api/tickets")
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.success && Array.isArray(data.tickets) && data.tickets.length > 0) {
-            setTickets((prev) => {
-              const apiTickets: Ticket[] = data.tickets
-              const merged = [
-                ...apiTickets,
-                ...prev.filter((p) => !apiTickets.some((a) => a.id === p.id)),
-              ]
-              const allDeleted = [...new Set([...deletedIds, ...(data.deletedIds || [])])]
-              return merged.filter((t) => !allDeleted.includes(t.id))
-            })
-          }
-        })
-        .catch((err) => console.warn("Could not sync tickets from backend API:", err))
-
-      // 3. Fetch latest stations from backend API
-      fetch("/api/stations")
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.success && Array.isArray(data.stations) && data.stations.length > 0) {
-            setStationsList(data.stations)
-          }
-        })
-        .catch((err) => console.warn("Could not sync stations:", err))
-    }
+      .catch((err) => console.warn("Could not sync stations:", err))
   }, [])
 
   // Filter Form States
@@ -398,6 +242,7 @@ export function TicketsView() {
   const handleSearch = React.useCallback(() => {
     // Re-enable table rendering upon manual search trigger
     setIsTableCleared(false)
+    setCurrentPage(1)
 
     setAppliedFilters({
       status: statusFilter,
@@ -437,6 +282,7 @@ export function TicketsView() {
     setStationFilter("all")
     setOnlyOverdue(false)
     setSelectedIds([])
+    setCurrentPage(1)
 
     // 2. Empty Table State: Clear all rendered records from the table completely
     // Do not automatically reload or display the default case list until user clicks 'ค้นหา'
@@ -468,22 +314,25 @@ export function TicketsView() {
     setIsDeleting(true)
 
     try {
-      // 1. Immediate UI update
-      setTickets((prev) => prev.filter((t) => t.id !== targetId))
+      // 1. Clear selected row if it was checked
       setSelectedIds((prev) => prev.filter((id) => id !== targetId))
 
-      // 2. Permanent persistence via localStorage & backend DELETE API request
-      const res = await deleteTicketApi(targetId)
+      // 2. Trigger real backend API DELETE mutation with optimistic update & cache invalidation
+      const res = await deleteTicket(targetId)
+      if (!res.success) {
+        throw new Error(res.error || "เกิดข้อผิดพลาดในการลบเคส")
+      }
 
       showToast(res.message || `ลบเคส "${targetTitle}" ถาวรเรียบร้อยแล้ว`)
-    } catch (err) {
-      console.error("Failed to delete ticket", err)
-      showToast("เกิดข้อผิดพลาดในการลบเคส")
+      setTicketToDelete(null)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการลบเคส"
+      console.error("[TicketsView] Failed to delete ticket:", err)
+      showToast(message)
     } finally {
       setIsDeleting(false)
-      setTicketToDelete(null)
     }
-  }, [ticketToDelete, showToast])
+  }, [ticketToDelete, deleteTicket, showToast])
 
   const filteredTickets = React.useMemo(() => {
     // Empty Table State: When filters are cleared, completely clear all rendered records
@@ -552,18 +401,34 @@ export function TicketsView() {
     })
   }, [tickets, appliedFilters, isTableCleared])
 
-  // Select all / individual toggle
+  // Pagination & Counts Calculations
+  const totalFiltered = filteredTickets.length
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize))
+
+  // Auto-adjust page if current page exceeds total pages after deletion
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
+  const paginatedTickets = React.useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return filteredTickets.slice(start, start + pageSize)
+  }, [filteredTickets, currentPage, pageSize])
+
+  // Select all / individual toggle for visible paginated rows
   const isAllSelected =
-    filteredTickets.length > 0 &&
-    filteredTickets.every((t) => selectedIds.includes(t.id))
+    paginatedTickets.length > 0 &&
+    paginatedTickets.every((t) => selectedIds.includes(t.id))
 
   const handleToggleSelectAll = React.useCallback(() => {
     if (isAllSelected) {
       setSelectedIds([])
     } else {
-      setSelectedIds(filteredTickets.map((t) => t.id))
+      setSelectedIds(paginatedTickets.map((t) => t.id))
     }
-  }, [isAllSelected, filteredTickets])
+  }, [isAllSelected, paginatedTickets])
 
   const handleToggleSelectRow = React.useCallback((id: string) => {
     setSelectedIds((prev) =>
@@ -616,23 +481,20 @@ export function TicketsView() {
       e.preventDefault()
       if (!editForm) return
 
-      // Optimistic UI update
-      setTickets((prev) =>
-        prev.map((t) => (t.id === editForm.id ? editForm : t))
-      )
       setSelectedTicket(editForm)
       setSaveSuccess(true)
 
-      // Transactional Database Update
+      // Transactional Database Update via useTicketsQuery
       try {
-        await fetch("/api/tickets", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(editForm),
-        })
+        const res = await updateTicket(editForm)
+        if (!res.success) {
+          throw new Error(res.error || "Failed to update ticket")
+        }
         showToast(`อัปเดตข้อมูลเคส ${editForm.id} ในฐานข้อมูลเรียบร้อยแล้ว`)
-      } catch (err) {
-        console.warn("API update failed, local state retained", err)
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "API update failed"
+        console.warn("[TicketsView] API update error:", message)
+        showToast(message)
       }
 
       setTimeout(() => {
@@ -640,7 +502,7 @@ export function TicketsView() {
         setModalMode("view")
       }, 700)
     },
-    [editForm, showToast]
+    [editForm, updateTicket, showToast]
   )
 
   return (
@@ -1029,7 +891,7 @@ export function TicketsView() {
                     </td>
                   </tr>
                 ) : (
-                  filteredTickets.map((item) => {
+                  paginatedTickets.map((item) => {
                     const isSelected = selectedIds.includes(item.id)
                     const isOverdue = item.isOverdue
 
@@ -1201,16 +1063,22 @@ export function TicketsView() {
             {/* Left: Rows Per Page & Summary */}
             <div className="flex items-center gap-3">
               <div className="relative">
-                <button
-                  type="button"
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700 shadow-2xs hover:bg-slate-50 cursor-pointer"
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setCurrentPage(1)
+                  }}
+                  className="flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700 shadow-2xs hover:bg-slate-50 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  aria-label="จำนวนรายการต่อหน้า"
                 >
-                  <span>10 รายการ/หน้า</span>
-                  <ChevronDown className="size-3.5 text-slate-400" />
-                </button>
+                  <option value={10}>10 รายการ/หน้า</option>
+                  <option value={20}>20 รายการ/หน้า</option>
+                  <option value={50}>50 รายการ/หน้า</option>
+                </select>
               </div>
               <span className="text-slate-500">
-                แสดง 1–{filteredTickets.length} จาก {filteredTickets.length} เคส
+                แสดง {totalFiltered > 0 ? (currentPage - 1) * pageSize + 1 : 0}–{Math.min(currentPage * pageSize, totalFiltered)} จาก {totalFiltered} เคส
               </span>
             </div>
 
@@ -1218,21 +1086,33 @@ export function TicketsView() {
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                disabled
-                className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 text-xs text-slate-400 cursor-not-allowed"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className={`inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs transition-colors ${
+                  currentPage <= 1
+                    ? "bg-slate-50/50 text-slate-400 cursor-not-allowed"
+                    : "bg-white text-slate-700 hover:bg-slate-50 cursor-pointer shadow-2xs"
+                }`}
+                aria-label="ไปหน้าก่อนหน้า"
               >
                 <ChevronLeft className="size-3.5" />
                 <span>ก่อนหน้า</span>
               </button>
 
               <span className="px-2 text-xs font-normal text-slate-700">
-                หน้า 1/1
+                หน้า {currentPage}/{totalPages}
               </span>
 
               <button
                 type="button"
-                disabled
-                className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 text-xs text-slate-400 cursor-not-allowed"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className={`inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs transition-colors ${
+                  currentPage >= totalPages
+                    ? "bg-slate-50/50 text-slate-400 cursor-not-allowed"
+                    : "bg-white text-slate-700 hover:bg-slate-50 cursor-pointer shadow-2xs"
+                }`}
+                aria-label="ไปหน้าถัดไป"
               >
                 <span>ถัดไป</span>
                 <ChevronRight className="size-3.5" />

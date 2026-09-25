@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.21.4] - 2026-09-25
+## [0.21.5] - 2026-09-25
+
+### Fixed & Improved
+- **Claim Table Deletion Persistence & Serverless Durability (`TicketsView` & `/api/tickets`)**:
+  - **Real Database Deletion Mutation**: Connected the 'ลบ' (Delete) button to trigger an actual HTTP `DELETE /api/tickets?id=<ID>` call to MongoDB Atlas, releasing equipment locks (`status: "active"`), writing audit logs (`CLAIM_DELETED`), and preventing database rollback issues.
+  - **Eliminated Mock Dataset Resurrection**: Removed hardcoded `INITIAL_TICKETS` from `TicketsView.tsx` and removed the flawed merge logic (`!apiTickets.some(...)`) that previously restored deleted tickets from initial mock state upon table reload or view switch.
+  - **Persistent Server-Side Deletion Registry**: Created `src/lib/storage/serverTicketStorage.ts` with `deleted_tickets.json` to persist deleted ticket IDs across Vercel serverless worker recycles and cold starts.
+  - **Shared Query Cache & Invalidation (`useTicketsQuery`)**:
+    - Created unified `useTicketsQuery` hook providing optimistic updates, immediate rollback handling on network failure, and automatic cache invalidation (`invalidateTicketsCache()`) upon database confirmation.
+    - Updated query response handling so reduced or empty lists from the backend are reflected directly into the cache without being overwritten by stale fallback data.
+    - Added real-time window event listener (`caim:realtime:ticket`) to auto-remove deleted items across open tabs and windows.
+  - **Optimistic UI & Dynamic Pagination Clean-up**:
+    - Deleted rows disappear immediately from the table view with optimistic state transition.
+    - Re-bound table rows mapping to `paginatedTickets` and wired dynamic footer controls: interactive rows-per-page selector (10, 20, 50), dynamic row count indicator (`แสดง X–Y จาก Z เคส`), and active previous/next page navigation buttons.
+
 
 ### Fixed & Improved
 - **Anti-CDN & Browser Stale Caching Elimination (Vercel & Next.js)**:
