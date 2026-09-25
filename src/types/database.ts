@@ -64,6 +64,19 @@ export interface TicketDocument {
   updatedAt?: string
 }
 
+export interface StageHistoryRecord {
+  stageNumber: number
+  name: string
+  shortName: string
+  standardDays: number
+  hasVendorPenalty?: boolean
+  startDate: string
+  endDate: string
+  actualDays: number
+  status: "completed" | "active" | "pending"
+  notes?: string
+}
+
 export interface RmaDocument {
   id: string // e.g. "RMA-2026-001"
   rmaNo: string
@@ -90,6 +103,7 @@ export interface RmaDocument {
   penaltyDays?: string
   penaltyStandard?: string
   isOverduePenalty?: boolean
+  stageHistory?: StageHistoryRecord[]
   createdAt?: string
   updatedAt?: string
 }

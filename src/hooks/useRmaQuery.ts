@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import type { StageHistoryRecord } from "@/types/database"
 
 export const RMA_QUERY_KEY = ["rma"] as const
 
@@ -22,6 +23,7 @@ export interface RmaItem {
   penaltyDays: string
   penaltyStandard: string
   isOverduePenalty?: boolean
+  stageHistory?: StageHistoryRecord[]
 }
 
 // Global Singleton Query Cache Store for RMA

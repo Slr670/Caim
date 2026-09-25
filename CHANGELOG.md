@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.9] - 2026-09-25
+
+### Added & Enhanced
+- **Inline Date-Time Editing Workflow for RMA Stage Tracking Modal (`OverseasView.tsx`)**:
+  - **Inline Step-by-Step Date Range Editing**:
+    - Enabled edit mode across all stages along the vertical timeline upon clicking "แก้ไขที่รายขั้น (กรอกย้อนหลัง)" without obscuring or navigating away from the timeline track.
+    - Replaced static date texts (e.g. `'8 ก.ค. 2569 → 10 ก.ค. 2569'`) with interactive `datetime-local` start and end inputs equipped with instant calendar popup triggers (`showPicker()`).
+    - Added stage status switching (`completed`, `active`, `pending`) and optional stage remarks input within the row.
+  - **Dynamic Duration & Penalty Recalculation**:
+    - Implemented immediate elapsed duration recalculation (`Math.round(diffMs / 86400000)`) whenever the user alters start or end dates for any stage.
+    - Automatically flagged exceeded stage durations with warning highlight styling (`bg-orange-100 text-[#ea580c] border border-orange-200`) and penalty indicator (`เริ่มนับบทปรับผู้ขาย`).
+    - Recalculated and live-updated the overall summary counter in the modal footer (`ใช้ไปแล้วรวม X วัน · แผนมาตรฐานรวม 60 วัน`), highlighting in orange/red if exceeding standard duration.
+  - **Logical Validation & Persistence Controls**:
+    - Enforced validation ensuring end date-time is never earlier than start date-time, with real-time red warning outline and localized error alert (`วันและเวลาสิ้นสุดต้องไม่ก่อนวันเริ่มต้น`), preventing form submission when invalid.
+    - Added explicit "บันทึกการแก้ไข" (Save Changes) and "ยกเลิก" (Cancel) controls. Cancel restores the initial snapshot with zero data loss, while Save commits updated timestamps, recalculated duration, and stage history to MongoDB and persistent storage via `updateRma` and revalidates queries.
+  - **Database & Query Schema Extension**:
+    - Added `stageHistory` array to `RmaDocument` (`src/types/database.ts`) and `RmaItem` (`src/hooks/useRmaQuery.ts`) for permanent persistence of stage-by-stage timestamps.
+
 ## [0.21.8] - 2026-09-25
 
 ### Fixed & Improved
