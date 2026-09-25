@@ -23,10 +23,11 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ASSETS, type Asset } from "./assetsData"
+import { type Asset } from "./assetsData"
 import { STATIONS, type Station } from "./stationsData"
 import { addCustomTicket, StoredTicket } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
+import { useEquipmentsQuery } from "@/hooks/useEquipmentsQuery"
 
 export function NewTicketView() {
   const router = useRouter()
@@ -34,8 +35,8 @@ export function NewTicketView() {
   const initialSerial = searchParams.get("serial") || ""
   const initialStation = searchParams.get("station") || ""
 
-  // Database-backed states
-  const [equipments, setEquipments] = React.useState<Asset[]>(ASSETS)
+  // Database-backed states with unified equipment query cache
+  const { equipments } = useEquipmentsQuery()
   const [stations, setStations] = React.useState<Station[]>(STATIONS)
 
   const [selectedSerial, setSelectedSerial] = React.useState<string>(initialSerial)
@@ -66,30 +67,8 @@ export function NewTicketView() {
   const [modalPage, setModalPage] = React.useState(1)
   const modalPageSize = 10
 
-  // Real-time synchronization
+  // Real-time synchronization for stations (equipments handled by useEquipmentsQuery)
   useRealtimeSync({
-    onEquipmentChange: (raw) => {
-      const payload = raw as { action?: string; data?: Asset & { stationId?: string; stationName?: string } } | undefined
-      if (!payload || !payload.data) return
-      const { action, data } = payload
-      setEquipments((prev) => {
-        if (action === "create") {
-          const exists = prev.some((e) => e.serial.toUpperCase() === data.serial.toUpperCase())
-          return exists
-            ? prev.map((e) => (e.serial.toUpperCase() === data.serial.toUpperCase() ? data : e))
-            : [data, ...prev]
-        }
-        if (action === "update") {
-          return prev.map((e) =>
-            e.serial.toUpperCase() === data.serial.toUpperCase() ? { ...e, ...data } : e
-          )
-        }
-        if (action === "delete") {
-          return prev.filter((e) => e.serial.toUpperCase() !== data.serial.toUpperCase())
-        }
-        return prev
-      })
-    },
     onStationChange: (raw) => {
       const payload = raw as { action?: string; data?: Station } | undefined
       if (!payload || !payload.data) return
@@ -103,20 +82,11 @@ export function NewTicketView() {
     },
   })
 
-  // Fetch live equipments and stations from Database
+  // Fetch live stations from Database
   React.useEffect(() => {
-    async function loadData() {
+    async function loadStations() {
       try {
-        const [eqRes, stRes] = await Promise.all([
-          fetch("/api/equipments", { cache: "no-store" }),
-          fetch("/api/stations", { cache: "no-store" }),
-        ])
-        if (eqRes.ok) {
-          const eqData = await eqRes.json()
-          if (eqData.success && Array.isArray(eqData.equipments)) {
-            setEquipments(eqData.equipments)
-          }
-        }
+        const stRes = await fetch("/api/stations", { cache: "no-store" })
         if (stRes.ok) {
           const stData = await stRes.json()
           if (stData.success && Array.isArray(stData.stations)) {
@@ -124,10 +94,10 @@ export function NewTicketView() {
           }
         }
       } catch (err) {
-        console.warn("Fallback to bundled data on initial load:", err)
+        console.warn("Fallback to bundled data on initial stations load:", err)
       }
     }
-    loadData()
+    loadStations()
   }, [])
 
   // Auto-populate initial serial or station if query param present

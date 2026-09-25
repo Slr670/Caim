@@ -26,23 +26,19 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { type Asset, ASSETS } from "./assetsData"
-import { getCustomAssets, deleteAssetApi } from "@/lib/storage/recordStorage"
+import { type Asset } from "./assetsData"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
+import { useEquipmentsQuery } from "@/hooks/useEquipmentsQuery"
 
 export function AssetsView() {
-  const [assetsList, setAssetsList] = React.useState<Asset[]>(() => {
-    if (typeof window !== "undefined") {
-      const custom = getCustomAssets()
-      if (custom.length > 0) {
-        return [
-          ...custom,
-          ...ASSETS.filter((a) => !custom.some((c) => c.serial.toUpperCase() === a.serial.toUpperCase())),
-        ]
-      }
-    }
-    return ASSETS
-  })
+  const {
+    equipments: assetsList,
+    isLoading,
+    createEquipment,
+    updateEquipment,
+    deleteEquipment,
+  } = useEquipmentsQuery()
+
   const [searchQuery, setSearchQuery] = React.useState("")
   const [selectedVendor, setSelectedVendor] = React.useState<string>("all")
   const [selectedCategory, setSelectedCategory] = React.useState<string>("all")
@@ -51,7 +47,6 @@ export function AssetsView() {
   const [copiedSerial, setCopiedSerial] = React.useState<string | null>(null)
 
   // Loading and feedback states
-  const [isLoading, setIsLoading] = React.useState(false)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const [toastMessage, setToastMessage] = React.useState<string | null>(null)
@@ -75,56 +70,8 @@ export function AssetsView() {
     setTimeout(() => setToastMessage(null), 3500)
   }, [])
 
-  // Fetch assets from backend API with automatic cache revalidation
-  const fetchAssets = React.useCallback(async () => {
-    try {
-      setIsLoading(true)
-      const res = await fetch("/api/equipments", { cache: "no-store" })
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`)
-      const data = await res.json()
-      if (data && data.success && Array.isArray(data.equipments) && data.equipments.length > 0) {
-        setAssetsList(data.equipments)
-      }
-    } catch (err) {
-      console.warn("Could not sync assets from backend API:", err)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  // Real-time synchronization
-  const { isConnected } = useRealtimeSync({
-    onEquipmentChange: (raw) => {
-      const payload = raw as { action?: string; data?: Asset } | undefined
-      if (!payload || !payload.data) return
-      const { action, data } = payload
-      setAssetsList((prev) => {
-        if (action === "create") {
-          const exists = prev.some((a) => a.serial.toUpperCase() === data.serial.toUpperCase())
-          return exists
-            ? prev.map((a) => (a.serial.toUpperCase() === data.serial.toUpperCase() ? data : a))
-            : [data, ...prev]
-        }
-        if (action === "update") {
-          return prev.map((a) =>
-            a.serial.toUpperCase() === data.serial.toUpperCase()
-              ? { ...a, ...data }
-              : a
-          )
-        }
-        if (action === "delete") {
-          return prev.filter((a) => a.serial.toUpperCase() !== data.serial.toUpperCase())
-        }
-        return prev
-      })
-      showToast("ข้อมูลอุปกรณ์ได้รับการอัปเดตแบบเรียลไทม์")
-    },
-  })
-
-  // Initial load
-  React.useEffect(() => {
-    fetchAssets()
-  }, [fetchAssets])
+  // Real-time connection status
+  const { isConnected } = useRealtimeSync({})
 
   const deferredQuery = React.useDeferredValue(searchQuery)
 
@@ -228,23 +175,13 @@ export function AssetsView() {
 
     try {
       const isEdit = Boolean(editingAsset)
-      const res = await fetch("/api/equipments", {
-        method: isEdit ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(deviceData),
-      })
-      const data = await res.json()
+      const res = isEdit
+        ? await updateEquipment(deviceData)
+        : await createEquipment(deviceData)
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "ไม่สามารถบันทึกข้อมูลอุปกรณ์ได้")
+      if (!res.success) {
+        throw new Error(res.error || "ไม่สามารถบันทึกข้อมูลอุปกรณ์ได้")
       }
-
-      setAssetsList((prev) => {
-        const filtered = prev.filter(
-          (a) => a.serial.toUpperCase() !== deviceData.serial.toUpperCase()
-        )
-        return [deviceData, ...filtered]
-      })
 
       showToast(`บันทึกอุปกรณ์ ${deviceData.serial} สำเร็จแล้ว`)
 
@@ -270,14 +207,13 @@ export function AssetsView() {
   const handleDeleteDevice = async () => {
     if (!deletingAsset) return
     setIsSubmitting(true)
-    const res = await deleteAssetApi(deletingAsset.serial)
+    const res = await deleteEquipment(deletingAsset.serial)
     setIsSubmitting(false)
     if (res.success) {
-      setAssetsList((prev) => prev.filter((a) => a.serial.toUpperCase() !== deletingAsset.serial.toUpperCase()))
       setDeletingAsset(null)
-      showToast(res.message || "ลบอุปกรณ์เรียบร้อยแล้ว")
+      showToast(`ลบอุปกรณ์ ${deletingAsset.serial} เรียบร้อยแล้ว`)
     } else {
-      showToast(res.message || "เกิดข้อผิดพลาดในการลบ")
+      showToast(res.error || "เกิดข้อผิดพลาดในการลบ")
     }
   }
 

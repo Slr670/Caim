@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-09-25
+
+### Fixed & Improved
+- **Unified Equipment Query Hook & Shared Cache Invalidation (`useEquipmentsQuery`)**:
+  - **Resolved 645 vs 644 Inconsistency**: Fixed isolated state and legacy `localStorage` discrepancy between `AssetsView` and `NewTicketView` by binding both components to a single authoritative source of truth.
+  - **Unified Query Key & Cache Layer**: Created `useEquipmentsQuery` hook using shared query key `['equipments']` with reactive in-memory cache and automatic cache invalidation (`invalidateEquipmentsCache`).
+  - **Automatic Database Synchronization**: Added auto-sync for any offline/local custom assets from browser storage to MongoDB Atlas on initial boot, ensuring all active records are unified.
+  - **Bidirectional Dynamic Sync**: Bound dropdown list, counter badges, modals, and tables across both views to the same reactive state so mutations (create, update, delete) update all UI elements in real time.
+
 ## [0.21.1] - 2026-09-25
 
 ### Fixed & Improved
