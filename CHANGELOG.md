@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.8] - 2026-09-25
+
+### Fixed & Improved
+- **Interactive Controls & Retroactive Stage Editing in Overseas RMA Modal (`OverseasView.tsx`)**:
+  - **Activated 'แก้ไขที่รายขั้น (กรอกย้อนหลัง)' Action Workflow**:
+    - Wired an active `onClick` handler on the button to toggle into an interactive retroactive step-editing view across all 8 stages.
+    - Added dedicated editing controls for each stage: stage status select (`completed`, `active`, `pending`), start date (`startDate`), end date (`endDate`), actual elapsed days (`actualDays`), and notes (`notes`).
+    - Added "บันทึกข้อมูลย้อนหลัง" (Save) and "ยกเลิก" (Cancel) buttons with transactional persistence to database via `updateRma`.
+  - **Interactive Native Date-Time Calendar Picker ('วันและเวลาที่เกิดขึ้นจริง')**:
+    - Replaced static text input with an interactive `datetime-local` input backed by `actualDateTime` state and `dateTimeInputRef`.
+    - Removed `pointer-events-none` blocking from the calendar icon button and wired it to `dateTimeInputRef.current.showPicker()` for instant calendar popup invocation.
+    - Added real-time Thai display timestamp preview (`formatDisplayDateTime`).
+  - **Dynamic Stage Transition Button Binding**:
+    - Dynamically computed the primary stage transition button label based on the current stage and next stage (e.g. `› ปิดขั้น "จีน — ซ่อม" → เข้าขั้น "ขนส่งกลับ"`, or `› ปิดใบส่งซ่อม RMA (ของกลับถึงแล้ว)` for stage 8).
+    - Coupled date-time capture to stage advance mutation, persisting updates directly to MongoDB / server persistent storage.
+  - **Fixed Segmented Progress Count Badge**:
+    - Replaced hardcoded `5/8` fallback with dynamic calculation `{item.currentStageNumber}/{item.totalStages}`.
+
 ## [0.21.7] - 2026-09-25
 
 ### Refactored & Purged

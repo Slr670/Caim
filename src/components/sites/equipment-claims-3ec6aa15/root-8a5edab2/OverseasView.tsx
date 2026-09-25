@@ -19,7 +19,10 @@ import {
   ChevronLeft,
   AlertCircle,
   RotateCcw,
-  Wifi
+  Wifi,
+  Save,
+  Undo2,
+  Loader2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -36,6 +39,79 @@ interface ClaimCaseOption {
   vendor: string
   model: string
   status: string
+}
+
+export interface RmaStageConfig {
+  stageNumber: number
+  name: string
+  shortName: string
+  standardDays: number
+  hasVendorPenalty?: boolean
+}
+
+export const RMA_STAGES_CONFIG: RmaStageConfig[] = [
+  { stageNumber: 1, name: "ระบบใบ RMA", shortName: "เปิดใบ RMA", standardDays: 2 },
+  { stageNumber: 2, name: "Forth (ส่งตรวจสอบภายใน)", shortName: "Forth ตรวจ", standardDays: 7 },
+  { stageNumber: 3, name: "กสทช. (ตรวจสอบ / อนุมัติ)", shortName: "กสทช. อนุมัติ", standardDays: 5 },
+  { stageNumber: 4, name: "ส่งออก", shortName: "ส่งออก", standardDays: 3 },
+  { stageNumber: 5, name: "Hytera / Huawei Hongkong (ถึงศูนย์ต่างประเทศ)", shortName: "ถึงศูนย์ ตปท.", standardDays: 21 },
+  { stageNumber: 6, name: "จีน (เข้ากระบวนการซ่อม)", shortName: "จีน — ซ่อม", standardDays: 14, hasVendorPenalty: true },
+  { stageNumber: 7, name: "ส่งกลับเครื่องบิน", shortName: "ขนส่งกลับ", standardDays: 3 },
+  { stageNumber: 8, name: "เคลียร์ของออก (ศุลกากรขาเข้า)", shortName: "ศุลกากรขาเข้า", standardDays: 5 },
+]
+
+export interface StageHistoryItem {
+  stageNumber: number
+  name: string
+  shortName: string
+  standardDays: number
+  hasVendorPenalty?: boolean
+  startDate: string
+  endDate: string
+  actualDays: number
+  status: "completed" | "active" | "pending"
+  notes?: string
+}
+
+function getInitialDateTimeLocal() {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
+}
+
+function formatDisplayDateTime(dtStr: string) {
+  if (!dtStr) return ""
+  try {
+    const d = new Date(dtStr)
+    if (isNaN(d.getTime())) return dtStr
+    const months = [
+      "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+      "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+    ]
+    const day = d.getDate()
+    const month = months[d.getMonth()]
+    const year = d.getFullYear() + 543
+    const hours = String(d.getHours()).padStart(2, "0")
+    const minutes = String(d.getMinutes()).padStart(2, "0")
+    return `${day} ${month} ${year} ${hours}:${minutes} น.`
+  } catch {
+    return dtStr
+  }
+}
+
+function formatDisplayDate(dateStr: string) {
+  if (!dateStr) return ""
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return dateStr
+    const months = [
+      "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+      "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+    ]
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear() + 543}`
+  } catch {
+    return dateStr
+  }
 }
 
 function getInitialDateTime() {
@@ -128,6 +204,179 @@ export function OverseasView() {
 
   // Selected item for timeline modal
   const [timelineItem, setTimelineItem] = React.useState<RmaItem | null>(null)
+  const [isRetroactiveEditing, setIsRetroactiveEditing] = React.useState(false)
+  const [actualDateTime, setActualDateTime] = React.useState<string>(getInitialDateTimeLocal)
+  const [isSubmittingStage, setIsSubmittingStage] = React.useState(false)
+  const [retroactiveStages, setRetroactiveStages] = React.useState<StageHistoryItem[]>([])
+  const dateTimeInputRef = React.useRef<HTMLInputElement>(null)
+
+  // Initialize stage history & date-time whenever timelineItem changes
+  React.useEffect(() => {
+    if (!timelineItem) {
+      setIsRetroactiveEditing(false)
+      return
+    }
+
+    setActualDateTime(getInitialDateTimeLocal())
+
+    const currentNum = timelineItem.currentStageNumber || 1
+    const baseDate = new Date(timelineItem.openDate || new Date())
+    if (isNaN(baseDate.getTime())) {
+      baseDate.setTime(Date.now() - 15 * 86400000)
+    }
+
+    let runningDate = new Date(baseDate)
+
+    const initialStages: StageHistoryItem[] = RMA_STAGES_CONFIG.map((cfg) => {
+      const stageNum = cfg.stageNumber
+      let status: "completed" | "active" | "pending" = "pending"
+      let actualDays = 0
+      let startStr = ""
+      let endStr = ""
+
+      if (stageNum < currentNum) {
+        status = "completed"
+        startStr = runningDate.toISOString().split("T")[0]
+        actualDays = Math.max(0, cfg.standardDays - 1 + (stageNum % 3))
+        runningDate = new Date(runningDate.getTime() + actualDays * 86400000)
+        endStr = runningDate.toISOString().split("T")[0]
+        runningDate = new Date(runningDate.getTime() + 1 * 86400000)
+      } else if (stageNum === currentNum) {
+        status = "active"
+        startStr = runningDate.toISOString().split("T")[0]
+        actualDays = parseInt(timelineItem.stageWaitDays || "0") || 1
+        endStr = ""
+      } else {
+        status = "pending"
+        startStr = ""
+        endStr = ""
+        actualDays = 0
+      }
+
+      return {
+        ...cfg,
+        startDate: startStr,
+        endDate: endStr,
+        actualDays,
+        status,
+        notes: "",
+      }
+    })
+
+    setRetroactiveStages(initialStages)
+    setIsRetroactiveEditing(false)
+  }, [timelineItem])
+
+  const currentStageNum = timelineItem ? timelineItem.currentStageNumber || 1 : 1
+  const currentStage =
+    RMA_STAGES_CONFIG.find((s) => s.stageNumber === currentStageNum) || RMA_STAGES_CONFIG[0]
+  const isLastStage = currentStageNum >= 8
+  const nextStage = isLastStage
+    ? null
+    : RMA_STAGES_CONFIG.find((s) => s.stageNumber === currentStageNum + 1)
+
+  const primaryTransitionButtonLabel = isLastStage
+    ? "ปิดใบส่งซ่อม RMA (ของกลับถึงแล้ว)"
+    : `ปิดขั้น "${currentStage.shortName}" → เข้าขั้น "${nextStage?.shortName}"`
+
+  const handleOpenDatePicker = () => {
+    if (dateTimeInputRef.current) {
+      if (typeof dateTimeInputRef.current.showPicker === "function") {
+        dateTimeInputRef.current.showPicker()
+      } else {
+        dateTimeInputRef.current.focus()
+      }
+    }
+  }
+
+  const handleAdvanceStage = async () => {
+    if (!timelineItem) return
+    setIsSubmittingStage(true)
+    try {
+      const nextStageNum = Math.min(8, currentStageNum + 1)
+      const nextStageObj = RMA_STAGES_CONFIG.find((s) => s.stageNumber === nextStageNum)
+      const isCompleted = currentStageNum >= 8
+
+      const updates: Partial<RmaItem> & { id: string } = {
+        id: timelineItem.id,
+        currentStageNumber: nextStageNum,
+        currentStageName: nextStageObj?.name || "ของกลับถึงแล้ว (เสร็จสิ้น)",
+        stageWaitDays: "0 วัน",
+        statusBadge: isCompleted ? "returned" : "in_progress",
+        statusBadgeText: isCompleted ? "ของกลับถึงแล้ว" : "กำลังดำเนินการ",
+      }
+
+      const res = await updateRma(updates)
+      if (res.success) {
+        const formattedDate = formatDisplayDateTime(actualDateTime)
+        showToast(
+          isCompleted
+            ? `ปิดใบส่งซ่อม RMA ${timelineItem.rmaNo} เรียบร้อยแล้ว (ของกลับถึงแล้ว ณ ${formattedDate})`
+            : `อัปเดตสถานะเป็น "${nextStageObj?.shortName}" (บันทึกเวลา: ${formattedDate})`
+        )
+        setTimelineItem((prev) => (prev ? { ...prev, ...updates } : null))
+      } else {
+        showToast(res.error || "เกิดข้อผิดพลาดในการอัปเดตขั้นตอน")
+      }
+    } catch {
+      showToast("เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล")
+    } finally {
+      setIsSubmittingStage(false)
+    }
+  }
+
+  const handleSaveRetroactive = async () => {
+    if (!timelineItem) return
+    setIsSubmittingStage(true)
+    try {
+      const activeStage = retroactiveStages.find((s) => s.status === "active")
+      const newStageNum = activeStage
+        ? activeStage.stageNumber
+        : retroactiveStages.filter((s) => s.status === "completed").length
+      const effectiveStageNum = Math.max(1, Math.min(8, newStageNum))
+      const stageConfig = RMA_STAGES_CONFIG.find((s) => s.stageNumber === effectiveStageNum)
+
+      const totalCalculatedDays = retroactiveStages
+        .filter((s) => s.status === "completed" || s.status === "active")
+        .reduce((sum, s) => sum + (Number(s.actualDays) || 0), 0)
+
+      const isCompleted =
+        effectiveStageNum >= 8 && retroactiveStages.every((s) => s.status === "completed")
+
+      const updates: Partial<RmaItem> & { id: string } = {
+        id: timelineItem.id,
+        currentStageNumber: effectiveStageNum,
+        currentStageName: stageConfig?.name || timelineItem.currentStageName,
+        totalDays: `${totalCalculatedDays} วัน`,
+        stageWaitDays: `${activeStage?.actualDays || 0} วัน`,
+        statusBadge: isCompleted ? "returned" : "in_progress",
+        statusBadgeText: isCompleted ? "ของกลับถึงแล้ว" : "กำลังดำเนินการ",
+      }
+
+      const res = await updateRma(updates)
+      if (res.success) {
+        showToast("บันทึกการแก้ไขข้อมูลย้อนหลังรายขั้นตอนเรียบร้อยแล้ว")
+        setTimelineItem((prev) => (prev ? { ...prev, ...updates } : null))
+        setIsRetroactiveEditing(false)
+      } else {
+        showToast(res.error || "ไม่สามารถบันทึกข้อมูลย้อนหลังได้")
+      }
+    } catch {
+      showToast("เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล")
+    } finally {
+      setIsSubmittingStage(false)
+    }
+  }
+
+  const handleUpdateRetroactiveField = (
+    stageNumber: number,
+    field: keyof StageHistoryItem,
+    value: string | number
+  ) => {
+    setRetroactiveStages((prev) =>
+      prev.map((s) => (s.stageNumber === stageNumber ? { ...s, [field]: value } : s))
+    )
+  }
 
   // Equipment options from live DB equipments
   const equipmentOptions = React.useMemo(() => {
@@ -708,7 +957,7 @@ export function OverseasView() {
                               )
                             })}
                             <span className="ml-1.5 text-[11px] text-slate-400 font-medium">
-                              {item.currentStageNumber === 8 ? "8/8" : "5/8"}
+                              {item.currentStageNumber}/{item.totalStages}
                             </span>
                           </div>
                           <div className="mt-1.5">
@@ -865,9 +1114,17 @@ export function OverseasView() {
               {/* Modal Header */}
               <div className="flex items-start justify-between border-b border-slate-200/80 px-6 py-4 bg-white">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    ใบ {timelineItem.rmaNo}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">
+                      ใบ {timelineItem.rmaNo}
+                    </h3>
+                    {isRetroactiveEditing && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                        <Pencil className="size-3" />
+                        <span>โหมดแก้ไขข้อมูลย้อนหลัง</span>
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-500 mt-0.5">
                     S/N {timelineItem.serialNo} · เคส {timelineItem.caseName} · {timelineItem.vendor} Hongkong
                   </p>
@@ -882,170 +1139,360 @@ export function OverseasView() {
                 </button>
               </div>
 
-              {/* Modal Timeline Content (Scrollable) */}
+              {/* Modal Timeline / Retroactive Content (Scrollable) */}
               <div className="flex-1 overflow-y-auto px-6 py-5">
-                <div className="relative pl-6 space-y-6 before:absolute before:left-3 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-200">
-                  {/* Step 1: ระบบใบ RMA */}
-                  <div className="relative flex items-start justify-between text-xs">
-                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
-                      ✓
-                    </span>
-                    <div className="pl-3">
-                      <p className="font-semibold text-slate-900 text-xs">ระบบใบ RMA</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 2 วัน</p>
-                    </div>
-                    <div className="text-right text-slate-500 text-xs">
-                      11 ก.ย. 2569 → 11 ก.ย. 2569 (0 วัน)
-                    </div>
-                  </div>
-
-                  {/* Step 2: Forth (ส่งตรวจสอบภายใน) */}
-                  <div className="relative flex items-start justify-between text-xs">
-                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
-                      ✓
-                    </span>
-                    <div className="pl-3">
-                      <p className="font-semibold text-slate-900 text-xs">Forth (ส่งตรวจสอบภายใน)</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 7 วัน</p>
-                    </div>
-                    <div className="text-right text-xs">
-                      <span className="text-slate-500">9 ก.ย. 2569 → 18 ก.ย. 2569 </span>
-                      <span className="font-bold text-[#ea580c]">(8 วัน)</span>
-                    </div>
-                  </div>
-
-                  {/* Step 3: กสทช. (ตรวจสอบ / อนุมัติ) */}
-                  <div className="relative flex items-start justify-between text-xs">
-                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
-                      ✓
-                    </span>
-                    <div className="pl-3">
-                      <p className="font-semibold text-slate-900 text-xs">กสทช. (ตรวจสอบ / อนุมัติ)</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 5 วัน</p>
-                    </div>
-                    <div className="text-right text-slate-500 text-xs">
-                      21 ก.ย. 2569 → 24 ก.ย. 2569 (3 วัน)
-                    </div>
-                  </div>
-
-                  {/* Step 4: ส่งออก */}
-                  <div className="relative flex items-start justify-between text-xs">
-                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
-                      ✓
-                    </span>
-                    <div className="pl-3">
-                      <p className="font-semibold text-slate-900 text-xs">ส่งออก</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 3 วัน</p>
-                    </div>
-                    <div className="text-right text-xs">
-                      <span className="text-slate-500">25 ก.ย. 2569 → 29 ก.ย. 2569 </span>
-                      <span className="font-bold text-[#ea580c]">(4 วัน)</span>
-                    </div>
-                  </div>
-
-                  {/* Step 5: Hytera Hongkong */}
-                  <div className="relative flex items-start justify-between text-xs">
-                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
-                      ✓
-                    </span>
-                    <div className="pl-3">
-                      <p className="font-semibold text-slate-900 text-xs">Hytera Hongkong</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 21 วัน</p>
-                    </div>
-                    <div className="text-right text-slate-500 text-xs">
-                      29 ก.ย. 2569 → 1 ต.ค. 2569 (2 วัน)
-                    </div>
-                  </div>
-
-                  {/* Step 6 (Active): จีน (เข้ากระบวนการซ่อม) */}
-                  <div className="relative flex items-start justify-between text-xs">
-                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#2563eb] text-white font-bold text-xs shadow-xs">
-                      6
-                    </span>
-                    <div className="pl-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-bold text-slate-900 text-xs">จีน (เข้ากระบวนการซ่อม)</p>
-                        <span className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-[#fff7ed] px-2 py-0.5 text-[11px] font-medium text-[#d97706]">
-                          <Clock className="size-3" />
-                          <span>เริ่มนับบทปรับผู้ขาย</span>
-                        </span>
+                {isRetroactiveEditing ? (
+                  /* =========================================================================
+                     RETROACTIVE STEP EDITING VIEW
+                     ========================================================================= */
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                      <div className="flex items-start gap-2">
+                        <Pencil className="size-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="text-xs font-bold text-amber-900">
+                            แก้ไขข้อมูลรายขั้นตอน (กรอกย้อนหลัง)
+                          </h4>
+                          <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+                            สามารถปรับเปลี่ยนสถานะของแต่ละขั้นตอน, วันที่เริ่มต้น, วันที่สิ้นสุด, จำนวนวันที่ใช้จริง และบันทึกหมายเหตุย้อนหลังได้ เพื่อให้บันทึกประวัติสะท้อนขั้นตอนการทำงานจริง
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 14 วัน</p>
                     </div>
-                    <div className="text-right text-slate-700 text-xs font-medium">
-                      1 ต.ค. 2569 (0 วัน)
-                    </div>
-                  </div>
 
-                  {/* Step 7 (Pending): ส่งกลับเครื่องบิน */}
-                  <div className="relative flex items-start justify-between text-xs">
-                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-xs">
-                      7
-                    </span>
-                    <div className="pl-3">
-                      <p className="text-slate-600 font-medium text-xs">ส่งกลับเครื่องบิน</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 3 วัน</p>
-                    </div>
-                    <div className="text-right text-slate-400 text-xs">
-                      ยังไม่ถึงขั้นนี้
-                    </div>
-                  </div>
+                    <div className="space-y-3">
+                      {retroactiveStages.map((stage) => (
+                        <div
+                          key={stage.stageNumber}
+                          className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs space-y-3"
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`flex size-5.5 items-center justify-center rounded-full text-[11px] font-bold ${
+                                  stage.status === "completed"
+                                    ? "bg-emerald-100 text-emerald-700"
+                                    : stage.status === "active"
+                                    ? "bg-blue-600 text-white"
+                                    : "bg-slate-100 text-slate-500"
+                                }`}
+                              >
+                                {stage.stageNumber}
+                              </span>
+                              <span className="text-xs font-bold text-slate-800">
+                                {stage.name}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                มาตรฐาน {stage.standardDays} วัน
+                              </span>
+                              {stage.hasVendorPenalty && (
+                                <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+                                  <Clock className="size-2.5" />
+                                  <span>นับบทปรับ</span>
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <select
+                                value={stage.status}
+                                onChange={(e) =>
+                                  handleUpdateRetroactiveField(
+                                    stage.stageNumber,
+                                    "status",
+                                    e.target.value as "completed" | "active" | "pending"
+                                  )
+                                }
+                                className="h-7 text-[11px] rounded-md border border-slate-200 bg-slate-50 px-2 py-0 text-slate-700 font-medium focus:border-blue-500 focus:outline-none"
+                              >
+                                <option value="completed">เสร็จสิ้นแล้ว</option>
+                                <option value="active">กำลังดำเนินการ (ขั้นปัจจุบัน)</option>
+                                <option value="pending">ยังไม่ถึงขั้นนี้</option>
+                              </select>
+                            </div>
+                          </div>
 
-                  {/* Step 8 (Pending): เคลียร์ของออก (ศุลกากรขาเข้า) */}
-                  <div className="relative flex items-start justify-between text-xs">
-                    <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-xs">
-                      8
-                    </span>
-                    <div className="pl-3">
-                      <p className="text-slate-600 font-medium text-xs">เคลียร์ของออก (ศุลกากรขาเข้า)</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">มาตรฐาน 5 วัน</p>
-                    </div>
-                    <div className="text-right text-slate-400 text-xs">
-                      ยังไม่ถึงขั้นนี้
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                            <div>
+                              <label className="text-[10px] text-slate-500 block mb-1">
+                                วันที่เริ่มต้น
+                              </label>
+                              <input
+                                type="date"
+                                value={stage.startDate}
+                                onChange={(e) =>
+                                  handleUpdateRetroactiveField(
+                                    stage.stageNumber,
+                                    "startDate",
+                                    e.target.value
+                                  )
+                                }
+                                disabled={stage.status === "pending"}
+                                className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-blue-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-500 block mb-1">
+                                วันที่สิ้นสุด
+                              </label>
+                              <input
+                                type="date"
+                                value={stage.endDate}
+                                onChange={(e) =>
+                                  handleUpdateRetroactiveField(
+                                    stage.stageNumber,
+                                    "endDate",
+                                    e.target.value
+                                  )
+                                }
+                                disabled={stage.status !== "completed"}
+                                className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-blue-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-500 block mb-1">
+                                จำนวนวันที่ใช้จริง
+                              </label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={stage.actualDays}
+                                  onChange={(e) =>
+                                    handleUpdateRetroactiveField(
+                                      stage.stageNumber,
+                                      "actualDays",
+                                      Math.max(0, parseInt(e.target.value) || 0)
+                                    )
+                                  }
+                                  disabled={stage.status === "pending"}
+                                  className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-blue-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                                />
+                                <span className="text-xs text-slate-500 shrink-0">วัน</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-slate-500 block mb-1">
+                              หมายเหตุ / บันทึกย้อนหลัง
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="ระบุบันทึกรายละเอียดของขั้นนี้ เช่น เลขขนส่ง, วันที่กสทช.อนุมัติ, ผลการซ่อม..."
+                              value={stage.notes || ""}
+                              onChange={(e) =>
+                                handleUpdateRetroactiveField(
+                                  stage.stageNumber,
+                                  "notes",
+                                  e.target.value
+                                )
+                              }
+                              className="h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
+                ) : (
+                  /* =========================================================================
+                     STANDARD DYNAMIC TIMELINE VIEW
+                     ========================================================================= */
+                  <div className="relative pl-6 space-y-6 before:absolute before:left-3 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-200">
+                    {retroactiveStages.map((stage) => {
+                      const isCompleted = stage.status === "completed"
+                      const isActive = stage.status === "active"
+                      const isPending = stage.status === "pending"
+
+                      return (
+                        <div
+                          key={stage.stageNumber}
+                          className="relative flex items-start justify-between text-xs"
+                        >
+                          {/* Stage Icon Marker */}
+                          {isCompleted && (
+                            <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#ecfdf5] border border-emerald-300 text-[#16a34a] font-bold text-[10px]">
+                              ✓
+                            </span>
+                          )}
+                          {isActive && (
+                            <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-[#2563eb] text-white font-bold text-xs shadow-xs">
+                              {stage.stageNumber}
+                            </span>
+                          )}
+                          {isPending && (
+                            <span className="absolute -left-6 flex size-6 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500 text-xs">
+                              {stage.stageNumber}
+                            </span>
+                          )}
+
+                          {/* Stage Content */}
+                          <div className="pl-3 flex-1 pr-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p
+                                className={`text-xs ${
+                                  isActive
+                                    ? "font-bold text-slate-900"
+                                    : isCompleted
+                                    ? "font-semibold text-slate-900"
+                                    : "text-slate-600 font-medium"
+                                }`}
+                              >
+                                {stage.name}
+                              </p>
+                              {isActive && stage.hasVendorPenalty && (
+                                <span className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-[#fff7ed] px-2 py-0.5 text-[11px] font-medium text-[#d97706]">
+                                  <Clock className="size-3" />
+                                  <span>เริ่มนับบทปรับผู้ขาย</span>
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              มาตรฐาน {stage.standardDays} วัน
+                              {stage.notes ? ` · หมายเหตุ: ${stage.notes}` : ""}
+                            </p>
+                          </div>
+
+                          {/* Stage Right Timestamps / Days */}
+                          <div className="text-right text-xs shrink-0">
+                            {isCompleted && (
+                              <div>
+                                <span className="text-slate-500">
+                                  {stage.startDate ? formatDisplayDate(stage.startDate) : ""}{" "}
+                                  → {stage.endDate ? formatDisplayDate(stage.endDate) : ""}{" "}
+                                </span>
+                                <span
+                                  className={
+                                    stage.actualDays > stage.standardDays
+                                      ? "font-bold text-[#ea580c]"
+                                      : "text-slate-500"
+                                  }
+                                >
+                                  ({stage.actualDays} วัน)
+                                </span>
+                              </div>
+                            )}
+                            {isActive && (
+                              <div className="text-slate-700 font-medium">
+                                {stage.startDate ? formatDisplayDate(stage.startDate) : ""}{" "}
+                                ({stage.actualDays} วัน)
+                              </div>
+                            )}
+                            {isPending && (
+                              <div className="text-slate-400">ยังไม่ถึงขั้นนี้</div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Modal Footer */}
               <div className="border-t border-slate-200/80 bg-white p-5">
-                <p className="text-xs text-slate-600 font-medium leading-relaxed mb-3">
-                  ใช้ไปแล้ว 11 วัน · แผนมาตรฐานรวม 60 วัน (ไม่ใช่วันครบกำหนด — กระบวนการจริงราว 2-3 เดือน)
-                </p>
-
-                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
-                  <p className="text-[11px] text-slate-500 mb-1.5 font-medium">วันและเวลาที่เกิดขึ้นจริง</p>
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                    <div className="relative flex-1">
-                      <Input
-                        defaultValue="2026-09-23 10:23 AM"
-                        className="h-9 rounded-lg border-slate-200 bg-white text-xs font-mono text-slate-700 pr-8 shadow-none"
-                      />
-                      <Calendar className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-                    </div>
+                {isRetroactiveEditing ? (
+                  /* Retroactive Edit Controls */
+                  <div className="flex items-center justify-between gap-3">
                     <button
                       type="button"
-                      onClick={() => {
-                        showToast('อัปเดตสถานะเป็น "ขนส่งกลับ" เรียบร้อยแล้ว')
-                        setTimelineItem(null)
-                      }}
-                      className="inline-flex h-9 items-center justify-center gap-1 rounded-lg bg-[#0c1a30] px-4 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1e293b] cursor-pointer"
+                      disabled={isSubmittingStage}
+                      onClick={() => setIsRetroactiveEditing(false)}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-60"
                     >
-                      <span>› ปิดขั้น &quot;จีน — ซ่อม&quot; → เข้าขั้น &quot;ขนส่งกลับ&quot;</span>
+                      <Undo2 className="size-3.5 text-slate-500" />
+                      <span>ยกเลิกการแก้ไข</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSubmittingStage}
+                      onClick={handleSaveRetroactive}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      {isSubmittingStage ? (
+                        <>
+                          <Loader2 className="size-3.5 animate-spin" />
+                          <span>กำลังบันทึก...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="size-3.5" />
+                          <span>บันทึกข้อมูลย้อนหลัง</span>
+                        </>
+                      )}
                     </button>
                   </div>
-                </div>
+                ) : (
+                  /* Standard Timeline Controls */
+                  <>
+                    <p className="text-xs text-slate-600 font-medium leading-relaxed mb-3">
+                      ใช้ไปแล้ว {timelineItem.totalDays || "0 วัน"} · แผนมาตรฐานรวม 60 วัน (ไม่ใช่วันครบกำหนด — กระบวนการจริงราว 2-3 เดือน)
+                    </p>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    showToast("เปิดหน้าต่างแก้ไขข้อมูลย้อนหลัง")
-                  }}
-                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-                >
-                  <Pencil className="size-3.5" />
-                  <span>แก้ไขที่รายขั้น (กรอกย้อนหลัง)</span>
-                </button>
+                    <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[11px] text-slate-600 font-medium">วันและเวลาที่เกิดขึ้นจริง</p>
+                        {actualDateTime && (
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {formatDisplayDateTime(actualDateTime)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                        <div
+                          onClick={handleOpenDatePicker}
+                          className="relative flex-1 cursor-pointer group"
+                        >
+                          <input
+                            ref={dateTimeInputRef}
+                            type="datetime-local"
+                            value={actualDateTime}
+                            onChange={(e) => setActualDateTime(e.target.value)}
+                            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 pr-9 text-xs font-mono text-slate-700 shadow-none hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                            aria-label="วันและเวลาที่เกิดขึ้นจริง"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleOpenDatePicker()
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                            title="เลือกวันและเวลาจากปฏิทิน"
+                            aria-label="เปิดปฏิทินเลือกวันและเวลา"
+                          >
+                            <Calendar className="size-4" />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isSubmittingStage}
+                          onClick={handleAdvanceStage}
+                          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[#0c1a30] px-4 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[#1e293b] active:scale-[0.99] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                        >
+                          {isSubmittingStage ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin" />
+                              <span>กำลังบันทึก...</span>
+                            </>
+                          ) : (
+                            <span>› {primaryTransitionButtonLabel}</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsRetroactiveEditing(true)}
+                      className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      <Pencil className="size-3.5" />
+                      <span>แก้ไขที่รายขั้น (กรอกย้อนหลัง)</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

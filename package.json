@@ -1,6 +1,6 @@
 {
   "name": "ai-website-clone-template",
-  "version": "0.21.7",
+  "version": "0.21.8",
   "private": true,
   "description": "Clone any website into a clean, modern Next.js codebase using AI coding agents",
   "author": "JCodesMore",
