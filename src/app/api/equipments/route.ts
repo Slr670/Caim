@@ -3,6 +3,7 @@ import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { EquipmentDocument } from "@/types/database"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { ASSETS } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/assetsData"
+import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 import {
   getPersistentEquipments,
   savePersistentEquipment,
@@ -10,6 +11,8 @@ import {
 } from "@/lib/storage/serverEquipmentStorage"
 
 export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
 
 // Runtime static baseline store
 const fallbackEquipments: EquipmentDocument[] = ASSETS.map((a) => ({
@@ -49,7 +52,7 @@ export async function GET(request: NextRequest) {
             if (item) {
               return NextResponse.json(
                 { success: true, equipment: item, source: "mongodb" },
-                { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } }
+                { headers: NO_CACHE_HEADERS }
               )
             }
           }
@@ -96,9 +99,7 @@ export async function GET(request: NextRequest) {
               equipments: mongoEquipments,
             },
             {
-              headers: {
-                "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-              },
+              headers: NO_CACHE_HEADERS,
             }
           )
         }
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
       const found = list.find((e) => e.serial.toUpperCase() === serial.toUpperCase())
       return NextResponse.json(
         { success: true, equipment: found || null, source: "persistent-local" },
-        { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } }
+        { headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -148,9 +149,7 @@ export async function GET(request: NextRequest) {
         equipments: list,
       },
       {
-        headers: {
-          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-        },
+        headers: NO_CACHE_HEADERS,
       }
     )
   } catch (error: unknown) {
@@ -288,7 +287,7 @@ export async function POST(request: NextRequest) {
       },
       {
         status: 201,
-        headers: { "Cache-Control": "no-store" },
+        headers: NO_CACHE_HEADERS,
       }
     )
   } catch (error: unknown) {
@@ -366,7 +365,7 @@ export async function PUT(request: NextRequest) {
         savedTo: updatedInMongo ? "mongodb" : "persistent-local",
         message: `อัปเดตข้อมูลอุปกรณ์ ${trimmedSerial} เรียบร้อยแล้ว`,
       },
-      { headers: { "Cache-Control": "no-store" } }
+      { headers: NO_CACHE_HEADERS }
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update equipment"
@@ -441,7 +440,7 @@ export async function DELETE(request: NextRequest) {
         deletedFrom: deletedFromMongo ? "mongodb" : "persistent-local",
         message: `ลบอุปกรณ์ ${trimmedSerial} เรียบร้อยแล้ว`,
       },
-      { headers: { "Cache-Control": "no-store" } }
+      { headers: NO_CACHE_HEADERS }
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete equipment"

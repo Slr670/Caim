@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { GET as getEquipments, POST as postEquipments, PUT as putEquipments, DELETE as deleteEquipments } from "../equipments/route"
+import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 
 export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
 
 export async function GET(request: NextRequest) {
   const res = await getEquipments(request)
@@ -10,16 +13,16 @@ export async function GET(request: NextRequest) {
   if (data && data.equipments && !data.assets) {
     data.assets = data.equipments
   }
-  return NextResponse.json(data, { status: res.status })
+  return NextResponse.json(data, { status: res.status, headers: NO_CACHE_HEADERS })
 }
 
 export async function POST(request: NextRequest) {
   const res = await postEquipments(request)
-  const data = await res.json()
+  const data = await res.json().catch(() => ({}))
   if (data && data.equipment && !data.asset) {
     data.asset = data.equipment
   }
-  return NextResponse.json(data, { status: res.status })
+  return NextResponse.json(data, { status: res.status, headers: NO_CACHE_HEADERS })
 }
 
 export async function PUT(request: NextRequest) {

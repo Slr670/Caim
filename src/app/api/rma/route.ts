@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { RmaDocument, EquipmentDocument, TicketDocument } from "@/types/database"
+import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 
 export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
 
 const fallbackRmaList: RmaDocument[] = []
 const serverDeletedRmaIds = new Set<string>()
@@ -19,29 +22,35 @@ export async function GET(request: NextRequest) {
         const collection = db.collection<RmaDocument>("rma")
         if (id) {
           const item = await collection.findOne({ id })
-          return NextResponse.json({ success: true, rma: item })
+          return NextResponse.json({ success: true, rma: item }, { headers: NO_CACHE_HEADERS })
         }
         const list = await collection.find({}).sort({ createdAt: -1 }).toArray()
-        return NextResponse.json({
-          success: true,
-          source: "mongodb",
-          items: list,
-          deletedIds: Array.from(serverDeletedRmaIds),
-        })
+        return NextResponse.json(
+          {
+            success: true,
+            source: "mongodb",
+            items: list,
+            deletedIds: Array.from(serverDeletedRmaIds),
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
       }
     }
 
     if (id) {
       const found = fallbackRmaList.find((r) => r.id === id)
-      return NextResponse.json({ success: true, rma: found || null })
+      return NextResponse.json({ success: true, rma: found || null }, { headers: NO_CACHE_HEADERS })
     }
 
-    return NextResponse.json({
-      success: true,
-      source: "local",
-      items: fallbackRmaList.filter((r) => !serverDeletedRmaIds.has(r.id)),
-      deletedIds: Array.from(serverDeletedRmaIds),
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        source: "local",
+        items: fallbackRmaList.filter((r) => !serverDeletedRmaIds.has(r.id)),
+        deletedIds: Array.from(serverDeletedRmaIds),
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch RMA items"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -147,12 +156,15 @@ export async function POST(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      rma: newRma,
-      savedTo: savedToMongo ? "mongodb" : "local-memory",
-      message: "บันทึกใบส่งเคลมต่างประเทศและประวัติการส่งซ่อมเรียบร้อยแล้ว",
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        rma: newRma,
+        savedTo: savedToMongo ? "mongodb" : "local-memory",
+        message: "บันทึกใบส่งเคลมต่างประเทศและประวัติการส่งซ่อมเรียบร้อยแล้ว",
+      },
+      { status: 201, headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to save RMA"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -214,10 +226,13 @@ export async function PUT(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      message: `อัปเดตข้อมูลใบส่งซ่อมต่างประเทศ ${id} เรียบร้อยแล้ว`,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        message: `อัปเดตข้อมูลใบส่งซ่อมต่างประเทศ ${id} เรียบร้อยแล้ว`,
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update RMA record"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -281,12 +296,15 @@ export async function DELETE(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      id,
-      message: `RMA record ${id} has been permanently deleted from database.`,
-      timestamp: nowIso,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        id,
+        message: `RMA record ${id} has been permanently deleted from database.`,
+        timestamp: nowIso,
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete RMA record"
     return NextResponse.json({ success: false, error: message }, { status: 500 })

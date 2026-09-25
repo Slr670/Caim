@@ -3,8 +3,11 @@ import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { StationDocument } from "@/types/database"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { STATIONS } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/stationsData"
+import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 
 export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
 
 // Runtime in-memory fallback store
 const fallbackStations: StationDocument[] = [...STATIONS]
@@ -29,7 +32,10 @@ export async function GET(request: NextRequest) {
         if (id) {
           const station = await collection.findOne({ id })
           if (station) {
-            return NextResponse.json({ success: true, station, source: "mongodb" })
+            return NextResponse.json(
+              { success: true, station, source: "mongodb" },
+              { headers: NO_CACHE_HEADERS }
+            )
           }
         }
 
@@ -53,12 +59,15 @@ export async function GET(request: NextRequest) {
         }
 
         const stations = await collection.find(query).sort({ id: 1 }).toArray()
-        return NextResponse.json({
-          success: true,
-          source: "mongodb",
-          total: stations.length,
-          stations,
-        })
+        return NextResponse.json(
+          {
+            success: true,
+            source: "mongodb",
+            total: stations.length,
+            stations,
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
       }
     }
 
@@ -66,7 +75,10 @@ export async function GET(request: NextRequest) {
     let list = fallbackStations.filter((s) => !deletedStationIds.has(s.id))
     if (id) {
       const found = list.find((s) => s.id === id)
-      return NextResponse.json({ success: true, station: found || null, source: "local" })
+      return NextResponse.json(
+        { success: true, station: found || null, source: "local" },
+        { headers: NO_CACHE_HEADERS }
+      )
     }
 
     if (province && province !== "all") list = list.filter((s) => s.province === province)
@@ -84,12 +96,15 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({
-      success: true,
-      source: "local",
-      total: list.length,
-      stations: list,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        source: "local",
+        total: list.length,
+        stations: list,
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch stations"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -171,7 +186,7 @@ export async function POST(request: NextRequest) {
         savedTo: savedToMongo ? "mongodb" : "local-memory",
         message: "เพิ่มข้อมูลสถานีเรียบร้อยแล้ว",
       },
-      { status: 201 }
+      { status: 201, headers: NO_CACHE_HEADERS }
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create station"
@@ -227,12 +242,15 @@ export async function PUT(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      id,
-      savedTo: updatedInMongo ? "mongodb" : "local-memory",
-      message: `อัปเดตข้อมูลสถานี ${id} เรียบร้อยแล้ว`,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        id,
+        savedTo: updatedInMongo ? "mongodb" : "local-memory",
+        message: `อัปเดตข้อมูลสถานี ${id} เรียบร้อยแล้ว`,
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update station"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -290,12 +308,15 @@ export async function DELETE(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      id,
-      deletedFrom: deletedFromMongo ? "mongodb" : "local-memory",
-      message: `ลบข้อมูลสถานี ${id} เรียบร้อยแล้ว`,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        id,
+        deletedFrom: deletedFromMongo ? "mongodb" : "local-memory",
+        message: `ลบข้อมูลสถานี ${id} เรียบร้อยแล้ว`,
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete station"
     return NextResponse.json({ success: false, error: message }, { status: 500 })

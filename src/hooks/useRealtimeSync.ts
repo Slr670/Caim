@@ -16,10 +16,69 @@ let globalEventSource: EventSource | null = null
 let connectionRefCount = 0
 let currentStatus: RealtimeConnectionStatus = "disconnected"
 const statusListeners = new Set<(status: RealtimeConnectionStatus) => void>()
+let lastSyncTimestamp = new Date(Date.now() - 30000).toISOString()
+let backgroundSyncTimer: NodeJS.Timeout | null = null
 
 function broadcastStatus(status: RealtimeConnectionStatus) {
   currentStatus = status
   statusListeners.forEach((fn) => fn(status))
+}
+
+/**
+ * Lightweight delta sync check across all clients and IPs
+ */
+async function checkServerSync() {
+  if (typeof window === "undefined") return
+  try {
+    const res = await fetch(`/api/realtime/sync-check?since=${encodeURIComponent(lastSyncTimestamp)}`, {
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    if (!data || !data.success) return
+
+    if (data.latestTimestamp) {
+      lastSyncTimestamp = data.latestTimestamp
+    }
+
+    if (data.hasUpdates && Array.isArray(data.updates)) {
+      for (const update of data.updates) {
+        if (update.targetType === "equipment") {
+          window.dispatchEvent(
+            new CustomEvent("caim:realtime:equipment", {
+              detail: { action: update.action.includes("CREATE") ? "create" : update.action.includes("UPDATE") ? "update" : "delete", data: { serial: update.targetId } },
+            })
+          )
+        } else if (update.targetType === "station") {
+          window.dispatchEvent(
+            new CustomEvent("caim:realtime:station", {
+              detail: { action: update.action.includes("CREATE") ? "create" : update.action.includes("UPDATE") ? "update" : "delete", data: { id: update.targetId } },
+            })
+          )
+        } else if (update.targetType === "ticket") {
+          window.dispatchEvent(
+            new CustomEvent("caim:realtime:ticket", {
+              detail: { action: "update", data: { id: update.targetId } },
+            })
+          )
+          window.dispatchEvent(new CustomEvent("caim:realtime:metrics", { detail: {} }))
+        } else if (update.targetType === "rma") {
+          window.dispatchEvent(
+            new CustomEvent("caim:realtime:rma", {
+              detail: { action: "update", data: { id: update.targetId } },
+            })
+          )
+          window.dispatchEvent(new CustomEvent("caim:realtime:metrics", { detail: {} }))
+        }
+      }
+    }
+  } catch {
+    // ignore background sync check transient errors
+  }
 }
 
 function initGlobalSSE() {
@@ -38,6 +97,7 @@ function initGlobalSSE() {
     globalEventSource.addEventListener("station", (e) => {
       try {
         const payload = JSON.parse(e.data)
+        if (payload?.timestamp) lastSyncTimestamp = payload.timestamp
         window.dispatchEvent(new CustomEvent("caim:realtime:station", { detail: payload }))
       } catch {
         // ignore
@@ -47,6 +107,7 @@ function initGlobalSSE() {
     globalEventSource.addEventListener("equipment", (e) => {
       try {
         const payload = JSON.parse(e.data)
+        if (payload?.timestamp) lastSyncTimestamp = payload.timestamp
         window.dispatchEvent(new CustomEvent("caim:realtime:equipment", { detail: payload }))
       } catch {
         // ignore
@@ -56,6 +117,7 @@ function initGlobalSSE() {
     globalEventSource.addEventListener("ticket", (e) => {
       try {
         const payload = JSON.parse(e.data)
+        if (payload?.timestamp) lastSyncTimestamp = payload.timestamp
         window.dispatchEvent(new CustomEvent("caim:realtime:ticket", { detail: payload }))
       } catch {
         // ignore
@@ -65,6 +127,7 @@ function initGlobalSSE() {
     globalEventSource.addEventListener("rma", (e) => {
       try {
         const payload = JSON.parse(e.data)
+        if (payload?.timestamp) lastSyncTimestamp = payload.timestamp
         window.dispatchEvent(new CustomEvent("caim:realtime:rma", { detail: payload }))
       } catch {
         // ignore
@@ -94,18 +157,29 @@ function initGlobalSSE() {
   } catch {
     broadcastStatus("disconnected")
   }
+
+  // Dual-channel background delta check every 4 seconds to guarantee cross-IP updates
+  if (!backgroundSyncTimer) {
+    backgroundSyncTimer = setInterval(checkServerSync, 4000)
+  }
 }
 
 function releaseGlobalSSE() {
-  if (connectionRefCount <= 0 && globalEventSource) {
-    globalEventSource.close()
-    globalEventSource = null
+  if (connectionRefCount <= 0) {
+    if (globalEventSource) {
+      globalEventSource.close()
+      globalEventSource = null
+    }
+    if (backgroundSyncTimer) {
+      clearInterval(backgroundSyncTimer)
+      backgroundSyncTimer = null
+    }
     broadcastStatus("disconnected")
   }
 }
 
 /**
- * React hook to subscribe to centralized real-time changes
+ * React hook to subscribe to centralized real-time changes across all clients and IPs
  */
 export function useRealtimeSync(handlers?: RealtimeEventHandlers) {
   const [status, setStatus] = React.useState<RealtimeConnectionStatus>(currentStatus)
@@ -146,12 +220,13 @@ export function useRealtimeSync(handlers?: RealtimeEventHandlers) {
     window.addEventListener("caim:realtime:rma", handleRma)
     window.addEventListener("caim:realtime:metrics", handleMetrics)
 
-    // Revalidate on tab focus
+    // Revalidate on tab focus and visibility change
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         if (!globalEventSource || globalEventSource.readyState === EventSource.CLOSED) {
           initGlobalSSE()
         }
+        checkServerSync()
       }
     }
     window.addEventListener("visibilitychange", handleVisibility)
@@ -174,5 +249,6 @@ export function useRealtimeSync(handlers?: RealtimeEventHandlers) {
   return {
     status,
     isConnected: status === "connected",
+    triggerSyncCheck: checkServerSync,
   }
 }

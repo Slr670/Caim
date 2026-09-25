@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { TicketDocument, EquipmentDocument, StationDocument } from "@/types/database"
+import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 
 export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
 
 const fallbackTickets: TicketDocument[] = []
 const serverDeletedTicketIds = new Set<string>()
@@ -19,29 +22,35 @@ export async function GET(request: NextRequest) {
         const collection = db.collection<TicketDocument>("tickets")
         if (id) {
           const item = await collection.findOne({ id })
-          return NextResponse.json({ success: true, ticket: item })
+          return NextResponse.json({ success: true, ticket: item }, { headers: NO_CACHE_HEADERS })
         }
         const tickets = await collection.find({}).sort({ createdAt: -1 }).toArray()
-        return NextResponse.json({
-          success: true,
-          source: "mongodb",
-          tickets,
-          deletedIds: Array.from(serverDeletedTicketIds),
-        })
+        return NextResponse.json(
+          {
+            success: true,
+            source: "mongodb",
+            tickets,
+            deletedIds: Array.from(serverDeletedTicketIds),
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
       }
     }
 
     if (id) {
       const found = fallbackTickets.find((t) => t.id === id)
-      return NextResponse.json({ success: true, ticket: found || null })
+      return NextResponse.json({ success: true, ticket: found || null }, { headers: NO_CACHE_HEADERS })
     }
 
-    return NextResponse.json({
-      success: true,
-      source: "local",
-      tickets: fallbackTickets.filter((t) => !serverDeletedTicketIds.has(t.id)),
-      deletedIds: Array.from(serverDeletedTicketIds),
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        source: "local",
+        tickets: fallbackTickets.filter((t) => !serverDeletedTicketIds.has(t.id)),
+        deletedIds: Array.from(serverDeletedTicketIds),
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch tickets"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -169,12 +178,15 @@ export async function POST(request: NextRequest) {
           timestamp: nowIso,
         })
 
-        return NextResponse.json({
-          success: true,
-          ticket: newTicketDoc,
-          savedTo: "mongodb",
-          message: "เปิดเคสแจ้งเคลมและบันทึกประวัติการทำรายการเรียบร้อยแล้ว",
-        })
+        return NextResponse.json(
+          {
+            success: true,
+            ticket: newTicketDoc,
+            savedTo: "mongodb",
+            message: "เปิดเคสแจ้งเคลมและบันทึกประวัติการทำรายการเรียบร้อยแล้ว",
+          },
+          { status: 201, headers: NO_CACHE_HEADERS }
+        )
       }
     }
 
@@ -206,12 +218,15 @@ export async function POST(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      ticket: fallbackDoc,
-      savedTo: "local-memory",
-      message: "บันทึกเคสแจ้งเคลมเรียบร้อยแล้ว",
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        ticket: fallbackDoc,
+        savedTo: "local-memory",
+        message: "บันทึกเคสแจ้งเคลมเรียบร้อยแล้ว",
+      },
+      { status: 201, headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create ticket"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -279,10 +294,13 @@ export async function PUT(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      message: `อัปเดตข้อมูลเคส ${id} เรียบร้อยแล้ว`,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        message: `อัปเดตข้อมูลเคส ${id} เรียบร้อยแล้ว`,
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update ticket"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
@@ -353,12 +371,15 @@ export async function DELETE(request: NextRequest) {
       timestamp: nowIso,
     })
 
-    return NextResponse.json({
-      success: true,
-      id,
-      message: `Ticket record ${id} has been permanently deleted from database.`,
-      timestamp: nowIso,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        id,
+        message: `Ticket record ${id} has been permanently deleted from database.`,
+        timestamp: nowIso,
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to delete ticket record"
     return NextResponse.json({ success: false, error: message }, { status: 500 })

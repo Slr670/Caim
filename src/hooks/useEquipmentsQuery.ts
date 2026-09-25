@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import { Asset, ASSETS } from "@/components/sites/equipment-claims-3ec6aa15/root-8a5edab2/assetsData"
-import { getCustomAssets, saveCustomAsset, removeCustomAsset } from "@/lib/storage/recordStorage"
 
 export const EQUIPMENTS_QUERY_KEY = ["equipments"] as const
 
@@ -15,26 +14,9 @@ export interface EquipmentQueryState {
   lastUpdated: number
 }
 
-// Global Singleton In-Memory Query Cache Store
-function getInitialCache(): { cache: Asset[]; total: number } {
-  if (typeof window !== "undefined") {
-    try {
-      const localCustom = getCustomAssets()
-      if (localCustom.length > 0) {
-        const merged = [
-          ...localCustom,
-          ...ASSETS.filter((a) => !localCustom.some((c) => c.serial.toUpperCase() === a.serial.toUpperCase())),
-        ]
-        return { cache: merged, total: merged.length }
-      }
-    } catch {}
-  }
-  return { cache: [...ASSETS], total: ASSETS.length }
-}
-
-const initial = getInitialCache()
-let globalEquipmentsCache: Asset[] = initial.cache
-let globalTotal: number = initial.total
+// Global Singleton Query Cache Store
+let globalEquipmentsCache: Asset[] = [...ASSETS]
+let globalTotal: number = ASSETS.length
 let globalIsLoading: boolean = false
 let globalIsError: boolean = false
 let globalError: string | null = null
@@ -54,14 +36,13 @@ function broadcastCacheUpdate() {
 }
 
 /**
- * Fetch equipments from authoritative database API, with automatic sync of any
- * legacy un-migrated localStorage records.
+ * Fetch equipments directly from authoritative database API without local device partitioning
  */
 export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
   const now = Date.now()
 
-  // Use cached data if not forced and fetched recently (< 10 seconds)
-  if (!force && globalLastUpdated > 0 && now - globalLastUpdated < 10000 && globalEquipmentsCache.length > 0) {
+  // Use cached data if not forced and fetched recently (< 5 seconds)
+  if (!force && globalLastUpdated > 0 && now - globalLastUpdated < 5000 && globalEquipmentsCache.length > 0) {
     return globalEquipmentsCache
   }
 
@@ -83,7 +64,10 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
     try {
       const res = await fetch("/api/equipments", {
         cache: "no-store",
-        headers: { "Cache-Control": "no-cache" },
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
       })
       if (!res.ok) {
         throw new Error(`HTTP error ${res.status}`)
@@ -97,41 +81,8 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
         fetchedList = ASSETS
       }
 
-      // Check if there are any custom assets stored in localStorage that are not in database yet
-      if (typeof window !== "undefined") {
-        try {
-          const localCustom = getCustomAssets()
-          if (localCustom.length > 0) {
-            const missingFromDb = localCustom.filter(
-              (c) => !fetchedList.some((f) => f.serial.toUpperCase() === c.serial.toUpperCase())
-            )
-
-            if (missingFromDb.length > 0) {
-              console.log(
-                `[EquipmentsQuery] Syncing ${missingFromDb.length} local custom asset(s) to central database...`
-              )
-              // Sync missing items to database in parallel
-              await Promise.all(
-                missingFromDb.map((item) =>
-                  fetch("/api/equipments", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(item),
-                  }).catch((err) => console.warn("Could not sync local asset to DB:", err))
-                )
-              )
-
-              // Prepend local custom items at the top
-              fetchedList = [...missingFromDb, ...fetchedList]
-            }
-          }
-        } catch (e) {
-          console.warn("Could not check local custom assets:", e)
-        }
-      }
-
       globalEquipmentsCache = fetchedList
-      globalTotal = fetchedList.length
+      globalTotal = typeof data?.total === "number" ? data.total : fetchedList.length
       globalIsError = false
       globalError = null
       globalLastUpdated = Date.now()
@@ -142,23 +93,6 @@ export async function fetchEquipmentsFromApi(force = false): Promise<Asset[]> {
       globalIsError = true
       globalError = message
       console.warn("[EquipmentsQuery] Fetch error, using cached fallback:", message)
-
-      if (typeof window !== "undefined") {
-        try {
-          const localCustom = getCustomAssets()
-          if (localCustom.length > 0) {
-            const merged = [
-              ...localCustom,
-              ...globalEquipmentsCache.filter(
-                (g) => !localCustom.some((c) => c.serial.toUpperCase() === g.serial.toUpperCase())
-              ),
-            ]
-            globalEquipmentsCache = merged
-            globalTotal = merged.length
-          }
-        } catch {}
-      }
-
       return globalEquipmentsCache
     } finally {
       globalIsLoading = false
@@ -180,7 +114,7 @@ export async function invalidateEquipmentsCache(): Promise<Asset[]> {
 }
 
 /**
- * Manually update the cache with an equipment mutation (optimistic or real-time event)
+ * Update cache with mutation event
  */
 export function applyEquipmentMutation(action: "create" | "update" | "delete", data: Partial<Asset> & { serial: string }) {
   if (!data || !data.serial) return
@@ -188,7 +122,6 @@ export function applyEquipmentMutation(action: "create" | "update" | "delete", d
   const targetSerial = data.serial.toUpperCase()
 
   if (action === "create") {
-    // Filter out duplicate if present and prepend strictly at top (index 0)
     const filtered = globalEquipmentsCache.filter((item) => item.serial.toUpperCase() !== targetSerial)
     globalEquipmentsCache = [data as Asset, ...filtered]
   } else if (action === "update") {
@@ -208,7 +141,7 @@ export function applyEquipmentMutation(action: "create" | "update" | "delete", d
  * Unified Query Hook for Equipment Information Registry & New Claim Case Form
  * - Shared cache key: ['equipments']
  * - Single source of truth from database
- * - Bidirectional real-time consistency
+ * - Bidirectional real-time cross-client consistency
  */
 export function useEquipmentsQuery() {
   const [, setVersion] = React.useState(0)
@@ -225,37 +158,43 @@ export function useEquipmentsQuery() {
       fetchEquipmentsFromApi()
     }
 
-    // Real-time synchronization event listener
-    const handleRealtimeEquipment = (e: Event) => {
-      try {
-        const customEvent = e as CustomEvent<{ action?: "create" | "update" | "delete"; data?: Asset }>
-        const payload = customEvent.detail
-        if (payload && payload.action && payload.data) {
-          applyEquipmentMutation(payload.action, payload.data)
-        }
-      } catch (err) {
-        console.warn("Failed to handle realtime equipment event in query hook:", err)
+    // Real-time synchronization event listener from SSE / cross-client sync
+    const handleRealtimeEquipment = () => {
+      invalidateEquipmentsCache()
+    }
+
+    // Revalidate when user returns to tab
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        invalidateEquipmentsCache()
       }
     }
 
     if (typeof window !== "undefined") {
       window.addEventListener("caim:realtime:equipment", handleRealtimeEquipment)
+      window.addEventListener("visibilitychange", handleVisibility)
+      window.addEventListener("focus", handleVisibility)
     }
 
     return () => {
       subscribers.delete(onCacheUpdate)
       if (typeof window !== "undefined") {
         window.removeEventListener("caim:realtime:equipment", handleRealtimeEquipment)
+        window.removeEventListener("visibilitychange", handleVisibility)
+        window.removeEventListener("focus", handleVisibility)
       }
     }
   }, [])
 
-  // Create mutation
+  // Create mutation: writes directly to database API
   const createEquipment = React.useCallback(async (asset: Asset): Promise<{ success: boolean; error?: string; equipment?: Asset }> => {
     try {
       const res = await fetch("/api/equipments", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+        },
         body: JSON.stringify(asset),
       })
       const data = await res.json()
@@ -265,13 +204,10 @@ export function useEquipmentsQuery() {
 
       const createdItem: Asset = data.equipment || asset
 
-      // Save to localStorage backup store so it survives offline/reload immediately
-      saveCustomAsset(createdItem)
-
       // Optimistically place at the very top (index 0)
       applyEquipmentMutation("create", createdItem)
 
-      // Trigger cache invalidation and wait for server confirmation
+      // Invalidate and refetch immediately to ensure single source of truth
       await invalidateEquipmentsCache()
 
       return { success: true, equipment: createdItem }
@@ -286,7 +222,10 @@ export function useEquipmentsQuery() {
     try {
       const res = await fetch("/api/equipments", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+        },
         body: JSON.stringify(asset),
       })
       const data = await res.json()
@@ -295,8 +234,6 @@ export function useEquipmentsQuery() {
       }
 
       const updatedItem: Asset = { ...asset }
-      saveCustomAsset(updatedItem)
-
       applyEquipmentMutation("update", updatedItem)
       await invalidateEquipmentsCache()
 
@@ -310,9 +247,9 @@ export function useEquipmentsQuery() {
   // Delete mutation
   const deleteEquipment = React.useCallback(async (serial: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      removeCustomAsset(serial)
       const res = await fetch(`/api/equipments?serial=${encodeURIComponent(serial)}`, {
         method: "DELETE",
+        headers: { "Cache-Control": "no-cache" },
       })
       const data = await res.json()
       if (!res.ok || !data.success) {

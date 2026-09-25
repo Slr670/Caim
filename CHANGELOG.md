@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.4] - 2026-09-25
+
+### Fixed & Improved
+- **Anti-CDN & Browser Stale Caching Elimination (Vercel & Next.js)**:
+  - Configured global `headers()` block in `next.config.ts` enforcing `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0`, `Pragma: no-cache`, `Expires: 0`, and `Surrogate-Control: no-store` for all `/api/:path*` routes to disable aggressive Vercel Edge CDN caching.
+  - Enforced `export const dynamic = "force-dynamic"`, `export const revalidate = 0`, and `export const fetchCache = "force-no-store"` across all API routes (`/api/equipments`, `/api/stations`, `/api/tickets`, `/api/rma`, `/api/assets`, `/api/dashboard/stats`, `/api/dashboard/stream`, `/api/realtime/stream`, `/api/realtime/sync-check`).
+  - Added centralized `NO_CACHE_HEADERS` utility in `src/lib/constants/httpHeaders.ts` applied to all JSON responses.
+- **Centralized Database State & Local Isolation Removal**:
+  - Removed device-level `localStorage` partitioning (`CUSTOM_ASSETS`) from `useEquipmentsQuery.ts`, ensuring the centralized MongoDB Atlas database is the single source of truth across all clients and IP addresses.
+  - Eliminated user-IP or session-based state divergence between different browsers and networks.
+- **Real-Time Cross-Client & Cross-IP Synchronization**:
+  - Upgraded `/api/realtime/stream` (SSE) to poll `caim.transaction_logs` every 2.5 seconds, bridging the serverless isolation gap between separate Vercel lambda instances and broadcasting all mutations across all connected IP addresses.
+  - Implemented `/api/realtime/sync-check` lightweight delta-sync route querying MongoDB `transaction_logs` with `since` timestamp.
+  - Enhanced `useRealtimeSync` hook with dual-channel sync (persistent SSE + 4s delta sync poller + visibility/focus revalidation), automatically invalidating client-side caches and triggering background refetching across all active sessions upon any user update.
+
 ## [0.21.3] - 2026-09-25
 
 ### Fixed & Improved

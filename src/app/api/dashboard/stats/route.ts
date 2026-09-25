@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { calculateDashboardMetrics, TicketItem } from "@/lib/dashboard/calculateMetrics"
+import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 
 export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
 
 export async function GET() {
   try {
@@ -94,12 +97,15 @@ export async function GET() {
 
     const metrics = calculateDashboardMetrics(tickets)
 
-    return NextResponse.json({
-      success: true,
-      metrics,
-      ticketsCount: tickets.length,
-      timestamp: new Date().toISOString(),
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        metrics,
+        ticketsCount: tickets.length,
+        timestamp: new Date().toISOString(),
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to compute dashboard metrics"
     return NextResponse.json({ success: false, error: message }, { status: 500 })
