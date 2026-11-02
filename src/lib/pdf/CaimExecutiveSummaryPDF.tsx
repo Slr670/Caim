@@ -1,3 +1,4 @@
+/* eslint-disable jsx-a11y/alt-text */
 import * as React from "react"
 import {
   Document,
@@ -6,6 +7,7 @@ import {
   View,
   StyleSheet,
   Font,
+  Image,
 } from "@react-pdf/renderer"
 import type { ExecutiveSummaryReportData } from "./types"
 import { registerPdfFonts } from "./registerFonts"
@@ -40,37 +42,57 @@ const styles = StyleSheet.create({
   // Header Banner
   headerContainer: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-start",
     borderBottomWidth: 1,
     borderBottomColor: "#cbd5e1",
-    paddingBottom: 4,
-    marginBottom: 5,
+    paddingBottom: 6,
+    marginBottom: 8,
   },
   headerLeft: {
-    flexDirection: "column",
+    flexDirection: "row",
+    alignItems: "center",
     width: "66%",
   },
-  companyName: {
-    fontSize: 10,
+  logoImage: {
+    width: 110,
+    height: 42,
+    objectFit: "contain",
+    marginRight: 10,
+  },
+  companyInfoBlock: {
+    flexDirection: "column",
+    justifyContent: "center",
+  },
+  companyNameTh: {
+    fontSize: 9.5,
     fontFamily: "THSarabunNew",
     fontWeight: "bold",
     color: "#0f172a",
-    letterSpacing: 0.3,
+    lineHeight: 1.15,
+    marginBottom: 1,
+  },
+  companyNameEn: {
+    fontSize: 7.5,
+    fontFamily: "THSarabunNew",
+    fontWeight: "bold",
+    color: "#1e3a8a",
+    lineHeight: 1.15,
+  },
+  reportTitleContainer: {
+    marginBottom: 6,
+  },
+  documentTitle: {
+    fontSize: 12,
+    fontFamily: "THSarabunNew",
+    fontWeight: "bold",
+    color: "#1e3a8a",
     lineHeight: 1.15,
     marginBottom: 1,
   },
   systemSubtitle: {
     fontSize: 7.5,
     color: "#64748b",
-    lineHeight: 1.15,
-    marginBottom: 2,
-  },
-  documentTitle: {
-    fontSize: 12.5,
-    fontFamily: "THSarabunNew",
-    fontWeight: "bold",
-    color: "#1e3a8a",
     lineHeight: 1.15,
   },
   headerRight: {
@@ -508,9 +530,14 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
         {/* Compact Enterprise Header Banner */}
         <View style={styles.headerContainer}>
           <View style={styles.headerLeft}>
-            <Text style={styles.companyName}>{companyName}</Text>
-            <Text style={styles.systemSubtitle}>{systemSubtitle}</Text>
-            <Text style={styles.documentTitle}>{reportTitle}</Text>
+            <Image 
+              src="/images/forth-logo.png" 
+              style={{ width: 110, height: 42, objectFit: "contain", marginRight: 10 }} 
+            />
+            <View style={styles.companyInfoBlock}>
+              <Text style={styles.companyNameTh}>บริษัท ฟอร์ท คอร์ปอเรชั่น จำกัด (มหาชน)</Text>
+              <Text style={styles.companyNameEn}>{companyName || "FORTH CORPORATION PUBLIC COMPANY LIMITED"}</Text>
+            </View>
           </View>
           <View style={styles.headerRight}>
             <View style={styles.docBadge}>
@@ -519,6 +546,12 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
             <Text style={styles.metaText}>พิมพ์เมื่อ: {generatedDate}</Text>
             <Text style={styles.officialBadge}>✓ ฉบับสรุปผู้บริหาร (Single-Page Executive Brief)</Text>
           </View>
+        </View>
+
+        {/* Report Title & Subtitle Banner */}
+        <View style={styles.reportTitleContainer}>
+          <Text style={styles.documentTitle}>{reportTitle}</Text>
+          <Text style={styles.systemSubtitle}>{systemSubtitle}</Text>
         </View>
 
         {/* Section 1: Executive KPI Metrics (4-Column Compact Grid) */}

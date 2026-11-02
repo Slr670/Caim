@@ -1,3 +1,4 @@
+/* eslint-disable jsx-a11y/alt-text */
 import * as React from "react"
 import {
   Document,
@@ -6,6 +7,7 @@ import {
   View,
   StyleSheet,
   Font,
+  Image,
 } from "@react-pdf/renderer"
 import type { CaimMonthlyReportData } from "./types"
 
@@ -178,15 +180,44 @@ const styles = StyleSheet.create({
   headerContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: "#cbd5e1",
     paddingBottom: 6,
     marginBottom: 8,
   },
   headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "66%",
+  },
+  logoImage: {
+    width: 110,
+    height: 42,
+    objectFit: "contain",
+    marginRight: 10,
+  },
+  companyInfoBlock: {
     flexDirection: "column",
-    width: "64%",
+    justifyContent: "center",
+  },
+  companyNameTh: {
+    fontSize: 10,
+    fontFamily: "THSarabunNew",
+    fontWeight: "bold",
+    color: "#0f172a",
+    lineHeight: 1.15,
+    marginBottom: 1,
+  },
+  companyNameEn: {
+    fontSize: 7.5,
+    fontFamily: "THSarabunNew",
+    fontWeight: "bold",
+    color: "#1e3a8a",
+    lineHeight: 1.15,
+  },
+  reportTitleContainer: {
+    marginBottom: 6,
   },
   companyName: {
     fontSize: 10.5,
@@ -204,17 +235,16 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   documentTitle: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontFamily: "THSarabunNew",
     fontWeight: "bold",
     color: "#1e3a8a",
     lineHeight: 1.25,
-    marginTop: 3,
   },
   headerRight: {
     flexDirection: "column",
     alignItems: "flex-end",
-    width: "36%",
+    width: "34%",
   },
   docBadge: {
     backgroundColor: "#f1f5f9",
@@ -784,11 +814,14 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
         {/* Header Banner */}
         <View style={styles.headerContainer}>
           <View style={styles.headerLeft}>
-            <Text style={styles.companyName}>FORTH CORPORATION PUBLIC COMPANY LIMITED</Text>
-            <Text style={styles.systemSubtitle}>
-              CAIM — Telecommunication Equipment Claims & Overseas RMA Management System
-            </Text>
-            <Text style={styles.documentTitle}>รายงานสรุปผลการบริหารงานเคลมและส่งซ่อมอุปกรณ์ประจำเดือน</Text>
+            <Image 
+              src="/images/forth-logo.png" 
+              style={{ width: 110, height: 42, objectFit: "contain", marginRight: 10 }} 
+            />
+            <View style={styles.companyInfoBlock}>
+              <Text style={styles.companyNameTh}>บริษัท ฟอร์ท คอร์ปอเรชั่น จำกัด (มหาชน)</Text>
+              <Text style={styles.companyNameEn}>FORTH CORPORATION PUBLIC COMPANY LIMITED</Text>
+            </View>
           </View>
           <View style={styles.headerRight}>
             <View style={styles.docBadge}>
@@ -798,6 +831,14 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
             <Text style={styles.metaText}>พิมพ์เมื่อ: {generatedDate}</Text>
             <Text style={styles.statusApproved}>✓ ฉบับทางการ (Official Approved Report)</Text>
           </View>
+        </View>
+
+        {/* Report Title Section */}
+        <View style={styles.reportTitleContainer}>
+          <Text style={styles.documentTitle}>รายงานสรุปผลการบริหารงานเคลมและส่งซ่อมอุปกรณ์ประจำเดือน</Text>
+          <Text style={styles.systemSubtitle}>
+            CAIM — Telecommunication Equipment Claims & Overseas RMA Management System
+          </Text>
         </View>
 
         {/* Executive Summary Narrative */}
@@ -1039,8 +1080,14 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
         {/* Header */}
         <View style={styles.headerContainer}>
           <View style={styles.headerLeft}>
-            <Text style={styles.companyName}>ส่วนที่ 2: งานเคลมที่อยู่ระหว่างดำเนินการ และรายการเฝ้าระวังเกินกำหนด SLA</Text>
-            <Text style={styles.systemSubtitle}>Active Claims Pipeline & Critical SLA Overdue Watchlist</Text>
+            <Image 
+              src="/images/forth-logo.png" 
+              style={{ width: 85, height: 32, objectFit: "contain", marginRight: 8 }} 
+            />
+            <View style={styles.companyInfoBlock}>
+              <Text style={styles.companyNameTh}>บริษัท ฟอร์ท คอร์ปอเรชั่น จำกัด (มหาชน)</Text>
+              <Text style={styles.companyNameEn}>ส่วนที่ 2: งานเคลมที่อยู่ระหว่างดำเนินการ และรายการเฝ้าระวังเกินกำหนด SLA</Text>
+            </View>
           </View>
           <View style={styles.headerRight}>
             <View style={styles.docBadge}>
@@ -1159,8 +1206,14 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
         {/* Header */}
         <View style={styles.headerContainer}>
           <View style={styles.headerLeft}>
-            <Text style={styles.companyName}>ส่วนที่ 3: การติดตามงานส่งซ่อมต่างประเทศ (Overseas RMA) และใบอนุญาต กสทช./ศุลกากร</Text>
-            <Text style={styles.systemSubtitle}>Overseas RMA 8-Stage Progression & NBTC/Customs Permit Lifecycle</Text>
+            <Image 
+              src="/images/forth-logo.png" 
+              style={{ width: 85, height: 32, objectFit: "contain", marginRight: 8 }} 
+            />
+            <View style={styles.companyInfoBlock}>
+              <Text style={styles.companyNameTh}>บริษัท ฟอร์ท คอร์ปอเรชั่น จำกัด (มหาชน)</Text>
+              <Text style={styles.companyNameEn}>ส่วนที่ 3: การติดตามงานส่งซ่อมต่างประเทศ (Overseas RMA) และใบอนุญาต</Text>
+            </View>
           </View>
           <View style={styles.headerRight}>
             <View style={styles.docBadge}>
@@ -1296,8 +1349,14 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
         {/* Header */}
         <View style={styles.headerContainer}>
           <View style={styles.headerLeft}>
-            <Text style={styles.companyName}>ส่วนที่ 4: สถิติสถานีระดับภูมิภาค การเชื่อมโยงคลังสินค้า และการลงนามอนุมัติ</Text>
-            <Text style={styles.systemSubtitle}>Regional Incident Stations, Stock Synchronization & Formal Approvals</Text>
+            <Image 
+              src="/images/forth-logo.png" 
+              style={{ width: 85, height: 32, objectFit: "contain", marginRight: 8 }} 
+            />
+            <View style={styles.companyInfoBlock}>
+              <Text style={styles.companyNameTh}>บริษัท ฟอร์ท คอร์ปอเรชั่น จำกัด (มหาชน)</Text>
+              <Text style={styles.companyNameEn}>ส่วนที่ 4: สถิติสถานีระดับภูมิภาค การเชื่อมโยงคลังสินค้า และการลงนามอนุมัติ</Text>
+            </View>
           </View>
           <View style={styles.headerRight}>
             <View style={styles.docBadge}>
