@@ -102,9 +102,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#94a3b8",
     borderRadius: 3,
-    paddingVertical: 1.5,
-    paddingHorizontal: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
     alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-end",
     marginBottom: 2,
   },
   docNumberText: {
@@ -113,6 +115,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#0f172a",
     lineHeight: 1.15,
+    textAlign: "center",
   },
   metaText: {
     fontSize: 7.5,
@@ -291,6 +294,7 @@ const styles = StyleSheet.create({
   stagePill: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#ffffff",
     borderWidth: 0.5,
     borderColor: "#cbd5e1",
@@ -309,6 +313,7 @@ const styles = StyleSheet.create({
     fontFamily: "THSarabunNew",
     color: "#334155",
     lineHeight: 1.15,
+    textAlign: "center",
   },
   stageCountBadge: {
     fontSize: 7,
@@ -316,6 +321,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#0f172a",
     lineHeight: 1.15,
+    textAlign: "center",
   },
 
   // Section 2: Claims Inventory Table
@@ -376,10 +382,26 @@ const styles = StyleSheet.create({
   colStatus: {
     width: "13%",
     alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+  },
+  tableColStatus: {
+    width: "13%",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
   },
   colSla: {
     width: "13%",
     alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
+  },
+  tableColSla: {
+    width: "13%",
+    alignItems: "center",
+    justifyContent: "center",
+    textAlign: "center",
   },
   colAssignee: {
     width: "12%",
@@ -388,17 +410,19 @@ const styles = StyleSheet.create({
   // Status Badges
   statusBadge: {
     borderRadius: 2.5,
-    paddingVertical: 1,
-    paddingHorizontal: 4,
+    paddingVertical: 1.5,
+    paddingHorizontal: 5,
     borderWidth: 0.5,
     alignItems: "center",
     justifyContent: "center",
+    alignSelf: "center",
   },
   statusBadgeText: {
     fontSize: 6.5,
     fontFamily: "THSarabunNew",
     fontWeight: "bold",
     lineHeight: 1.15,
+    textAlign: "center",
   },
 
   // Summary & Totals Row (Footer Row)
@@ -757,8 +781,8 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
             <Text style={[styles.tableHeaderText, styles.colClaimNo]}>เลขที่เคลม</Text>
             <Text style={[styles.tableHeaderText, styles.colTitle]}>หัวข้อเคลม / อาการ</Text>
             <Text style={[styles.tableHeaderText, styles.colEquipment]}>อุปกรณ์ / S/N</Text>
-            <Text style={[styles.tableHeaderText, styles.colStatus]}>สถานะ</Text>
-            <Text style={[styles.tableHeaderText, styles.colSla]}>อายุเคส / SLA</Text>
+            <Text style={[styles.tableHeaderText, styles.colStatus, { textAlign: "center" }]}>สถานะ</Text>
+            <Text style={[styles.tableHeaderText, styles.colSla, { textAlign: "center" }]}>อายุเคส / SLA</Text>
             <Text style={[styles.tableHeaderText, styles.colAssignee]}>ผู้รับผิดชอบ</Text>
           </View>
 
@@ -828,14 +852,16 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
 
                   {/* Age & SLA Status */}
                   <View style={styles.colSla}>
-                    <Text style={styles.tableCellText}>{row.ageDays}</Text>
+                    <Text style={[styles.tableCellText, { textAlign: "center", paddingHorizontal: 0 }]}>
+                      {row.ageDays}
+                    </Text>
                     <View
                       style={[
                         styles.statusBadge,
                         {
                           backgroundColor: row.isOverdue ? "#fee2e2" : "#d1fae5",
                           borderColor: row.isOverdue ? "#fca5a5" : "#86efac",
-                          marginTop: 1,
+                          marginTop: 1.5,
                         },
                       ]}
                     >
