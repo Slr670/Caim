@@ -31,12 +31,12 @@ const styles = StyleSheet.create({
     lineHeight: 1.15,
   },
 
-  // Top Accent Bar
-  topAccentBar: {
-    height: 3,
-    backgroundColor: "#1d4ed8",
-    marginBottom: 4,
-    borderRadius: 1,
+  // Blue Divider Bar relocated underneath the header banner
+  headerDivider: {
+    borderBottomWidth: 1.5,
+    borderBottomColor: "#2563eb",
+    marginVertical: 6,
+    width: "100%",
   },
 
   // Header Banner
@@ -44,10 +44,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#cbd5e1",
-    paddingBottom: 6,
-    marginBottom: 8,
+    paddingBottom: 2,
   },
   headerLeft: {
     flexDirection: "row",
@@ -121,15 +118,6 @@ const styles = StyleSheet.create({
     fontSize: 7.5,
     color: "#475569",
     lineHeight: 1.15,
-    textAlign: "right",
-  },
-  officialBadge: {
-    fontSize: 7.5,
-    fontFamily: "THSarabunNew",
-    fontWeight: "bold",
-    color: "#059669",
-    lineHeight: 1.15,
-    marginTop: 1,
     textAlign: "right",
   },
 
@@ -525,8 +513,6 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
     >
       {/* STRICT SINGLE-PAGE A4 LAYOUT */}
       <Page size="A4" style={styles.page}>
-        <View style={styles.topAccentBar} />
-
         {/* Compact Enterprise Header Banner */}
         <View style={styles.headerContainer}>
           <View style={styles.headerLeft}>
@@ -544,9 +530,11 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
               <Text style={styles.docNumberText}>{reportNumber}</Text>
             </View>
             <Text style={styles.metaText}>พิมพ์เมื่อ: {generatedDate}</Text>
-            <Text style={styles.officialBadge}>✓ ฉบับสรุปผู้บริหาร (Single-Page Executive Brief)</Text>
           </View>
         </View>
+
+        {/* Relocated Blue Divider Bar (placed directly underneath header banner) */}
+        <View style={styles.headerDivider} />
 
         {/* Report Title & Subtitle Banner */}
         <View style={styles.reportTitleContainer}>

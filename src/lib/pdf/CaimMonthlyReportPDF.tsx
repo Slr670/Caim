@@ -176,15 +176,20 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
 
+  // Blue Divider Bar relocated underneath the header banner
+  headerDivider: {
+    borderBottomWidth: 1.5,
+    borderBottomColor: "#2563eb",
+    marginVertical: 6,
+    width: "100%",
+  },
+
   // Headers
   headerContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#cbd5e1",
-    paddingBottom: 6,
-    marginBottom: 8,
+    paddingBottom: 2,
   },
   headerLeft: {
     flexDirection: "row",
@@ -268,15 +273,6 @@ const styles = StyleSheet.create({
     color: "#475569",
     lineHeight: 1.25,
     marginTop: 1,
-    textAlign: "right",
-  },
-  statusApproved: {
-    fontSize: 7.5,
-    fontFamily: "THSarabunNew",
-    fontWeight: "bold",
-    color: "#059669",
-    lineHeight: 1.25,
-    marginTop: 2,
     textAlign: "right",
   },
 
@@ -809,8 +805,6 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
           PAGE 1: Executive Summary & Core KPIs
           ========================================================================= */}
       <Page size="A4" style={styles.page}>
-        <View style={styles.topAccentBar} />
-
         {/* Header Banner */}
         <View style={styles.headerContainer}>
           <View style={styles.headerLeft}>
@@ -829,9 +823,11 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
             </View>
             <Text style={styles.metaText}>รอบรายงาน: {reportMonth}</Text>
             <Text style={styles.metaText}>พิมพ์เมื่อ: {generatedDate}</Text>
-            <Text style={styles.statusApproved}>✓ ฉบับทางการ (Official Approved Report)</Text>
           </View>
         </View>
+
+        {/* Relocated Blue Divider Bar (placed directly underneath header banner) */}
+        <View style={styles.headerDivider} />
 
         {/* Report Title Section */}
         <View style={styles.reportTitleContainer}>
