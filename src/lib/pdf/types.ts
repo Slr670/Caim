@@ -101,7 +101,7 @@ export interface SignOffBlock {
 }
 
 export interface CaimMonthlyReportData {
-  reportNumber: string // e.g. "CAIM-RPT-2026-10"
+  reportNumber: string // e.g. "CLAIMS-RPT-2026-10"
   reportMonth: string // e.g. "ตุลาคม 2569"
   reportYear: string // e.g. "2569"
   generatedDate: string // e.g. "20 ต.ค. 2569 เวลา 11:00 น."
@@ -152,10 +152,10 @@ export interface ExecutiveSummaryKpis {
 }
 
 export interface ExecutiveSummaryReportData {
-  reportNumber: string // e.g. "CAIM-RPT-2026-11"
+  reportNumber: string // e.g. "CLAIMS-RPT-2026-11"
   reportTitle: string // "รายงานสรุปผลการบริหารงานเคลมและส่งซ่อมอุปกรณ์"
   companyName: string // "FORTH CORPORATION PUBLIC COMPANY LIMITED"
-  systemSubtitle: string // "CAIM — Telecommunication Equipment Claims & Overseas RMA Management System"
+  systemSubtitle: string // "CLAIMS — Telecommunication Equipment Claims & Overseas RMA Management System"
   generatedDate: string // e.g. "2 พ.ย. 2569 เวลา 09:46 น."
   kpis: ExecutiveSummaryKpis
   repairOutcomes: RepairOutcomesDistribution

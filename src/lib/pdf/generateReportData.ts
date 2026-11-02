@@ -43,7 +43,7 @@ export function generateMonthlyReportData(options: GenerateReportOptions = {}): 
   const monthIdx = date.getMonth()
   const monthStr = String(monthIdx + 1).padStart(2, "0")
   const reportMonth = `${THAI_MONTH_NAMES[monthIdx]} ${yearBe}`
-  const reportNumber = `CAIM-RPT-${yearCe}-${monthStr}`
+  const reportNumber = `CLAIMS-RPT-${yearCe}-${monthStr}`
   const generatedDate = formatThaiDateTime(date)
 
   const tickets = options.tickets || []
@@ -371,7 +371,7 @@ export function generateExecutiveSummaryData(options: GenerateReportOptions = {}
   const yearCe = date.getFullYear()
   const monthIdx = date.getMonth()
   const monthStr = String(monthIdx + 1).padStart(2, "0")
-  const reportNumber = `CAIM-RPT-${yearCe}-${monthStr}`
+  const reportNumber = `CLAIMS-RPT-${yearCe}-${monthStr}`
   const generatedDate = formatThaiDateTime(date)
 
   const tickets = options.tickets || []
@@ -572,7 +572,7 @@ export function generateExecutiveSummaryData(options: GenerateReportOptions = {}
     reportNumber,
     reportTitle: "รายงานสรุปผลการบริหารงานเคลมและส่งซ่อมอุปกรณ์",
     companyName: "FORTH CORPORATION PUBLIC COMPANY LIMITED",
-    systemSubtitle: "CAIM — Telecommunication Equipment Claims & Overseas RMA Management System",
+    systemSubtitle: "CLAIMS — Telecommunication Equipment Claims & Overseas RMA Management System",
     generatedDate,
     kpis: {
       totalClaims,

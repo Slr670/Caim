@@ -524,6 +524,14 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
     totals,
   } = data
 
+  const displayReportNumber = reportNumber?.startsWith("CAIM-RPT-")
+    ? reportNumber.replace("CAIM-RPT-", "CLAIMS-RPT-")
+    : (reportNumber || "CLAIMS-RPT")
+
+  const displaySubtitle = systemSubtitle?.startsWith("CAIM —")
+    ? systemSubtitle.replace("CAIM —", "CLAIMS —")
+    : (systemSubtitle || "CLAIMS — Telecommunication Equipment Claims & Overseas RMA Management System")
+
   const getStatusBadgeStyle = (statusCode: number) => {
     switch (statusCode) {
       case 1:
@@ -545,10 +553,10 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
 
   return (
     <Document
-      title={`รายงานสรุปผู้บริหาร CAIM - ${reportNumber}`}
+      title={`รายงานสรุปผู้บริหาร CLAIMS - ${displayReportNumber}`}
       author="Forth Corporation Public Company Limited"
-      subject="CAIM Executive Summary Single-Page Report"
-      keywords="CAIM, Forth, Equipment Claims, Executive Summary, Single Page"
+      subject="CLAIMS Executive Summary Single-Page Report"
+      keywords="CLAIMS, Forth, Equipment Claims, Executive Summary, Single Page"
     >
       {/* STRICT SINGLE-PAGE A4 LAYOUT */}
       <Page size="A4" style={styles.page}>
@@ -566,7 +574,7 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
           </View>
           <View style={styles.headerRight}>
             <View style={styles.docBadge}>
-              <Text style={styles.docNumberText}>{reportNumber}</Text>
+              <Text style={styles.docNumberText}>{displayReportNumber}</Text>
             </View>
             <Text style={styles.metaText}>พิมพ์เมื่อ: {generatedDate}</Text>
           </View>
@@ -578,7 +586,7 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
         {/* Report Title & Subtitle Banner */}
         <View style={styles.reportTitleContainer}>
           <Text style={styles.documentTitle}>{reportTitle}</Text>
-          <Text style={styles.systemSubtitle}>{systemSubtitle}</Text>
+          <Text style={styles.systemSubtitle}>{displaySubtitle}</Text>
         </View>
 
         {/* Section 1: Executive KPI Metrics (4-Column Compact Grid) */}

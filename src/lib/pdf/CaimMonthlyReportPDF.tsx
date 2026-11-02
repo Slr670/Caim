@@ -796,10 +796,10 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
 
   return (
     <Document
-      title={`รายงานประจำเดือน CAIM - ${reportNumber}`}
+      title={`รายงานประจำเดือน CLAIMS - ${reportNumber}`}
       author="Forth Corporation Public Company Limited"
       subject="Telecommunication Equipment Claims & Overseas RMA Monthly Report"
-      keywords="CAIM, Forth, Equipment Claims, Overseas RMA, Telecommunication"
+      keywords="CLAIMS, Forth, Equipment Claims, Overseas RMA, Telecommunication"
     >
       {/* =========================================================================
           PAGE 1: Executive Summary & Core KPIs
@@ -833,7 +833,7 @@ export function CaimMonthlyReportPDF({ data }: CaimMonthlyReportPDFProps) {
         <View style={styles.reportTitleContainer}>
           <Text style={styles.documentTitle}>รายงานสรุปผลการบริหารงานเคลมและส่งซ่อมอุปกรณ์ประจำเดือน</Text>
           <Text style={styles.systemSubtitle}>
-            CAIM — Telecommunication Equipment Claims & Overseas RMA Management System
+            CLAIMS — Telecommunication Equipment Claims & Overseas RMA Management System
           </Text>
         </View>
 
