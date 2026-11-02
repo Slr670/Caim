@@ -116,3 +116,53 @@ export interface CaimMonthlyReportData {
   stockSummary: StockSyncSummary
   signOff: SignOffBlock
 }
+
+export interface ExecutiveClaimInventoryItem {
+  id: string
+  title: string
+  symptoms?: string
+  equipment: string
+  serialNo: string
+  status: string
+  statusCode: number
+  ageDays: string
+  isOverdue: boolean
+  slaStatusText: string
+  assignee: string
+}
+
+export interface ExecutiveSummaryTotals {
+  totalCount: number
+  activeCount: number
+  closedCount: number
+  overdueCount: number
+}
+
+export interface ExecutiveSummaryKpis {
+  totalClaims: number
+  inProgressCount: number
+  closedCount: number
+  slaComplianceRate: number
+  slaStatusText: string
+  slaStatusColor: string
+  slaStatusBg: string
+  mttrDays: number
+  overseasRmaCount: number
+  highPriorityWatchlistCount: number
+}
+
+export interface ExecutiveSummaryReportData {
+  reportNumber: string // e.g. "CAIM-RPT-2026-11"
+  reportTitle: string // "รายงานสรุปผลการบริหารงานเคลมและส่งซ่อมอุปกรณ์"
+  companyName: string // "FORTH CORPORATION PUBLIC COMPANY LIMITED"
+  systemSubtitle: string // "CAIM — Telecommunication Equipment Claims & Overseas RMA Management System"
+  generatedDate: string // e.g. "2 พ.ย. 2569 เวลา 09:46 น."
+  kpis: ExecutiveSummaryKpis
+  repairOutcomes: RepairOutcomesDistribution
+  topModels: TopClaimModel[]
+  pipelineStages: PipelineStageSummary[]
+  inventory: ExecutiveClaimInventoryItem[]
+  inventoryLimitNotice?: string
+  totals: ExecutiveSummaryTotals
+}
+

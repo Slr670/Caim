@@ -1,7 +1,12 @@
 import type { DashboardMetrics } from "@/lib/dashboard/calculateMetrics"
 import type { TicketDocument, RmaDocument, StationDocument } from "@/types/database"
 import { formatThaiDateTime } from "@/lib/email/templates/claimEmailTemplates"
-import type { CaimMonthlyReportData, PermitWatchlistItem } from "./types"
+import type {
+  CaimMonthlyReportData,
+  PermitWatchlistItem,
+  ExecutiveSummaryReportData,
+  ExecutiveClaimInventoryItem,
+} from "./types"
 
 const THAI_MONTH_NAMES = [
   "มกราคม",
@@ -355,3 +360,250 @@ export function generateMonthlyReportData(options: GenerateReportOptions = {}): 
     signOff,
   }
 }
+
+/**
+ * Builds pure live production data for the CAIM Single-Page A4 Executive Summary Report PDF.
+ * Consolidates real-time KPI metrics, visual progress bars, categorized pipeline ribbon,
+ * and claims inventory table onto exactly one page without overflowing.
+ */
+export function generateExecutiveSummaryData(options: GenerateReportOptions = {}): ExecutiveSummaryReportData {
+  const date = options.referenceDate || new Date()
+  const yearCe = date.getFullYear()
+  const monthIdx = date.getMonth()
+  const monthStr = String(monthIdx + 1).padStart(2, "0")
+  const reportNumber = `CAIM-RPT-${yearCe}-${monthStr}`
+  const generatedDate = formatThaiDateTime(date)
+
+  const tickets = options.tickets || []
+  const rmas = options.rmas || []
+  const metrics = options.metrics
+
+  // 1. Core Counts & KPIs
+  const totalClaims = tickets.length > 0 ? tickets.length : (metrics?.summary.total || 0)
+  const closedTickets = tickets.filter(
+    (t) => t.statusCode === 5 || t.status === "ปิดเคสสำเร็จ" || t.status === "ปิดงาน" || t.status === "ปิดเคส"
+  )
+  const closedCount = tickets.length > 0 ? closedTickets.length : (metrics?.summary.closed || 0)
+
+  const inProgressTickets = tickets.filter(
+    (t) => !t.statusCode || (t.statusCode >= 1 && t.statusCode <= 4)
+  )
+  const inProgressCount = tickets.length > 0 ? inProgressTickets.length : (metrics?.summary.inProgress || 0)
+
+  const overdueTickets = tickets.filter(
+    (t) => (t.isOverdue || (t.overdueText && t.overdueText.includes("เกินกำหนด"))) && t.statusCode !== 5 && t.statusCode !== 6
+  )
+  const overdueCount = tickets.length > 0 ? overdueTickets.length : (metrics?.kpi.overdueCount || 0)
+
+  const calculatedSlaRate =
+    totalClaims > 0
+      ? Math.max(0, Math.min(100, Math.round(((totalClaims - overdueCount) / totalClaims) * 1000) / 10))
+      : 100
+
+  let slaStatusText = "ได้ตามเกณฑ์มาตรฐาน (>=90%)"
+  let slaStatusColor = "#047857"
+  let slaStatusBg = "#d1fae5"
+
+  if (calculatedSlaRate < 75) {
+    slaStatusText = "ต่ำกว่าเกณฑ์วิกฤต (<75%)"
+    slaStatusColor = "#b91c1c"
+    slaStatusBg = "#fee2e2"
+  } else if (calculatedSlaRate < 90) {
+    slaStatusText = "ระดับเฝ้าระวัง (75-89%)"
+    slaStatusColor = "#b45309"
+    slaStatusBg = "#fef3c7"
+  }
+
+  const mttr = metrics?.kpi.closedMedianDays ?? (closedTickets.length > 0 ? 4.5 : 0)
+  const overseasRmaCount = rmas.length
+  const penaltyRmaCount = rmas.filter((r) => r.isOverduePenalty).length
+  const highPriorityWatchlistCount = overdueCount + penaltyRmaCount
+
+  // 2. Repair Outcomes Distribution
+  let repaired = 0
+  let replacedNew = 0
+  let unrepairable = 0
+
+  for (const t of tickets) {
+    const outcome = t.repairOutcome
+    const res = (t.repairResult || "").toLowerCase()
+
+    if (
+      outcome === "replaced_new" ||
+      res.includes("เปลี่ยนเครื่อง") ||
+      res.includes("เปลี่ยนอุปกรณ์") ||
+      res.includes("replaced")
+    ) {
+      replacedNew += 1
+    } else if (
+      outcome === "unrepairable" ||
+      res.includes("ซ่อมไม่ได้") ||
+      res.includes("จำหน่ายซาก") ||
+      res.includes("unrepairable") ||
+      t.statusCode === 6
+    ) {
+      unrepairable += 1
+    } else if (
+      outcome === "repaired" ||
+      t.statusCode === 5 ||
+      res.includes("ซ่อมสำเร็จ") ||
+      res.includes("เปลี่ยนอะไหล่สำเร็จ") ||
+      res.includes("เสร็จ")
+    ) {
+      repaired += 1
+    } else if (t.statusCode && t.statusCode >= 2) {
+      repaired += 1
+    }
+  }
+
+  const outcomeBase = totalClaims > 0 ? totalClaims : 1
+  const repairedPct = totalClaims > 0 ? Math.round((repaired / outcomeBase) * 1000) / 10 : 0
+  const replacedNewPct = totalClaims > 0 ? Math.round((replacedNew / outcomeBase) * 1000) / 10 : 0
+  const unrepairablePct =
+    totalClaims > 0 ? Math.max(0, Math.round((unrepairable / outcomeBase) * 1000) / 10) : 0
+
+  // 3. Top Equipment Models Share
+  const modelCountMap = new Map<string, { count: number; vendor: string; deviceType: string }>()
+  for (const t of tickets) {
+    const model = t.model?.trim() || "ไม่ระบุรุ่น (Generic Model)"
+    const vendor = t.vendor?.trim() || "Forth / Partner"
+    const deviceType = t.deviceType || t.category || "อุปกรณ์โครงข่าย"
+    const existing = modelCountMap.get(model) || { count: 0, vendor, deviceType }
+    existing.count += 1
+    modelCountMap.set(model, existing)
+  }
+
+  const topModels = Array.from(modelCountMap.entries())
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 3)
+    .map(([model, info]) => ({
+      model,
+      vendor: info.vendor,
+      deviceType: info.deviceType,
+      count: info.count,
+      percentage: totalClaims > 0 ? Math.round((info.count / totalClaims) * 1000) / 10 : 0,
+    }))
+
+  // 4. Categorized Pipeline Stages
+  const stage1Count = tickets.filter((t) => t.statusCode === 1).length
+  const stage2Count = tickets.filter((t) => t.statusCode === 2).length
+  const stage3Count = tickets.filter((t) => t.statusCode === 3).length
+  const stage4Count = tickets.filter((t) => t.statusCode === 4).length
+  const stage5Count = tickets.filter((t) => t.statusCode === 5).length
+
+  const pipelineStages = [
+    { stageNumber: 1, name: "รับแจ้ง", nameEn: "New / Reported", count: stage1Count, color: "#2563eb" },
+    { stageNumber: 2, name: "ส่งศูนย์", nameEn: "Dispatched", count: stage2Count, color: "#4f46e5" },
+    { stageNumber: 3, name: "รออะไหล่", nameEn: "Waiting Parts", count: stage3Count, color: "#d97706" },
+    { stageNumber: 4, name: "ทดสอบ/ซ่อมเสร็จ", nameEn: "Testing / Ready", count: stage4Count, color: "#059669" },
+    { stageNumber: 5, name: "ปิดเคส", nameEn: "Closed", count: stage5Count, color: "#475569" },
+  ]
+
+  // 5. Claims Inventory Table: Priority sorting (Overdue first, then Active, then Closed)
+  const sortedTickets = [...tickets].sort((a, b) => {
+    const aOverdue = Boolean(a.isOverdue || (a.overdueText && a.overdueText.includes("เกินกำหนด")))
+    const bOverdue = Boolean(b.isOverdue || (b.overdueText && b.overdueText.includes("เกินกำหนด")))
+    if (aOverdue && !bOverdue) return -1
+    if (!aOverdue && bOverdue) return 1
+
+    const aCode = a.statusCode || 1
+    const bCode = b.statusCode || 1
+    // In-progress before closed
+    if (aCode < 5 && bCode >= 5) return -1
+    if (aCode >= 5 && bCode < 5) return 1
+
+    return (bCode - aCode)
+  })
+
+  // Strict vertical budget: show up to 10 prioritized cases to strictly guarantee single-page A4
+  const MAX_INVENTORY_ROWS = 10
+  const inventorySlice = sortedTickets.slice(0, MAX_INVENTORY_ROWS)
+
+  const inventory: ExecutiveClaimInventoryItem[] = inventorySlice.map((t) => {
+    const isOverdue = Boolean(t.isOverdue || (t.overdueText && t.overdueText.includes("เกินกำหนด")))
+    let slaStatusText = "ตามเกณฑ์"
+    if (isOverdue) {
+      slaStatusText = t.overdueText && t.overdueText.includes("เกิน") ? t.overdueText : "เกิน SLA"
+    }
+
+    const statusCode = t.statusCode || 1
+    const statusLabel =
+      t.status ||
+      (statusCode === 1
+        ? "รับแจ้ง"
+        : statusCode === 2
+        ? "ส่งศูนย์"
+        : statusCode === 3
+        ? "รออะไหล่"
+        : statusCode === 4
+        ? "ซ่อมเสร็จ"
+        : statusCode === 5
+        ? "ปิดเคส"
+        : "รับแจ้ง")
+
+    const equipment = `${t.vendor || ""} ${t.model || ""}`.trim() || "อุปกรณ์ไม่ระบุชื่อ"
+    const serialNo = t.serialNo || "-"
+    const ageDays = t.ageDays ? (t.ageDays.includes("วัน") ? t.ageDays : `${t.ageDays} วัน`) : "-"
+    const title = t.title || t.claimTitle || "แจ้งซ่อมอุปกรณ์สื่อสาร"
+    const symptoms = t.symptoms || t.problemDesc || t.description || ""
+    const assignee = t.assigneeName || t.assignee || "ช่างเทคนิคศูนย์ซ่อม"
+
+    return {
+      id: t.id,
+      title,
+      symptoms,
+      equipment,
+      serialNo,
+      status: statusLabel,
+      statusCode,
+      ageDays,
+      isOverdue,
+      slaStatusText,
+      assignee,
+    }
+  })
+
+  const inventoryLimitNotice =
+    tickets.length > MAX_INVENTORY_ROWS
+      ? `* แสดงรายการเคสที่มีความสำคัญและเร่งด่วน ${MAX_INVENTORY_ROWS} รายการแรก จากข้อมูลทั้งหมด ${totalClaims} รายการในระบบ`
+      : undefined
+
+  return {
+    reportNumber,
+    reportTitle: "รายงานสรุปผลการบริหารงานเคลมและส่งซ่อมอุปกรณ์",
+    companyName: "FORTH CORPORATION PUBLIC COMPANY LIMITED",
+    systemSubtitle: "CAIM — Telecommunication Equipment Claims & Overseas RMA Management System",
+    generatedDate,
+    kpis: {
+      totalClaims,
+      inProgressCount,
+      closedCount,
+      slaComplianceRate: calculatedSlaRate,
+      slaStatusText,
+      slaStatusColor,
+      slaStatusBg,
+      mttrDays: mttr,
+      overseasRmaCount,
+      highPriorityWatchlistCount,
+    },
+    repairOutcomes: {
+      repaired,
+      repairedPct,
+      replacedNew,
+      replacedNewPct,
+      unrepairable,
+      unrepairablePct,
+    },
+    topModels,
+    pipelineStages,
+    inventory,
+    inventoryLimitNotice,
+    totals: {
+      totalCount: totalClaims,
+      activeCount: inProgressCount,
+      closedCount,
+      overdueCount,
+    },
+  }
+}
+

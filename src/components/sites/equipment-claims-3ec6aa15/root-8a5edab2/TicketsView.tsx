@@ -426,6 +426,45 @@ export function TicketsView() {
   const [modalMode, setModalMode] = React.useState<"view" | "edit">("view")
   const [editForm, setEditForm] = React.useState<Ticket | null>(null)
   const [saveSuccess, setSaveSuccess] = React.useState(false)
+  const [isExportingExecutivePdf, setIsExportingExecutivePdf] = React.useState(false)
+
+  const handleExportExecutivePdf = React.useCallback(async () => {
+    try {
+      setIsExportingExecutivePdf(true)
+      const [{ generateExecutiveSummaryData }, { exportExecutiveSummaryPdf }] = await Promise.all([
+        import("@/lib/pdf/generateReportData"),
+        import("@/lib/pdf/exportExecutiveSummaryPdf"),
+      ])
+
+      let liveRmas = []
+      try {
+        const rmaRes = await fetch("/api/rma", { cache: "no-store" })
+        if (rmaRes.ok) {
+          const json = await rmaRes.json()
+          if (Array.isArray(json.rmas)) {
+            liveRmas = json.rmas
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to fetch rma for pdf:", e)
+      }
+
+      const reportData = generateExecutiveSummaryData({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tickets: tickets as any,
+        rmas: liveRmas,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        stations: stationsList as any,
+      })
+
+      await exportExecutiveSummaryPdf(reportData)
+    } catch (err) {
+      console.error("[TicketsView] Export Executive PDF failed:", err)
+      showToast("เกิดข้อผิดพลาดในการสร้างเอกสารสรุป PDF")
+    } finally {
+      setIsExportingExecutivePdf(false)
+    }
+  }, [tickets, stationsList, showToast])
 
   // =========================================================================
   // CASCADING LOCATION & STATION DATA EXTRACTION FROM STATIONS DATABASE
@@ -1046,6 +1085,25 @@ export function TicketsView() {
             </div>
           </div>
           <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={handleExportExecutivePdf}
+              disabled={isExportingExecutivePdf}
+              title="ส่งออกรายงานสรุปผู้บริหาร 1 หน้า A4 (Single-Page Executive Summary PDF)"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] text-xs font-semibold rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/30 shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 backdrop-blur-md transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer touch-manipulation hover:-translate-y-0.5"
+            >
+              {isExportingExecutivePdf ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin text-white" />
+                  <span>กำลังสร้างสรุป...</span>
+                </>
+              ) : (
+                <>
+                  <FileText className="size-3.5 text-emerald-100" />
+                  <span>สรุปผู้บริหาร 1 หน้า (PDF)</span>
+                </>
+              )}
+            </button>
             <Link href="/tickets/new">
               <Button
                 size="sm"

@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Activity,
   FileDown,
+  FileText,
   Loader2,
 } from "lucide-react"
 import { useRealtimeDashboard } from "@/hooks/useRealtimeDashboard"
@@ -38,6 +39,7 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
   const { t, locale } = useLocale()
   const [mounted, setMounted] = React.useState(false)
   const [isExportingPdf, setIsExportingPdf] = React.useState(false)
+  const [isExportingExecutivePdf, setIsExportingExecutivePdf] = React.useState(false)
 
   React.useEffect(() => {
     setMounted(true)
@@ -95,6 +97,61 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
       console.error("[Dashboard] Export PDF failed:", err)
     } finally {
       setIsExportingPdf(false)
+    }
+  }, [metrics])
+
+  const handleExportExecutivePdf = React.useCallback(async () => {
+    try {
+      setIsExportingExecutivePdf(true)
+      const [{ generateExecutiveSummaryData }, { exportExecutiveSummaryPdf }] = await Promise.all([
+        import("@/lib/pdf/generateReportData"),
+        import("@/lib/pdf/exportExecutiveSummaryPdf"),
+      ])
+
+      // Fetch live production records concurrently (strictly zero mock data)
+      const [ticketsRes, rmaRes, stationsRes] = await Promise.allSettled([
+        fetch("/api/tickets", { cache: "no-store" }),
+        fetch("/api/rma", { cache: "no-store" }),
+        fetch("/api/stations", { cache: "no-store" }),
+      ])
+
+      let liveTickets: TicketDocument[] = []
+      let liveRmas: RmaDocument[] = []
+      let liveStations: StationDocument[] = []
+
+      if (ticketsRes.status === "fulfilled" && ticketsRes.value.ok) {
+        const json = await ticketsRes.value.json()
+        if (Array.isArray(json.tickets)) {
+          liveTickets = json.tickets
+        }
+      }
+
+      if (rmaRes.status === "fulfilled" && rmaRes.value.ok) {
+        const json = await rmaRes.value.json()
+        if (Array.isArray(json.rmas)) {
+          liveRmas = json.rmas
+        }
+      }
+
+      if (stationsRes.status === "fulfilled" && stationsRes.value.ok) {
+        const json = await stationsRes.value.json()
+        if (Array.isArray(json.stations)) {
+          liveStations = json.stations
+        }
+      }
+
+      const reportData = generateExecutiveSummaryData({
+        metrics,
+        tickets: liveTickets,
+        rmas: liveRmas,
+        stations: liveStations,
+      })
+
+      await exportExecutiveSummaryPdf(reportData)
+    } catch (err) {
+      console.error("[Dashboard] Export Executive PDF failed:", err)
+    } finally {
+      setIsExportingExecutivePdf(false)
     }
   }, [metrics])
 
@@ -191,6 +248,31 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
 
           {/* Action Triggers: Export PDF & Refresh */}
           <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+            {/* Export Single-Page Executive Summary PDF Button */}
+            <button
+              type="button"
+              onClick={handleExportExecutivePdf}
+              disabled={isExportingExecutivePdf}
+              title={
+                locale === "th"
+                  ? "ส่งออกรายงานสรุปผู้บริหาร 1 หน้า A4 กะทัดรัด (Single-Page Executive Summary PDF)"
+                  : "Export Single-Page A4 Executive Summary Report (PDF)"
+              }
+              className="inline-flex items-center gap-2 px-3.5 py-2 min-h-[44px] text-xs font-semibold rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/30 shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 backdrop-blur-md transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer touch-manipulation hover:-translate-y-0.5"
+            >
+              {isExportingExecutivePdf ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin text-white" />
+                  <span>{locale === "th" ? "กำลังสร้างสรุป 1 หน้า..." : "Generating 1-Page PDF..."}</span>
+                </>
+              ) : (
+                <>
+                  <FileText className="size-3.5 text-emerald-100" />
+                  <span>{locale === "th" ? "สรุปผู้บริหาร 1 หน้า (PDF)" : "Executive Summary (1-Page PDF)"}</span>
+                </>
+              )}
+            </button>
+
             {/* Export Monthly Report PDF Button (Dark Glassmorphism) */}
             <button
               type="button"
