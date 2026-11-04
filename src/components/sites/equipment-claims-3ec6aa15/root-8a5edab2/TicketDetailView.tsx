@@ -53,6 +53,8 @@ export interface TicketDetailData {
   deadlineDate: string
   lastTrackDate: string
   returnDate: string
+  closedAt?: string
+  closedDate?: string
   ageDays: number
   remainingDays: number
   reporter: string
@@ -196,9 +198,11 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
           deadlineDate: t.deadlineDate || prev.deadlineDate,
           lastTrackDate: t.lastTrackDate !== undefined ? t.lastTrackDate : prev.lastTrackDate,
           returnDate: t.returnDate !== undefined ? t.returnDate : prev.returnDate,
+          closedAt: t.closedAt !== undefined ? t.closedAt : prev.closedAt,
           reporter: t.reporter !== undefined ? t.reporter : prev.reporter,
           assignee: t.assignee !== undefined ? t.assignee : prev.assignee,
           currentStage: Number(t.statusCode) || prev.currentStage,
+          status: t.status || prev.status,
         }))
       }
     } catch (err) {
@@ -237,9 +241,11 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
         deadlineDate: found.deadlineDate || prev.deadlineDate,
         lastTrackDate: found.lastTrackDate !== undefined ? found.lastTrackDate : prev.lastTrackDate,
         returnDate: found.returnDate !== undefined ? found.returnDate : prev.returnDate,
+        closedAt: found.closedAt !== undefined ? found.closedAt : prev.closedAt,
         reporter: found.reporter !== undefined ? found.reporter : prev.reporter,
         assignee: found.assignee !== undefined ? found.assignee : prev.assignee,
         currentStage: Number(found.statusCode) || prev.currentStage,
+        status: found.status || prev.status,
       }))
     }
 
@@ -281,15 +287,25 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
     return calculateCaseDuration({
       date: data.reportedDate,
       statusCode: data.currentStage,
-      status: data.currentStage === 5 ? "ปิดเคส" : "รับแจ้ง",
+      status: data.currentStage === 5 ? "ปิดเคส" : (data.status || "รับแจ้ง"),
       ageDays: data.ageDays,
+      returnDate: data.returnDate,
+      closedAt: data.closedAt,
+      closedDate: data.closedDate,
+      deadlineDate: data.deadlineDate,
     })
-  }, [data.reportedDate, data.currentStage, data.ageDays])
+  }, [data.reportedDate, data.currentStage, data.ageDays, data.returnDate, data.closedAt, data.closedDate, data.status, data.deadlineDate])
 
   // Dynamic Remaining Days & Circular Progress Metric Calculation
   const remainingMetric = React.useMemo(() => {
-    return calculateRemainingDays(data.deadlineDate, data.reportedDate)
-  }, [data.deadlineDate, data.reportedDate])
+    return calculateRemainingDays(data.deadlineDate, data.reportedDate, new Date(), 60, {
+      returnDate: data.returnDate,
+      closedAt: data.closedAt,
+      closedDate: data.closedDate,
+      statusCode: data.currentStage,
+      status: data.currentStage === 5 ? "ปิดเคส" : data.status,
+    })
+  }, [data.deadlineDate, data.reportedDate, data.returnDate, data.closedAt, data.closedDate, data.currentStage, data.status])
 
   // Historical claims for this device's Serial Number from database (excluding current claim)
   const historyCases = React.useMemo(() => {
@@ -870,11 +886,21 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                         cy="48"
                         r={radius}
                         className={`transition-all duration-700 ${
-                          remainingMetric.isOverdue ? "stroke-red-500" : "stroke-brand"
+                          remainingMetric.isOverdue
+                            ? "stroke-red-500"
+                            : remainingMetric.isCompleted
+                            ? "stroke-emerald-500"
+                            : "stroke-brand"
                         }`}
                         strokeWidth="7"
                         strokeDasharray={circumference}
-                        strokeDashoffset={remainingMetric.isOverdue ? 0 : strokeDashoffset}
+                        strokeDashoffset={
+                          remainingMetric.isOverdue
+                            ? 0
+                            : remainingMetric.isCompleted
+                            ? 0
+                            : strokeDashoffset
+                        }
                         strokeLinecap="round"
                         fill="transparent"
                       />
@@ -882,11 +908,17 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                     <div className="absolute flex flex-col items-center justify-center">
                       <span
                         className={`text-2xl font-bold tracking-tight leading-none ${
-                          remainingMetric.isOverdue ? "text-red-600" : "text-foreground"
+                          remainingMetric.isOverdue
+                            ? "text-red-600"
+                            : remainingMetric.isCompleted
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-foreground"
                         }`}
                       >
                         {remainingMetric.isOverdue
                           ? remainingMetric.overdueDays
+                          : remainingMetric.isCompleted
+                          ? caseDuration.days
                           : remainingMetric.remainingDays}
                       </span>
                       <span className="text-[10px] text-muted-foreground mt-0.5">
@@ -897,7 +929,11 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
 
                   <p
                     className={`text-xs font-semibold mt-3 ${
-                      remainingMetric.isOverdue ? "text-red-600" : "text-brand"
+                      remainingMetric.isOverdue
+                        ? "text-red-600"
+                        : remainingMetric.isCompleted
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-brand"
                     }`}
                   >
                     {remainingMetric.displayText}
@@ -987,6 +1023,8 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                         className={`text-xs ${
                           remainingMetric.isOverdue
                             ? "text-red-600 font-medium"
+                            : remainingMetric.isCompleted
+                            ? "text-emerald-600 dark:text-emerald-400 font-medium"
                             : "text-muted-foreground"
                         }`}
                       >

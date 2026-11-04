@@ -27,7 +27,7 @@ function enrichTicket(ticket: TicketDocument): TicketDocument {
     deadlineDate,
     ageDays: duration.text,
     isOverdue: duration.isOverdue,
-    overdueText: duration.overdueText || ticket.overdueText,
+    overdueText: duration.isOverdue ? (duration.overdueText || ticket.overdueText) : undefined,
   }
 }
 
@@ -278,11 +278,14 @@ export async function PUT(request: NextRequest) {
       date: dateToCalculate,
       status: statusForDuration,
       statusCode: statusCodeForDuration,
+      returnDate: (setFields.returnDate as string) || currentTicket?.returnDate,
+      closedAt: (setFields.closedAt as string) || currentTicket?.closedAt,
+      deadlineDate: (setFields.deadlineDate as string) || currentTicket?.deadlineDate,
     })
 
     setFields.ageDays = duration.text
     setFields.isOverdue = duration.isOverdue
-    setFields.overdueText = duration.overdueText
+    setFields.overdueText = duration.isOverdue ? duration.overdueText : undefined
 
     if (!setFields.deadlineDate || String(setFields.deadlineDate).includes("12 พ.ย. 2569")) {
       setFields.deadlineDate = calculateDueDate(dateToCalculate, 60).dueDateStr

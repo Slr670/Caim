@@ -198,6 +198,33 @@ export function calculateDueDate(
   }
 }
 
+import {
+  calculateClaimSla,
+  isClaimCompleted,
+  getEffectiveEndDate,
+  type ClaimSlaInput,
+  type ClaimSlaResult,
+} from "@/utils/slaCalculator"
+
+export {
+  calculateClaimSla,
+  isClaimCompleted,
+  getEffectiveEndDate,
+  type ClaimSlaInput,
+  type ClaimSlaResult,
+}
+
+export interface RemainingDaysOptions {
+  returnDate?: string | Date | null
+  closedDate?: string | Date | null
+  closedAt?: string | Date | null
+  resolvedDate?: string | Date | null
+  status?: string | null
+  statusCode?: number | null
+  currentStage?: number | null
+  isCompleted?: boolean
+}
+
 export interface RemainingDaysResult {
   remainingDays: number
   absRemainingDays: number
@@ -208,85 +235,86 @@ export interface RemainingDaysResult {
   dueDate: Date
   deadlineDateStr: string
   displayText: string
+  isCompleted?: boolean
+  badgeColor?: "success" | "danger" | "brand"
 }
 
 /**
  * Dynamically computes target completion date (strictly 60 days after reported date)
  * and remaining days towards deadline: dueDate - currentDate.
- * If reported date is 13 มิ.ย. 2569, dueDate accurately computes to 12 ส.ค. 2569 instead of an arbitrary date.
+ * For completed / closed cases, freezes duration at completion/return date.
  */
 export function calculateRemainingDays(
   deadlineDateInput?: string | Date | null,
   reportedDateInput?: string | Date | null,
   currentDate: Date = new Date(),
-  slaDays: number = 60
+  slaDays: number = 60,
+  options?: RemainingDaysOptions
 ): RemainingDaysResult {
+  const sla = calculateClaimSla(
+    {
+      targetCompletionDate: deadlineDateInput,
+      reportedDate: reportedDateInput,
+      returnDate: options?.returnDate,
+      closedDate: options?.closedDate,
+      closedAt: options?.closedAt,
+      resolvedDate: options?.resolvedDate,
+      status: options?.status,
+      statusCode: options?.statusCode,
+      currentStage: options?.currentStage ?? options?.statusCode,
+    },
+    currentDate,
+    slaDays
+  )
+
+  const dueMidnight = sla.dueDate.getTime()
   const reported = parseThaiDate(reportedDateInput) || new Date(currentDate)
-
-  // Strict 60-day SLA from reported date: วันที่รับแจ้ง + 60 วัน
-  const slaDueDate = new Date(reported.getFullYear(), reported.getMonth(), reported.getDate() + slaDays)
-
-  // Use SLA due date by default; if a custom deadline is provided that is not arbitrary "12 พ.ย. 2569"
-  let dueDate = slaDueDate
-  if (deadlineDateInput) {
-    const parsedCustom = parseThaiDate(deadlineDateInput)
-    if (
-      parsedCustom &&
-      typeof deadlineDateInput === "string" &&
-      !deadlineDateInput.includes("12 พ.ย. 2569") &&
-      deadlineDateInput.trim() !== ""
-    ) {
-      dueDate = parsedCustom
-    }
-  }
-
-  const currentMidnight = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate()).getTime()
-  const dueMidnight = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate()).getTime()
   const reportedMidnight = new Date(reported.getFullYear(), reported.getMonth(), reported.getDate()).getTime()
-
-  // Dynamic remaining days: dueDate - currentDate
-  const remainingDiffMs = dueMidnight - currentMidnight
-  const remainingDays = Math.ceil(remainingDiffMs / (1000 * 60 * 60 * 24))
-
   const totalSlaMs = Math.max(1, dueMidnight - reportedMidnight)
   const totalDays = Math.max(1, Math.round(totalSlaMs / (1000 * 60 * 60 * 24)))
 
-  const isOverdue = remainingDays < 0
-  const overdueDays = isOverdue ? Math.abs(remainingDays) : 0
+  const remainingDiffMs = dueMidnight - sla.effectiveEndDate.getTime()
+  const remainingDays = Math.ceil(remainingDiffMs / (1000 * 60 * 60 * 24))
   const absRemainingDays = Math.abs(remainingDays)
 
-  // Progress percent representing remaining portion of the SLA window
-  const progressPercent = isOverdue
+  const progressPercent = sla.isCompleted
+    ? 100
+    : sla.isOverdue
     ? 0
     : Math.min(100, Math.max(0, (remainingDays / totalDays) * 100))
 
-  const deadlineDateStr = formatThaiDate(dueDate)
-  const displayText = isOverdue
-    ? `เกินกำหนด ${overdueDays} วัน`
-    : remainingDays === 0
-    ? "ครบกำหนดวันนี้"
-    : `เหลืออีก ${remainingDays} วัน`
-
   return {
-    remainingDays,
+    remainingDays: sla.isCompleted ? sla.caseAgeDays : remainingDays,
     absRemainingDays,
     totalDays,
     progressPercent,
-    isOverdue,
-    overdueDays,
-    dueDate,
-    deadlineDateStr,
-    displayText,
+    isOverdue: sla.isOverdue,
+    overdueDays: sla.overdueDays,
+    dueDate: sla.dueDate,
+    deadlineDateStr: sla.dueDateStr,
+    displayText: sla.displayText,
+    isCompleted: sla.isCompleted,
+    badgeColor: sla.badgeColor,
   }
 }
 
 export interface CaseDurationInput {
   date?: string | null
+  receivedDate?: string | null
+  reportedDate?: string | null
   createdAt?: string | null
   updatedAt?: string | null
   closedAt?: string | null
+  closedDate?: string | null
+  returnDate?: string | null
+  returnDateIso?: string | null
+  resolvedDate?: string | null
+  targetCompletionDate?: string | null
+  deadlineDate?: string | null
+  slaExpiry?: string | null
   status?: string | null
   statusCode?: number | null
+  currentStage?: number | null
   ageDays?: string | number | null
   isOverdue?: boolean | null
   overdueText?: string | null
@@ -296,6 +324,7 @@ export interface CaseDurationResult {
   days: number
   text: string
   isOverdue: boolean
+  overdueDays?: number
   overdueText: string
   isClosed: boolean
 }
@@ -310,72 +339,16 @@ export function calculateCaseDuration(
   currentDate: Date = new Date(),
   slaThresholdDays: number = DEFAULT_SLA_THRESHOLD_DAYS
 ): CaseDurationResult {
-  const isClosed =
-    ticket.statusCode === 5 ||
-    ticket.statusCode === 6 ||
-    ticket.status === "ปิดเคส" ||
-    ticket.status === "ปฏิเสธเคลม" ||
-    Boolean(ticket.status?.includes("ปิดเคส")) ||
-    Boolean(ticket.status?.includes("ปฏิเสธเคลม"))
-
-  // Determine reported date
-  const reportedDate =
-    parseThaiDate(ticket.date) ||
-    parseThaiDate(ticket.createdAt) ||
-    (ticket.createdAt ? new Date(ticket.createdAt) : null)
-
-  let elapsedDays = 0
-
-  if (isClosed) {
-    // For closed cases: freeze at closedAt or updatedAt or existing positive ageDays
-    const closeDate =
-      parseThaiDate(ticket.closedAt) ||
-      parseThaiDate(ticket.updatedAt) ||
-      (ticket.updatedAt ? new Date(ticket.updatedAt) : null)
-
-    if (reportedDate && closeDate && closeDate >= reportedDate) {
-      const closeMidnight = new Date(closeDate.getFullYear(), closeDate.getMonth(), closeDate.getDate()).getTime()
-      const reportedMidnight = new Date(reportedDate.getFullYear(), reportedDate.getMonth(), reportedDate.getDate()).getTime()
-      const diffMs = closeMidnight - reportedMidnight
-      elapsedDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
-    } else if (ticket.ageDays) {
-      // Parse existing numeric age if available
-      const match = String(ticket.ageDays).match(/(\d+)/)
-      if (match && parseInt(match[1], 10) > 0) {
-        elapsedDays = parseInt(match[1], 10)
-      } else if (reportedDate) {
-        const currentMidnight = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate()).getTime()
-        const reportedMidnight = new Date(reportedDate.getFullYear(), reportedDate.getMonth(), reportedDate.getDate()).getTime()
-        const diffMs = currentMidnight - reportedMidnight
-        elapsedDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
-      }
-    }
-  } else {
-    // For active/open cases: dynamically calculate from reported date to today
-    if (reportedDate) {
-      const currentMidnight = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate()).getTime()
-      const reportedMidnight = new Date(reportedDate.getFullYear(), reportedDate.getMonth(), reportedDate.getDate()).getTime()
-      const diffMs = currentMidnight - reportedMidnight
-      elapsedDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)))
-    } else if (ticket.ageDays) {
-      const match = String(ticket.ageDays).match(/(\d+)/)
-      if (match) {
-        elapsedDays = parseInt(match[1], 10)
-      }
-    }
-  }
-
-  // Determine Overdue status based on SLA threshold (only for active open cases)
-  const isOverdue = !isClosed && (elapsedDays > slaThresholdDays || Boolean(ticket.isOverdue))
-  const overdueText = isOverdue
-    ? ticket.overdueText || `เกินกำหนด ${elapsedDays - slaThresholdDays > 0 ? `+${elapsedDays - slaThresholdDays} วัน` : ""}`.trim()
-    : ""
+  const sla = calculateClaimSla(ticket as ClaimSlaInput, currentDate, slaThresholdDays)
 
   return {
-    days: elapsedDays,
-    text: `${elapsedDays} วัน`,
-    isOverdue,
-    overdueText: overdueText || "เกินกำหนด",
-    isClosed,
+    days: sla.caseAgeDays,
+    text: `${sla.caseAgeDays} วัน`,
+    isOverdue: sla.isOverdue,
+    overdueDays: sla.overdueDays,
+    overdueText: sla.isOverdue
+      ? `เกินกำหนด ${sla.overdueDays > 0 ? `+${sla.overdueDays} วัน` : ""}`.trim()
+      : (sla.isCompleted ? "ปิดเคสตามกำหนด" : ""),
+    isClosed: sla.isCompleted,
   }
 }
