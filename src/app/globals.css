@@ -56,6 +56,7 @@
 
 :root {
   color-scheme: light;
+  --font-plex: "IBM Plex Sans", var(--font-sarabun), ui-sans-serif, system-ui, sans-serif;
   --background: #f1f5f9;
   --foreground: #0f172a;
   --card: #ffffff;

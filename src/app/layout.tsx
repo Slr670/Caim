@@ -1,23 +1,26 @@
 import type { Metadata, Viewport } from "next"
-import { IBM_Plex_Sans, Sarabun } from "next/font/google"
+import localFont from "next/font/local"
 import { ThemeProvider } from "@/components/theme-provider"
 import { LocaleProvider } from "@/i18n/LocaleContext"
 import "./globals.css"
 
-const ibmPlexSans = IBM_Plex_Sans({
-  variable: "--font-plex",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
-  preload: true,
-})
-
-const sarabun = Sarabun({
+const sarabun = localFont({
+  src: [
+    {
+      path: "../../public/fonts/THSarabunNew.ttf",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../../public/fonts/THSarabunNew-Bold.ttf",
+      weight: "700",
+      style: "normal",
+    },
+  ],
   variable: "--font-sarabun",
-  subsets: ["thai", "latin"],
-  weight: ["400", "500", "600", "700"],
   display: "swap",
-  preload: true,
+  preload: false,
+  fallback: ["Sarabun", "IBM Plex Sans", "ui-sans-serif", "system-ui", "sans-serif"],
 })
 
 export const viewport: Viewport = {
@@ -52,7 +55,7 @@ export default function RootLayout({
   return (
     <html
       lang="th"
-      className={`${ibmPlexSans.variable} ${sarabun.variable} h-full antialiased`}
+      className={`${sarabun.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
