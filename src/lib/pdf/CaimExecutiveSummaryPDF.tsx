@@ -552,6 +552,13 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
     kpis.rejectedPct ??
     (totalClaimsCount > 0 ? Math.round((rejectedCount / totalClaimsCount) * 100) : 0)
 
+  const sortedClaims = [...inventory].sort((a, b) =>
+    (a.id || "").localeCompare(b.id || "", undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  )
+
   const getStatusBadgeStyle = (statusCode: number) => {
     switch (statusCode) {
       case 1:
@@ -851,12 +858,12 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
           </View>
 
           {/* Table Rows */}
-          {inventory.length === 0 ? (
+          {sortedClaims.length === 0 ? (
             <View style={[styles.tableRow, { justifyContent: "center" }]}>
               <Text style={styles.tableCellText}>ไม่มีรายการเคสเคลมในระบบขณะนี้</Text>
             </View>
           ) : (
-            inventory.map((row, index) => {
+            sortedClaims.map((row, index) => {
               const badgeStyle = getStatusBadgeStyle(row.statusCode)
               const isEven = index % 2 === 0
               return (

@@ -523,21 +523,13 @@ export function generateExecutiveSummaryData(options: GenerateReportOptions = {}
     { stageNumber: 5, name: "ปิดเคส", nameEn: "Closed", count: stage5Count, color: "#475569" },
   ]
 
-  // 5. Claims Inventory Table: Priority sorting (Overdue first, then Active, then Closed)
-  const sortedTickets = [...tickets].sort((a, b) => {
-    const aOverdue = Boolean(a.isOverdue || (a.overdueText && a.overdueText.includes("เกินกำหนด")))
-    const bOverdue = Boolean(b.isOverdue || (b.overdueText && b.overdueText.includes("เกินกำหนด")))
-    if (aOverdue && !bOverdue) return -1
-    if (!aOverdue && bOverdue) return 1
-
-    const aCode = a.statusCode || 1
-    const bCode = b.statusCode || 1
-    // In-progress before closed
-    if (aCode < 5 && bCode >= 5) return -1
-    if (aCode >= 5 && bCode < 5) return 1
-
-    return (bCode - aCode)
-  })
+  // 5. Claims Inventory Table: Sequential sorting by Claim ID (CLM-2026-001 -> CLM-2026-002 -> ...)
+  const sortedTickets = [...tickets].sort((a, b) =>
+    (a.id || "").localeCompare(b.id || "", undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  )
 
   // Strict vertical budget: show up to 10 prioritized cases to strictly guarantee single-page A4
   const MAX_INVENTORY_ROWS = 10
