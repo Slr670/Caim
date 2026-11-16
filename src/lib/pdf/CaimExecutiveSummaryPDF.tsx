@@ -124,80 +124,83 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
 
-  // Section 1: KPI Metrics Grid
+  // Section 1: Dashboard Overview Summary Cards (4-Column Grid)
   kpiGrid: {
     flexDirection: "row",
-    gap: 4.5,
+    gap: 8,
     marginBottom: 5,
   },
   kpiCard: {
     flex: 1,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 3.5,
-    paddingVertical: 4,
-    paddingHorizontal: 5,
-    backgroundColor: "#f8fafc",
+    borderTopWidth: 2.5,
+    borderRadius: 4,
+    paddingVertical: 4.5,
+    paddingHorizontal: 6,
+    backgroundColor: "#ffffff",
+    flexDirection: "column",
+    justifyContent: "space-between",
   },
   kpiHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "baseline",
-    marginBottom: 2,
+    alignItems: "center",
+    marginBottom: 1.5,
     width: "100%",
   },
-  kpiLabel: {
-    fontSize: 7.5,
-    fontFamily: "THSarabunNew",
-    fontWeight: "bold",
-    color: "#475569",
-    lineHeight: 1.15,
-    flex: 1,
-    marginRight: 2,
-  },
-  kpiTag: {
-    fontSize: 6.5,
-    color: "#94a3b8",
-    lineHeight: 1.15,
-    flexShrink: 0,
-    textAlign: "right",
-  },
-  kpiValueRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 2,
-    marginVertical: 3,
-  },
   kpiNumber: {
-    fontSize: 13.5,
+    fontSize: 15,
     fontFamily: "THSarabunNew",
     fontWeight: "bold",
     color: "#0f172a",
-    lineHeight: 1.15,
+    lineHeight: 1.1,
   },
-  kpiUnit: {
-    fontSize: 7.5,
-    color: "#64748b",
+  kpiBadgePill: {
+    borderRadius: 6,
+    paddingVertical: 1,
+    paddingHorizontal: 5,
+    borderWidth: 0.5,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  kpiBadgeText: {
+    fontSize: 6.5,
+    fontFamily: "THSarabunNew",
+    fontWeight: "bold",
     lineHeight: 1.15,
-    marginLeft: 2,
+    textAlign: "center",
+  },
+  kpiLabel: {
+    fontSize: 8,
+    fontFamily: "THSarabunNew",
+    fontWeight: "bold",
+    color: "#334155",
+    lineHeight: 1.15,
+    marginBottom: 3,
+  },
+  kpiFooter: {
+    borderTopWidth: 0.5,
+    borderTopColor: "#f1f5f9",
+    paddingTop: 3,
+    width: "100%",
+  },
+  kpiProgressTrack: {
+    height: 3,
+    backgroundColor: "#f1f5f9",
+    borderRadius: 1.5,
+    overflow: "hidden",
+    width: "100%",
+    marginBottom: 2,
+  },
+  kpiProgressFill: {
+    height: "100%",
+    borderRadius: 1.5,
   },
   kpiSubtext: {
     fontSize: 7,
     color: "#64748b",
-    lineHeight: 1.15,
-    marginTop: 2,
-  },
-  kpiStatusPill: {
-    borderRadius: 2.5,
-    paddingVertical: 1.5,
-    paddingHorizontal: 4,
-    alignSelf: "flex-start",
-    marginTop: 2,
-  },
-  kpiStatusText: {
-    fontSize: 6.5,
-    fontFamily: "THSarabunNew",
-    fontWeight: "bold",
     lineHeight: 1.15,
   },
 
@@ -532,6 +535,23 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
     ? systemSubtitle.replace("CAIM —", "CLAIMS —")
     : (systemSubtitle || "CLAIMS — Telecommunication Equipment Claims & Overseas RMA Management System")
 
+  const totalClaimsCount = kpis.totalClaims ?? totals.totalCount ?? 0
+  const inProgressCount = kpis.inProgressCount ?? totals.activeCount ?? 0
+  const closedCount = kpis.closedCount ?? totals.closedCount ?? 0
+  const rejectedCount =
+    kpis.rejectedCount ??
+    Math.max(0, totalClaimsCount - inProgressCount - closedCount)
+
+  const inProgressPct =
+    kpis.inProgressPct ??
+    (totalClaimsCount > 0 ? Math.round((inProgressCount / totalClaimsCount) * 100) : 0)
+  const closedPct =
+    kpis.closedPct ??
+    (totalClaimsCount > 0 ? Math.round((closedCount / totalClaimsCount) * 100) : 0)
+  const rejectedPct =
+    kpis.rejectedPct ??
+    (totalClaimsCount > 0 ? Math.round((rejectedCount / totalClaimsCount) * 100) : 0)
+
   const getStatusBadgeStyle = (statusCode: number) => {
     switch (statusCode) {
       case 1:
@@ -589,75 +609,111 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
           <Text style={styles.systemSubtitle}>{displaySubtitle}</Text>
         </View>
 
-        {/* Section 1: Executive KPI Metrics (4-Column Compact Grid) */}
+        {/* Section 1: Dashboard Overview Summary Cards (4-Column Compact Grid) */}
         <View style={styles.kpiGrid}>
-          {/* Card 1: Total Claims */}
-          <View style={styles.kpiCard}>
-            <View style={styles.kpiHeader}>
-              <Text style={styles.kpiLabel}>จำนวนเคสทั้งหมด</Text>
-              <Text style={styles.kpiTag}>Total Claims</Text>
+          {/* Card 1: เคสทั้งหมด (Total) */}
+          <View style={[styles.kpiCard, { borderTopColor: "#2563eb" }]}>
+            <View>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiNumber}>{totalClaimsCount}</Text>
+                <View style={[styles.kpiBadgePill, { backgroundColor: "#f1f5f9", borderColor: "#cbd5e1" }]}>
+                  <Text style={[styles.kpiBadgeText, { color: "#475569" }]}>Total</Text>
+                </View>
+              </View>
+              <Text style={styles.kpiLabel}>เคสทั้งหมด</Text>
             </View>
-            <View style={styles.kpiValueRow}>
-              <Text style={styles.kpiNumber}>{kpis.totalClaims}</Text>
-              <Text style={styles.kpiUnit}>เคส</Text>
-            </View>
-            <Text style={styles.kpiSubtext}>
-              ซ่อมอยู่ {kpis.inProgressCount} · ปิดเคส {kpis.closedCount}
-            </Text>
-          </View>
-
-          {/* Card 2: SLA Compliance Rate */}
-          <View style={styles.kpiCard}>
-            <View style={styles.kpiHeader}>
-              <Text style={styles.kpiLabel}>% ผ่านเกณฑ์ SLA</Text>
-              <Text style={styles.kpiTag}>Compliance</Text>
-            </View>
-            <View style={styles.kpiValueRow}>
-              <Text style={styles.kpiNumber}>{kpis.slaComplianceRate}%</Text>
-            </View>
-            <View
-              style={[
-                styles.kpiStatusPill,
-                { backgroundColor: kpis.slaStatusBg },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.kpiStatusText,
-                  { color: kpis.slaStatusColor },
-                ]}
-              >
-                {kpis.slaStatusText}
-              </Text>
+            <View style={styles.kpiFooter}>
+              <View style={styles.kpiProgressTrack}>
+                <View
+                  style={[
+                    styles.kpiProgressFill,
+                    { width: "100%", backgroundColor: "#2563eb" },
+                  ]}
+                />
+              </View>
+              <Text style={styles.kpiSubtext}>รวมทุกสถานะในระบบ</Text>
             </View>
           </View>
 
-          {/* Card 3: MTTR */}
-          <View style={styles.kpiCard}>
-            <View style={styles.kpiHeader}>
-              <Text style={styles.kpiLabel}>เวลาเฉลี่ยปิดเคส (MTTR)</Text>
-              <Text style={styles.kpiTag}>Mean Time</Text>
+          {/* Card 2: อยู่ระหว่างดำเนินการ (In Progress) */}
+          <View style={[styles.kpiCard, { borderTopColor: "#f59e0b" }]}>
+            <View>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiNumber}>{inProgressCount}</Text>
+                <View style={[styles.kpiBadgePill, { backgroundColor: "#fffbeb", borderColor: "#fde68a" }]}>
+                  <Text style={[styles.kpiBadgeText, { color: "#b45309" }]}>In Progress</Text>
+                </View>
+              </View>
+              <Text style={styles.kpiLabel}>อยู่ระหว่างดำเนินการ</Text>
             </View>
-            <View style={styles.kpiValueRow}>
-              <Text style={styles.kpiNumber}>{kpis.mttrDays}</Text>
-              <Text style={styles.kpiUnit}>วัน</Text>
+            <View style={styles.kpiFooter}>
+              <View style={styles.kpiProgressTrack}>
+                <View
+                  style={[
+                    styles.kpiProgressFill,
+                    {
+                      width: `${inProgressCount > 0 ? Math.max(8, Math.min(100, inProgressPct)) : 0}%`,
+                      backgroundColor: "#f59e0b",
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.kpiSubtext}>{inProgressPct}% ของเคสทั้งหมด</Text>
             </View>
-            <Text style={styles.kpiSubtext}>ค่าเฉลี่ยระยะเวลาปิดงานจริง</Text>
           </View>
 
-          {/* Card 4: Active Overseas RMA / Watchlist */}
-          <View style={styles.kpiCard}>
-            <View style={styles.kpiHeader}>
-              <Text style={styles.kpiLabel}>ซ่อมต่างประเทศ / เฝ้าระวัง</Text>
-              <Text style={styles.kpiTag}>Overseas / Watch</Text>
+          {/* Card 3: เคลมสำเร็จ / ปิดเคส (Closed) */}
+          <View style={[styles.kpiCard, { borderTopColor: "#10b981" }]}>
+            <View>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiNumber}>{closedCount}</Text>
+                <View style={[styles.kpiBadgePill, { backgroundColor: "#ecfdf5", borderColor: "#a7f3d0" }]}>
+                  <Text style={[styles.kpiBadgeText, { color: "#047857" }]}>Closed</Text>
+                </View>
+              </View>
+              <Text style={styles.kpiLabel}>เคลมสำเร็จ / ปิดเคส</Text>
             </View>
-            <View style={styles.kpiValueRow}>
-              <Text style={styles.kpiNumber}>{kpis.overseasRmaCount + kpis.highPriorityWatchlistCount}</Text>
-              <Text style={styles.kpiUnit}>เคส</Text>
+            <View style={styles.kpiFooter}>
+              <View style={styles.kpiProgressTrack}>
+                <View
+                  style={[
+                    styles.kpiProgressFill,
+                    {
+                      width: `${closedCount > 0 ? Math.max(8, Math.min(100, closedPct)) : 0}%`,
+                      backgroundColor: "#10b981",
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.kpiSubtext}>{closedPct}% ของเคสทั้งหมด</Text>
             </View>
-            <Text style={styles.kpiSubtext}>
-              RMA {kpis.overseasRmaCount} เคส · เฝ้าระวัง {kpis.highPriorityWatchlistCount} เคส
-            </Text>
+          </View>
+
+          {/* Card 4: ปฏิเสธเคลม (Rejected) */}
+          <View style={[styles.kpiCard, { borderTopColor: "#ef4444" }]}>
+            <View>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiNumber}>{rejectedCount}</Text>
+                <View style={[styles.kpiBadgePill, { backgroundColor: "#fef2f2", borderColor: "#fecaca" }]}>
+                  <Text style={[styles.kpiBadgeText, { color: "#b91c1c" }]}>Rejected</Text>
+                </View>
+              </View>
+              <Text style={styles.kpiLabel}>ปฏิเสธเคลม</Text>
+            </View>
+            <View style={styles.kpiFooter}>
+              <View style={styles.kpiProgressTrack}>
+                <View
+                  style={[
+                    styles.kpiProgressFill,
+                    {
+                      width: `${rejectedCount > 0 ? Math.max(8, Math.min(100, rejectedPct)) : 0}%`,
+                      backgroundColor: "#ef4444",
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.kpiSubtext}>{rejectedPct}% ของเคสทั้งหมด</Text>
+            </View>
           </View>
         </View>
 

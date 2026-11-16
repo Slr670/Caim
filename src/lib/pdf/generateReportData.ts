@@ -378,17 +378,41 @@ export function generateExecutiveSummaryData(options: GenerateReportOptions = {}
   const rmas = options.rmas || []
   const metrics = options.metrics
 
-  // 1. Core Counts & KPIs
+  // 1. Core Counts & KPIs (Matching Dashboard Overview Metrics 100%)
   const totalClaims = tickets.length > 0 ? tickets.length : (metrics?.summary.total || 0)
   const closedTickets = tickets.filter(
     (t) => t.statusCode === 5 || t.status === "ปิดเคสสำเร็จ" || t.status === "ปิดงาน" || t.status === "ปิดเคส"
   )
   const closedCount = tickets.length > 0 ? closedTickets.length : (metrics?.summary.closed || 0)
 
+  const rejectedTickets = tickets.filter(
+    (t) => t.statusCode === 6 || t.status === "ปฏิเสธเคลม" || Boolean(t.status?.includes("ปฏิเสธ"))
+  )
+  const rejectedCount = tickets.length > 0 ? rejectedTickets.length : (metrics?.summary.rejected || 0)
+
   const inProgressTickets = tickets.filter(
-    (t) => !t.statusCode || (t.statusCode >= 1 && t.statusCode <= 4)
+    (t) =>
+      (!t.statusCode || (t.statusCode >= 1 && t.statusCode <= 4)) &&
+      t.status !== "ปิดเคสสำเร็จ" &&
+      t.status !== "ปิดงาน" &&
+      t.status !== "ปิดเคส" &&
+      t.status !== "ปฏิเสธเคลม" &&
+      !t.status?.includes("ปฏิเสธ")
   )
   const inProgressCount = tickets.length > 0 ? inProgressTickets.length : (metrics?.summary.inProgress || 0)
+
+  const inProgressPct =
+    totalClaims > 0
+      ? Math.round((inProgressCount / totalClaims) * 100)
+      : (metrics?.summary.inProgressPct || 0)
+  const closedPct =
+    totalClaims > 0
+      ? Math.round((closedCount / totalClaims) * 100)
+      : (metrics?.summary.closedPct || 0)
+  const rejectedPct =
+    totalClaims > 0
+      ? Math.round((rejectedCount / totalClaims) * 100)
+      : (metrics?.summary.rejectedPct || 0)
 
   const overdueTickets = tickets.filter(
     (t) => (t.isOverdue || (t.overdueText && t.overdueText.includes("เกินกำหนด"))) && t.statusCode !== 5 && t.statusCode !== 6
@@ -577,7 +601,11 @@ export function generateExecutiveSummaryData(options: GenerateReportOptions = {}
     kpis: {
       totalClaims,
       inProgressCount,
+      inProgressPct,
       closedCount,
+      closedPct,
+      rejectedCount,
+      rejectedPct,
       slaComplianceRate: calculatedSlaRate,
       slaStatusText,
       slaStatusColor,

@@ -141,7 +141,11 @@ export interface ExecutiveSummaryTotals {
 export interface ExecutiveSummaryKpis {
   totalClaims: number
   inProgressCount: number
+  inProgressPct?: number
   closedCount: number
+  closedPct?: number
+  rejectedCount?: number
+  rejectedPct?: number
   slaComplianceRate: number
   slaStatusText: string
   slaStatusColor: string
