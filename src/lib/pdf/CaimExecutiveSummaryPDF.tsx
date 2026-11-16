@@ -228,8 +228,8 @@ const styles = StyleSheet.create({
     lineHeight: 1.15,
   },
   progressItem: {
-    minHeight: 18,
-    marginBottom: 6,
+    marginBottom: 3,
+    paddingVertical: 1.5,
     flexDirection: "column",
     justifyContent: "center",
   },
@@ -257,11 +257,11 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   progressBarTrack: {
-    height: 3,
+    height: 2.5,
     backgroundColor: "#e2e8f0",
     borderRadius: 1.5,
     overflow: "hidden",
-    marginTop: 3,
+    marginTop: 2,
     width: "100%",
   },
   progressBarFill: {
@@ -801,7 +801,7 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
               <Text style={styles.kpiSubtext}>ไม่มีข้อมูลรุ่นอุปกรณ์ที่มีปัญหา</Text>
             ) : (
               topModels.map((m, idx) => {
-                const colors = ["#6366f1", "#0284c7", "#f59e0b"]
+                const colors = ["#6366f1", "#0284c7", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899"]
                 const barColor = colors[idx % colors.length]
                 return (
                   <View key={m.model} style={styles.progressItem}>

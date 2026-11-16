@@ -499,7 +499,6 @@ export function generateExecutiveSummaryData(options: GenerateReportOptions = {}
 
   const topModels = Array.from(modelCountMap.entries())
     .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 3)
     .map(([model, info]) => ({
       model,
       vendor: info.vendor,
