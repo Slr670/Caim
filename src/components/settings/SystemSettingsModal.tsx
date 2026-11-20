@@ -18,6 +18,7 @@ import {
   RotateCcw,
 } from "lucide-react"
 import { type SmtpSettings, DEFAULT_SMTP_SETTINGS } from "@/types/settings"
+import { triggerPwaInstallPrompt } from "@/components/pwa/PwaManager"
 
 export interface SystemSettingsModalProps {
   isOpen: boolean
@@ -494,6 +495,36 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
                     <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
                     <span>Server-Sent Events (SSE) Active</span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl border border-blue-500/30 bg-blue-950/30 space-y-1.5 sm:col-span-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="size-4 text-sky-400" />
+                      <span className="text-xs font-bold text-white">
+                        Progressive Web App · PWA v2.0.0 (claims-pwa-v2.0.0)
+                      </span>
+                    </div>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                      <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>PWA v2.0.0 Active</span>
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    รองรับการติดตั้งเป็นแอปบน Desktop, iOS และ Android พร้อมกลยุทธ์แคชอัจฉริยะ (Network-First สำหรับ `/api/*` และ Cache-First สำหรับฟอนต์ THSarabunNew / ไอคอน / Static Assets) และหน้าจอ Offline Fallback (`/offline`)
+                  </p>
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose()
+                        triggerPwaInstallPrompt()
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer"
+                    >
+                      <span>เปิดหน้าต่างติดตั้งแอป (Install PWA 2.0.0)</span>
+                    </button>
                   </div>
                 </div>
               </div>

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next"
 import localFont from "next/font/local"
 import { ThemeProvider } from "@/components/theme-provider"
 import { LocaleProvider } from "@/i18n/LocaleContext"
+import { PwaManager } from "@/components/pwa/PwaManager"
 import "./globals.css"
 
 const sarabun = localFont({
@@ -24,24 +25,36 @@ const sarabun = localFont({
 })
 
 export const viewport: Viewport = {
-  themeColor: "#ffffff",
+  themeColor: "#2563eb",
   width: "device-width",
   initialScale: 1,
 }
 
 export const metadata: Metadata = {
-  title: "Process Claim · ระบบบริหารงานเคลมอุปกรณ์",
+  title: "CLAIMS · ระบบบริหารงานเคลมอุปกรณ์",
+  applicationName: "CLAIMS",
   description:
     "ติดตามงานเคลมอุปกรณ์โครงข่ายวิทยุสื่อสาร พร้อมแดชบอร์ดสรุปและรายงานรายสัปดาห์",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "CLAIMS",
+  },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     icon: [
       { url: "/favicon.ico?v=2", sizes: "any" },
       { url: "/icon.svg?v=2", type: "image/svg+xml" },
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
       { url: "/favicon-32x32.png?v=2", sizes: "32x32", type: "image/png" },
       { url: "/favicon-16x16.png?v=2", sizes: "16x16", type: "image/png" },
     ],
     apple: [
-      { url: "/apple-touch-icon.png?v=2", sizes: "180x180", type: "image/png" },
+      { url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
     ],
     shortcut: ["/favicon.ico?v=2"],
   },
@@ -63,7 +76,11 @@ export default function RootLayout({
         <link rel="icon" href="/icon.svg?v=2" type="image/svg+xml" />
         <link rel="icon" href="/favicon-32x32.png?v=2" type="image/png" sizes="32x32" />
         <link rel="icon" href="/favicon-16x16.png?v=2" type="image/png" sizes="16x16" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" sizes="180x180" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" sizes="180x180" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="CLAIMS" />
+        <meta name="mobile-web-app-capable" content="yes" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function() {
@@ -88,6 +105,7 @@ export default function RootLayout({
         <LocaleProvider>
           <ThemeProvider defaultTheme="system" storageKey="theme">
             {children}
+            <PwaManager />
           </ThemeProvider>
         </LocaleProvider>
       </body>

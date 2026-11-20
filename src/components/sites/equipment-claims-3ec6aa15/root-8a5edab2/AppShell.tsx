@@ -28,6 +28,7 @@ import { useLocale } from "@/i18n/LocaleContext"
 import { getCurrentSession, clearSession, type UserSession, DEFAULT_USER_SESSION } from "@/lib/session"
 import { SettingsPasswordDialog } from "@/components/settings/SettingsPasswordDialog"
 import { SystemSettingsModal } from "@/components/settings/SystemSettingsModal"
+import { triggerPwaInstallPrompt } from "@/components/pwa/PwaManager"
 import packageInfo from "../../../../../package.json"
 
 interface AppShellProps {
@@ -308,6 +309,26 @@ export function AppShell({ children }: AppShellProps) {
                     </span>
                   </div>
                 </div>
+              </button>
+            </div>
+
+            {/* Subtle PWA v2.0.0 Status Badge in Sidebar Footer */}
+            <div
+              className={`mt-2 flex items-center justify-between rounded-lg border border-blue-500/20 bg-blue-50/70 dark:bg-blue-950/40 px-2.5 py-1.5 text-[10px] ${
+                sidebarOpen ? "flex" : "flex md:hidden"
+              }`}
+            >
+              <div className="flex items-center gap-1.5 font-semibold text-blue-700 dark:text-sky-300">
+                <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>PWA v2.0.0</span>
+              </div>
+              <button
+                type="button"
+                onClick={triggerPwaInstallPrompt}
+                className="font-medium text-blue-600 dark:text-sky-400 hover:underline cursor-pointer"
+                title="ติดตั้งแอป CLAIMS (PWA 2.0.0)"
+              >
+                Install App
               </button>
             </div>
 
