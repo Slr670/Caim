@@ -80,3 +80,4 @@ export default function manifest(): Pwa2Manifest {
     ],
   }
 }
+

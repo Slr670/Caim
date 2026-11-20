@@ -2,7 +2,7 @@ import { after } from "next/server"
 import type { TicketDocument } from "@/types/database"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { getPersistentTickets } from "@/lib/storage/serverTicketStorage"
-import { sendEmail, type SendMailResult } from "./emailTransporter"
+import type { SendMailResult } from "./emailTransporter"
 import { getEmailConfig, type EmailConfig } from "./emailConfig"
 import {
   buildNewClaimEmail,
@@ -11,6 +11,12 @@ import {
   type ClaimUpdatedEmailParams,
   type RmaStageUpdatedEmailParams,
 } from "./templates/claimEmailTemplates"
+import {
+  dispatchUnifiedNotification,
+  buildNewClaimPushPayload,
+  buildClaimStatusUpdatedPushPayload,
+  buildRmaStageUpdatedPushPayload,
+} from "@/lib/notifications/dispatchNotification"
 
 /**
  * Resolves all intended recipients for a claim notification:
@@ -103,28 +109,32 @@ function runNonBlocking(task: () => Promise<void>): void {
 }
 
 /**
- * Trigger A: Dispatches transactional email when a new claim is created
+ * Trigger A: Dispatches transactional email + PWA 2.0.0 Web Push when a new claim is created
  */
 export function notifyNewClaimCreated(ticket: TicketDocument): void {
   runNonBlocking(async () => {
     try {
       const emailContent = buildNewClaimEmail(ticket)
       const recipients = resolveClaimRecipients(ticket)
+      const pushPayload = buildNewClaimPushPayload(ticket)
 
       console.log(
-        `[Claim Notification] Dispatching new claim email for ${ticket.id} (${ticket.vendor} ${ticket.model}) to ${recipients.join(", ")} | Subject: ${emailContent.subject}`
+        `[Claim Notification] Dispatching new claim email + PWA 2.0.0 Push for ${ticket.id} (${ticket.vendor} ${ticket.model}) to ${recipients.join(", ")} | Subject: ${emailContent.subject}`
       )
 
-      const result = await sendEmail({
-        to: recipients,
-        subject: emailContent.subject,
-        html: emailContent.html,
-        text: emailContent.text,
+      const { email: result, push: pushRes } = await dispatchUnifiedNotification({
+        emailOptions: {
+          to: recipients,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          text: emailContent.text,
+        },
+        pushPayload,
       })
 
       if (result.success) {
         console.log(
-          `[Claim Notification Success] Email sent successfully for new claim ${ticket.id}. MessageID: ${result.messageId || "N/A"}`
+          `[Claim Notification Success] Email sent for new claim ${ticket.id} (MessageID: ${result.messageId || "N/A"}) | Push delivered: ${pushRes.deliveredCount}/${pushRes.totalSubscriptions}`
         )
       } else {
         console.error(
@@ -133,7 +143,7 @@ export function notifyNewClaimCreated(ticket: TicketDocument): void {
         )
       }
     } catch (err) {
-      console.error(`[Claim Notification Error] Unexpected error sending new claim email for ${ticket.id}:`, err)
+      console.error(`[Claim Notification Error] Unexpected error sending new claim notification for ${ticket.id}:`, err)
     }
   })
 }
@@ -143,14 +153,14 @@ export interface NotifyClaimUpdatedOptions extends ClaimUpdatedEmailParams {
 }
 
 /**
- * Trigger B: Dispatches transactional email when an existing claim is updated or status changed
+ * Trigger B: Dispatches transactional email + PWA 2.0.0 Web Push when an existing claim is updated or status changed
  */
 export async function notifyClaimUpdated(params: NotifyClaimUpdatedOptions): Promise<SendMailResult> {
   const claimId = params.updatedTicket.id
   const prevStatus = params.previousTicket?.status || "รับแจ้ง"
   const newStatus = params.updatedTicket.status || prevStatus
 
-  console.log('[SMTP] Attempting dispatch for:', claimId)
+  console.log('[SMTP + Push] Attempting unified dispatch for:', claimId)
 
   try {
     const emailContent = buildClaimUpdatedEmail(params)
@@ -159,21 +169,31 @@ export async function notifyClaimUpdated(params: NotifyClaimUpdatedOptions): Pro
       params.updatedTicket,
       targetRecipient ? [targetRecipient] : undefined
     )
+    const pushPayload = buildClaimStatusUpdatedPushPayload({
+      claimId,
+      previousStatus: prevStatus,
+      newStatus,
+    })
 
     console.log(
-      `[SMTP] Dispatching claim status update email for ${claimId} ('${prevStatus}' → '${newStatus}') to: ${recipients.join(", ")} | Subject: ${emailContent.subject}`
+      `[SMTP + Push] Dispatching claim status update notification for ${claimId} ('${prevStatus}' → '${newStatus}') to: ${recipients.join(", ")} | Subject: ${emailContent.subject}`
     )
 
-    const result = await sendEmail({
-      to: recipients,
-      subject: emailContent.subject,
-      html: emailContent.html,
-      text: emailContent.text,
-      smtpSettings: params.smtpSettings,
+    const { email: result, push: pushRes } = await dispatchUnifiedNotification({
+      emailOptions: {
+        to: recipients,
+        subject: emailContent.subject,
+        html: emailContent.html,
+        text: emailContent.text,
+        smtpSettings: params.smtpSettings,
+      },
+      pushPayload,
     })
 
     if (result.success) {
-      console.log('[SMTP] Success, messageId:', result.messageId || "N/A")
+      console.log(
+        `[SMTP + Push] Success, messageId: ${result.messageId || "N/A"} | Push delivered: ${pushRes.deliveredCount}/${pushRes.totalSubscriptions}`
+      )
     } else {
       console.error('[SMTP] Failed to send email:', result.error || "Unknown dispatch failure")
     }
@@ -195,7 +215,7 @@ export async function notifyClaimUpdated(params: NotifyClaimUpdatedOptions): Pro
 export const notifyClaimStatusChanged = notifyClaimUpdated
 
 /**
- * Trigger C: Dispatches transactional email when an Overseas RMA record progresses through stages
+ * Trigger C: Dispatches transactional email + PWA 2.0.0 Web Push when an Overseas RMA record progresses through stages
  */
 export function notifyRmaStageUpdated(params: RmaStageUpdatedEmailParams): void {
   const rmaId = params.updatedRma.rmaNo || params.updatedRma.id
@@ -233,20 +253,31 @@ export function notifyRmaStageUpdated(params: RmaStageUpdatedEmailParams): void 
 
       const emailContent = buildRmaStageUpdatedEmail(emailParams)
       const recipients = resolveClaimRecipients(linkedTicket, params.additionalRecipients)
+      const pushPayload = buildRmaStageUpdatedPushPayload({
+        rma: params.updatedRma,
+        ticket: linkedTicket,
+        stageNumber: params.updatedRma.currentStageNumber,
+        newStatus: params.updatedRma.currentStageName || params.updatedRma.status,
+      })
 
       console.log(
-        `[RMA Notification] Dispatching RMA stage update email for ${rmaId} to ${recipients.join(", ")} | Subject: ${emailContent.subject}`
+        `[RMA Notification] Dispatching RMA stage update email + PWA 2.0.0 Push for ${rmaId} to ${recipients.join(", ")} | Subject: ${emailContent.subject}`
       )
 
-      const result = await sendEmail({
-        to: recipients,
-        subject: emailContent.subject,
-        html: emailContent.html,
-        text: emailContent.text,
+      const { email: result, push: pushRes } = await dispatchUnifiedNotification({
+        emailOptions: {
+          to: recipients,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          text: emailContent.text,
+        },
+        pushPayload,
       })
 
       if (result.success) {
-        console.log(`[RMA Notification] Email sent successfully for RMA ${rmaId}. MessageID: ${result.messageId}`)
+        console.log(
+          `[RMA Notification] Email sent successfully for RMA ${rmaId}. MessageID: ${result.messageId} | Push delivered: ${pushRes.deliveredCount}/${pushRes.totalSubscriptions}`
+        )
       } else {
         console.error(`[RMA Notification] Failed to send RMA stage email for ${rmaId}:`, result.error)
       }

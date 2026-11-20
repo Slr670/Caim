@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Download, X, Share, PlusSquare, CheckCircle2, Smartphone, ShieldCheck } from "lucide-react"
+import { Download, X, Share, PlusSquare, CheckCircle2, Smartphone, ShieldCheck, BellRing } from "lucide-react"
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[]
@@ -13,6 +13,110 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 const DISMISS_KEY = "claims_pwa_v2_dismissed_at"
+const DEFAULT_PUBLIC_VAPID_KEY =
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+  "BIZ_IMFjP249T3BdUCaWwZVwdptwEZnwnQxKgkl_lGR2SsKGdid2Nri8CLI7vTre4_LnqoGQkkYP_XcRPqSfewg"
+
+export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
+  const rawData = typeof window !== "undefined" ? window.atob(base64) : ""
+  const buffer = new ArrayBuffer(rawData.length)
+  const outputArray = new Uint8Array(buffer)
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+  return outputArray
+}
+
+export async function subscribeBrowserToWebPush(sendWelcome = false): Promise<{
+  success: boolean
+  endpoint?: string
+  error?: string
+}> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return { success: false, error: "เบราว์เซอร์นี้ไม่รองรับระบบ Web Push Notifications" }
+  }
+
+  try {
+    const permission = await Notification.requestPermission()
+    if (permission !== "granted") {
+      return { success: false, error: "ผู้ใช้งานไม่อนุญาตสิทธิ์การแสดงการแจ้งเตือน (Permission Denied)" }
+    }
+
+    const registration = await navigator.serviceWorker.ready
+    let publicKey = DEFAULT_PUBLIC_VAPID_KEY
+    try {
+      const keyRes = await fetch("/api/push/subscribe", { cache: "no-store" })
+      if (keyRes.ok) {
+        const keyData = await keyRes.json()
+        if (keyData?.publicKey) {
+          publicKey = keyData.publicKey
+        }
+      }
+    } catch {
+      // use fallback public key
+    }
+
+    let sub = await registration.pushManager.getSubscription()
+    if (!sub) {
+      sub = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      })
+    }
+
+    const subJson = sub.toJSON()
+    const res = await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription: subJson,
+        sendWelcome,
+      }),
+    })
+
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      return { success: false, error: data?.error || "ไม่สามารถบันทึกข้อมูล Push Subscription ได้" }
+    }
+
+    window.dispatchEvent(new CustomEvent("caim:pwa:push-changed", { detail: { subscribed: true } }))
+    return { success: true, endpoint: sub.endpoint }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { success: false, error: msg }
+  }
+}
+
+export async function unsubscribeBrowserFromWebPush(): Promise<{
+  success: boolean
+  error?: string
+}> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+    return { success: false, error: "Service Worker not available" }
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready
+    const sub = await registration.pushManager.getSubscription()
+    if (sub) {
+      const endpoint = sub.endpoint
+      await sub.unsubscribe().catch(() => null)
+      await fetch("/api/push/unsubscribe", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint }),
+      }).catch(() => null)
+    }
+
+    window.dispatchEvent(new CustomEvent("caim:pwa:push-changed", { detail: { subscribed: false } }))
+    return { success: true }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { success: false, error: msg }
+  }
+}
 
 export function triggerPwaInstallPrompt() {
   if (typeof window !== "undefined") {
@@ -27,22 +131,48 @@ export function PwaManager() {
   const [showBanner, setShowBanner] = React.useState(false)
   const [showIosGuide, setShowIosGuide] = React.useState(false)
   const [swActive, setSwActive] = React.useState(false)
+  const [pushSubscribed, setPushSubscribed] = React.useState(false)
+  const [isSubscribingPush, setIsSubscribingPush] = React.useState(false)
 
   React.useEffect(() => {
     if (typeof window === "undefined") return
 
-    // 1. Register PWA 2.0.0 Service Worker (/sw.js)
+    // 1. Register PWA 2.0.0 Service Worker (/sw.js) and check existing Push subscription
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js", { scope: "/" })
-        .then((registration) => {
+        .then(async (registration) => {
           setSwActive(true)
           registration.update().catch(() => null)
+          if ("pushManager" in registration) {
+            const existingSub = await registration.pushManager.getSubscription().catch(() => null)
+            if (existingSub) {
+              setPushSubscribed(true)
+              // Sync active subscription with server store silently
+              fetch("/api/push/subscribe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subscription: existingSub.toJSON() }),
+              }).catch(() => null)
+            }
+          }
         })
         .catch((err) => {
           console.warn("[PWA 2.0.0] Service Worker registration notice:", err)
         })
     }
+
+    // Clear unread app badge on window focus
+    const clearBadge = () => {
+      if ("clearAppBadge" in navigator && typeof navigator.clearAppBadge === "function") {
+        navigator.clearAppBadge().catch(() => null)
+      }
+      if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "CLEAR_APP_BADGE" })
+      }
+    }
+    clearBadge()
+    window.addEventListener("focus", clearBadge)
 
     // 2. Detect standalone installed state
     const navWithStandalone = window.navigator as Navigator & { standalone?: boolean }
@@ -91,14 +221,24 @@ export function PwaManager() {
       }
     }
 
+    const handlePushChanged = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail as { subscribed?: boolean } | undefined
+      if (typeof detail?.subscribed === "boolean") {
+        setPushSubscribed(detail.subscribed)
+      }
+    }
+
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt)
     window.addEventListener("appinstalled", handleAppInstalled)
     window.addEventListener("caim:pwa:open-prompt", handleManualOpen)
+    window.addEventListener("caim:pwa:push-changed", handlePushChanged)
 
     return () => {
+      window.removeEventListener("focus", clearBadge)
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt)
       window.removeEventListener("appinstalled", handleAppInstalled)
       window.removeEventListener("caim:pwa:open-prompt", handleManualOpen)
+      window.removeEventListener("caim:pwa:push-changed", handlePushChanged)
     }
   }, [])
 
@@ -119,6 +259,18 @@ export function PwaManager() {
 
     if (isIos) {
       setShowIosGuide((prev) => !prev)
+    }
+  }
+
+  const handleQuickEnablePush = async () => {
+    setIsSubscribingPush(true)
+    try {
+      const res = await subscribeBrowserToWebPush(true)
+      if (res.success) {
+        setPushSubscribed(true)
+      }
+    } finally {
+      setIsSubscribingPush(false)
     }
   }
 
@@ -152,8 +304,8 @@ export function PwaManager() {
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
               {isStandalone
-                ? "ทำงานในโหมดแอปติดตั้งแล้ว พร้อมระบบแคชออฟไลน์อัจฉริยะ"
-                : "ใช้งานแบบแอปเต็มหน้าจอ โหลดไว และรองรับโหมดออฟไลน์ภาคสนาม"}
+                ? "ทำงานในโหมดแอปติดตั้งแล้ว พร้อมระบบแจ้งเตือน Push & แคชออฟไลน์"
+                : "ใช้งานแบบแอปเต็มหน้าจอ โหลดไว พร้อมรับการแจ้งเตือนผ่านแอปแบบเรียลไทม์"}
             </p>
           </div>
         </div>
@@ -166,6 +318,30 @@ export function PwaManager() {
         >
           <X className="size-4" />
         </button>
+      </div>
+
+      {/* Quick-Enable Web Push Banner inside PWA Prompt */}
+      <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-500/25 px-3 py-2 text-[11px]">
+        <div className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+          <BellRing className="size-3.5 text-blue-600 dark:text-sky-400 shrink-0" />
+          <span className="font-medium">
+            {pushSubscribed ? "เปิดรับการแจ้งเตือน Push แล้ว" : "รับการแจ้งเตือนงานเคลมผ่านแอป"}
+          </span>
+        </div>
+        {!pushSubscribed ? (
+          <button
+            type="button"
+            onClick={handleQuickEnablePush}
+            disabled={isSubscribingPush}
+            className="rounded-lg bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1 text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-60 shrink-0"
+          >
+            {isSubscribingPush ? "กำลังเปิด..." : "เปิดแจ้งเตือน"}
+          </button>
+        ) : (
+          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">
+            เปิดอยู่
+          </span>
+        )}
       </div>
 
       {/* iOS Safari Step-by-Step Guide */}
@@ -188,7 +364,7 @@ export function PwaManager() {
       <div className="mt-3 flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-white/10">
         <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
           <ShieldCheck className="size-3.5" />
-          <span>{swActive ? "Offline Cache Ready" : "PWA 2.0.0 Enabled"}</span>
+          <span>{swActive ? "Offline & Push Ready" : "PWA 2.0.0 Enabled"}</span>
         </div>
 
         <div className="flex items-center gap-2">

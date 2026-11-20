@@ -1,11 +1,13 @@
 /**
  * CLAIMS Portal — PWA 2.0.0 Service Worker (claims-pwa-v2.0.0)
  *
- * Caching Strategies:
+ * Capabilities:
  * 1. API & Live Data (/api/*): Network-First with cache fallback (bypasses SSE event streams).
  * 2. Static Assets & Local Fonts (/fonts/*, /icons/*, /images/*, /_next/static/*):
  *    Cache-First / Stale-While-Revalidate for instant load speed.
  * 3. Navigation Routes: Network-First with cached page fallback and /offline fallback screen.
+ * 4. Web Push Notifications (push & notificationclick): Real-time desktop/mobile push alerts
+ *    with App Badge support (navigator.setAppBadge) and deep-link window focusing (/tickets/[id]).
  */
 
 const CACHE_PREFIX = "claims-pwa-v2.0.0"
@@ -13,6 +15,8 @@ const STATIC_CACHE = `${CACHE_PREFIX}-static`
 const API_CACHE = `${CACHE_PREFIX}-api`
 const PAGES_CACHE = `${CACHE_PREFIX}-pages`
 const OFFLINE_URL = "/offline"
+
+let unreadPushCount = 0
 
 const PRECACHE_ASSETS = [
   "/",
@@ -68,6 +72,113 @@ self.addEventListener("message", (event) => {
       caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
     )
   }
+  if (event.data && event.data.type === "CLEAR_APP_BADGE") {
+    unreadPushCount = 0
+    if (self.navigator && typeof self.navigator.clearAppBadge === "function") {
+      self.navigator.clearAppBadge().catch(() => null)
+    }
+  }
+})
+
+/**
+ * Web Push Event Listener (PWA 2.0.0 Real-Time Transactional Alerts)
+ */
+self.addEventListener("push", (event) => {
+  let payload = {
+    title: "[CLAIMS] แจ้งเตือนระบบบริหารงานเคลมอุปกรณ์",
+    body: "มีการอัปเดตข้อมูลเคสเคลมอุปกรณ์ในระบบ CLAIMS",
+    icon: "/icons/icon-192x192.png",
+    badge: "/icons/icon-192x192.png",
+    tag: `claims-push-${Date.now()}`,
+    data: {
+      url: "/tickets",
+    },
+  }
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json()
+      payload = {
+        title: parsed.title || payload.title,
+        body: parsed.body || payload.body,
+        icon: parsed.icon || "/icons/icon-192x192.png",
+        badge: parsed.badge || "/icons/icon-192x192.png",
+        tag: parsed.tag || payload.tag,
+        data: {
+          url: (parsed.data && parsed.data.url) || parsed.url || "/tickets",
+          ...(parsed.data || {}),
+        },
+      }
+    } catch {
+      const rawText = event.data.text()
+      if (rawText) {
+        payload.body = rawText
+      }
+    }
+  }
+
+  unreadPushCount += 1
+
+  const showNotificationPromise = self.registration.showNotification(payload.title, {
+    body: payload.body,
+    icon: payload.icon,
+    badge: payload.badge,
+    tag: payload.tag,
+    renotify: true,
+    vibrate: [180, 80, 180],
+    data: payload.data,
+  })
+
+  const badgePromise =
+    self.navigator && typeof self.navigator.setAppBadge === "function"
+      ? self.navigator.setAppBadge(unreadPushCount).catch(() => null)
+      : Promise.resolve()
+
+  event.waitUntil(Promise.all([showNotificationPromise, badgePromise]))
+})
+
+/**
+ * Notification Click Deep-Link Handler
+ * Closes the banner, clears the app badge, and focuses an existing CLAIMS window
+ * or opens the exact target route (e.g. /tickets/CLM-2026-001) directly.
+ */
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+
+  unreadPushCount = Math.max(0, unreadPushCount - 1)
+  if (self.navigator && typeof self.navigator.clearAppBadge === "function") {
+    if (unreadPushCount === 0) {
+      self.navigator.clearAppBadge().catch(() => null)
+    } else if (typeof self.navigator.setAppBadge === "function") {
+      self.navigator.setAppBadge(unreadPushCount).catch(() => null)
+    }
+  }
+
+  const rawUrl =
+    (event.notification.data && event.notification.data.url) || "/dashboard"
+  const targetUrl = new URL(rawUrl, self.location.origin).href
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((windowClients) => {
+        for (const client of windowClients) {
+          if (client.url.startsWith(self.location.origin) && "focus" in client) {
+            if ("navigate" in client) {
+              return client
+                .navigate(targetUrl)
+                .then((navigated) => (navigated ? navigated.focus() : client.focus()))
+                .catch(() => client.focus())
+            }
+            return client.focus()
+          }
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(targetUrl)
+        }
+        return null
+      })
+  )
 })
 
 self.addEventListener("fetch", (event) => {

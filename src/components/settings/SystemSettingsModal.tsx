@@ -16,9 +16,14 @@ import {
   Server,
   ShieldCheck,
   RotateCcw,
+  BellRing,
 } from "lucide-react"
 import { type SmtpSettings, DEFAULT_SMTP_SETTINGS } from "@/types/settings"
-import { triggerPwaInstallPrompt } from "@/components/pwa/PwaManager"
+import {
+  triggerPwaInstallPrompt,
+  subscribeBrowserToWebPush,
+  unsubscribeBrowserFromWebPush,
+} from "@/components/pwa/PwaManager"
 
 export interface SystemSettingsModalProps {
   isOpen: boolean
@@ -44,6 +49,11 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
   // Save state
   const [isSaved, setIsSaved] = React.useState(false)
 
+  // PWA 2.0.0 Web Push subscription state
+  const [pushEnabled, setPushEnabled] = React.useState(false)
+  const [isTogglingPush, setIsTogglingPush] = React.useState(false)
+  const [isTestingPush, setIsTestingPush] = React.useState(false)
+
   // Toast feedback
   const [toastMessage, setToastMessage] = React.useState<string | null>(null)
 
@@ -52,7 +62,7 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
     setTimeout(() => setToastMessage(null), 4000)
   }, [])
 
-  // Load saved settings from localStorage on client mount
+  // Load saved settings from localStorage and check active Push subscription on client mount
   React.useEffect(() => {
     if (typeof window !== "undefined") {
       try {
@@ -67,8 +77,78 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
       } catch (err) {
         console.warn("Failed to load settings from localStorage:", err)
       }
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.ready
+          .then((reg) => reg.pushManager?.getSubscription())
+          .then((sub) => setPushEnabled(Boolean(sub)))
+          .catch(() => null)
+      }
     }
-  }, [])
+  }, [isOpen])
+
+  const handleTogglePushSubscription = async () => {
+    setIsTogglingPush(true)
+    try {
+      if (pushEnabled) {
+        const res = await unsubscribeBrowserFromWebPush()
+        if (res.success) {
+          setPushEnabled(false)
+          showToast("ปิดการแจ้งเตือนผ่านแอป (PWA 2.0.0 Push) เรียบร้อยแล้ว")
+        } else {
+          showToast(res.error || "ไม่สามารถยกเลิกการแจ้งเตือนได้")
+        }
+      } else {
+        const res = await subscribeBrowserToWebPush(true)
+        if (res.success) {
+          setPushEnabled(true)
+          showToast("เปิดรับการแจ้งเตือนผ่านแอป (PWA 2.0.0 Push) เรียบร้อยแล้ว")
+        } else {
+          showToast(res.error || "ไม่สามารถเปิดรับการแจ้งเตือน Push ได้")
+        }
+      }
+    } finally {
+      setIsTogglingPush(false)
+    }
+  }
+
+  const handleSendTestPush = async () => {
+    setIsTestingPush(true)
+    try {
+      let currentSubJson: PushSubscriptionJSON | undefined
+      if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.ready
+        let sub = await reg.pushManager.getSubscription()
+        if (!sub) {
+          const subRes = await subscribeBrowserToWebPush(false)
+          if (subRes.success) {
+            setPushEnabled(true)
+            sub = await reg.pushManager.getSubscription()
+          }
+        }
+        if (sub) {
+          currentSubJson = sub.toJSON()
+        }
+      }
+
+      const res = await fetch("/api/push/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: currentSubJson }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        showToast(data.message || "ส่งการแจ้งเตือนทดสอบ (PWA 2.0.0 Push) สำเร็จแล้ว")
+      } else {
+        showToast(data.message || data.error || "ไม่สามารถส่ง Push ทดสอบได้")
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      showToast(`เกิดข้อผิดพลาดในการส่ง Push: ${msg}`)
+    } finally {
+      setIsTestingPush(false)
+    }
+  }
 
   // Auto-switch port & SSL when toggling
   const handlePortChange = (newPort: number) => {
@@ -224,6 +304,72 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1 text-slate-200 text-xs">
           {activeTab === "smtp" ? (
             <>
+              {/* Section: การแจ้งเตือนผ่านแอป (PWA 2.0.0 Push Notifications) */}
+              <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-950/30 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex size-8 items-center justify-center rounded-lg bg-blue-500/20 border border-blue-400/30 text-sky-300">
+                      <BellRing className="size-4" />
+                    </span>
+                    <div>
+                      <div className="text-xs font-bold text-white">
+                        การแจ้งเตือนผ่านแอป (PWA 2.0.0 Push Notifications)
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        ส่ง Web Push แจ้งเตือนคู่ขนานกับอีเมลทันทีเมื่อเปิดเคสใหม่หรืออัปเดตสถานะงานเคลม
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={pushEnabled}
+                    disabled={isTogglingPush}
+                    onClick={handleTogglePushSubscription}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors cursor-pointer disabled:opacity-60 ${
+                      pushEnabled
+                        ? "bg-emerald-500 border-emerald-400"
+                        : "bg-slate-700 border-slate-600"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block size-4 transform rounded-full bg-white shadow-sm transition-transform ${
+                        pushEnabled ? "translate-x-5" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10">
+                  <span className="text-[11px] text-slate-300">
+                    สถานะปัจจุบัน:{" "}
+                    <strong className={pushEnabled ? "text-emerald-400" : "text-amber-400"}>
+                      {pushEnabled ? "เปิดรับการแจ้งเตือน (Subscribed)" : "ยังไม่ได้เปิดใช้งานบนเบราว์เซอร์นี้"}
+                    </strong>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleSendTestPush}
+                    disabled={isTestingPush}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    {isTestingPush ? (
+                      <>
+                        <Loader2 className="size-3.5 animate-spin" />
+                        <span>กำลังส่ง Push...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="size-3.5" />
+                        <span>ทดสอบส่ง Push (Test Notification)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
               {/* Section: เซิร์ฟเวอร์ SMTP */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between border-b border-white/5 pb-2">
@@ -514,7 +660,7 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
                   <p className="text-[11px] text-slate-400 leading-relaxed">
                     รองรับการติดตั้งเป็นแอปบน Desktop, iOS และ Android พร้อมกลยุทธ์แคชอัจฉริยะ (Network-First สำหรับ `/api/*` และ Cache-First สำหรับฟอนต์ THSarabunNew / ไอคอน / Static Assets) และหน้าจอ Offline Fallback (`/offline`)
                   </p>
-                  <div className="pt-1">
+                  <div className="pt-1 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -524,6 +670,15 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
                       className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer"
                     >
                       <span>เปิดหน้าต่างติดตั้งแอป (Install PWA 2.0.0)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSendTestPush}
+                      disabled={isTestingPush}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-100 px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-60"
+                    >
+                      <BellRing className="size-3.5 text-sky-400" />
+                      <span>{isTestingPush ? "กำลังส่ง Push..." : "ทดสอบส่ง Push (Test Notification)"}</span>
                     </button>
                   </div>
                 </div>
