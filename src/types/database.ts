@@ -98,6 +98,7 @@ export interface TicketDocument {
   district?: string
   subdistrict?: string
   rmaId?: string // Foreign Key -> RmaDocument.id (if dispatched overseas)
+  previousId?: string // Previous Claim ID prior to automatic resequencing
   createdAt?: string
   updatedAt?: string
 }

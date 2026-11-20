@@ -97,3 +97,21 @@ export function deletePersistentTicket(id: string): void {
     console.error("Failed to delete persistent ticket from disk:", err)
   }
 }
+
+/**
+ * Remove active resequenced ticket IDs from the deleted_tickets list so newly re-indexed
+ * contiguous claim numbers (e.g. CLM-2026-004 after shifting down from 005) are never suppressed.
+ */
+export function removePersistentDeletedTicketIds(activeIds: string[]): void {
+  try {
+    if (!activeIds.length || !fs.existsSync(DELETED_FILE)) return
+    const activeSet = new Set(activeIds)
+    const deleted = getPersistentDeletedTicketIds()
+    const remaining = deleted.filter((id) => !activeSet.has(id))
+    if (remaining.length !== deleted.length) {
+      fs.writeFileSync(DELETED_FILE, JSON.stringify(remaining, null, 2), "utf-8")
+    }
+  } catch (err) {
+    console.error("Failed to clean resequenced ticket IDs from deleted file:", err)
+  }
+}

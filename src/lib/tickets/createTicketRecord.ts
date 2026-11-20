@@ -6,6 +6,7 @@ import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 import { savePersistentTicket } from "@/lib/storage/serverTicketStorage"
 import { calculateCaseDuration, calculateDueDate } from "@/lib/utils/caseDuration"
 import { generateNextClaimNumber } from "@/lib/sequences/claimSequence"
+import { migrateClaimSequences } from "@/lib/sequences/migrateClaimSequences"
 import { invalidateDashboardMetrics } from "@/lib/dashboard/dashboardStatsService"
 import { notifyNewClaimCreated } from "@/lib/email/claimNotificationService"
 
@@ -151,12 +152,28 @@ export async function createTicketRecord(request: NextRequest) {
 
         await db.collection<TicketDocument>("tickets").insertOne(newTicketDoc)
 
+        // Save to persistent disk store as dual-layer backup before resequencing
+        savePersistentTicket(newTicketDoc)
+
+        // Automatically resequence all claims so the new claim and existing claims are strictly contiguous (001..N)
+        const reseq = await migrateClaimSequences()
+        const finalAssignedId = reseq.idMapping[ticketId] || ticketId
+        if (finalAssignedId !== ticketId) {
+          if (newTicketDoc.title === ticketId) {
+            newTicketDoc.title = finalAssignedId
+          }
+          if (newTicketDoc.claimTitle === ticketId) {
+            newTicketDoc.claimTitle = finalAssignedId
+          }
+          newTicketDoc.id = finalAssignedId
+        }
+
         // 4. Record Transaction Log
         await db.collection("transaction_logs").insertOne({
           id: `TX-CLAIM-OPEN-${Date.now()}`,
           action: "CLAIM_OPENED",
           targetType: "ticket",
-          targetId: ticketId,
+          targetId: newTicketDoc.id,
           details: {
             title: newTicketDoc.title,
             serialNo: newTicketDoc.serialNo,
@@ -183,9 +200,6 @@ export async function createTicketRecord(request: NextRequest) {
           data: {},
           timestamp: nowIso,
         })
-
-        // Save to persistent disk store as dual-layer backup
-        savePersistentTicket(newTicketDoc)
 
         // Instantly invalidate dashboard cache and broadcast fresh metrics
         await invalidateDashboardMetrics(true)
@@ -244,6 +258,19 @@ export async function createTicketRecord(request: NextRequest) {
       updatedAt: nowIso,
     }
     savePersistentTicket(fallbackDoc)
+
+    // Automatically resequence all claims so the new claim and existing claims are strictly contiguous (001..N)
+    const fallbackReseq = await migrateClaimSequences()
+    const finalFallbackId = fallbackReseq.idMapping[ticketId] || ticketId
+    if (finalFallbackId !== ticketId) {
+      if (fallbackDoc.title === ticketId) {
+        fallbackDoc.title = finalFallbackId
+      }
+      if (fallbackDoc.claimTitle === ticketId) {
+        fallbackDoc.claimTitle = finalFallbackId
+      }
+      fallbackDoc.id = finalFallbackId
+    }
 
     realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
       type: "ticket",

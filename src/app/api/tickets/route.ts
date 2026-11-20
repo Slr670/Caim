@@ -15,6 +15,16 @@ import { requireCaimApiKey } from "@/lib/auth/apiKeyAuth"
 import { createTicketRecord } from "@/lib/tickets/createTicketRecord"
 import { invalidateDashboardMetrics } from "@/lib/dashboard/dashboardStatsService"
 import { notifyClaimUpdated } from "@/lib/email/claimNotificationService"
+import { hasSequenceGaps, migrateClaimSequences } from "@/lib/sequences/migrateClaimSequences"
+
+function sortTicketsByClaimId(list: TicketDocument[]): TicketDocument[] {
+  return [...list].sort((a, b) =>
+    (a.id || "").localeCompare(b.id || "", undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  )
+}
 
 function enrichTicket(ticket: TicketDocument): TicketDocument {
   const duration = calculateCaseDuration(ticket)
@@ -40,7 +50,6 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
-    const persistentDeletedIds = getPersistentDeletedTicketIds()
 
     if (isMongoConfigured()) {
       try {
@@ -48,22 +57,39 @@ export async function GET(request: NextRequest) {
         if (db) {
           const collection = db.collection<TicketDocument>("tickets")
           if (id) {
-            const item = await collection.findOne({ id })
-            if (item && !persistentDeletedIds.includes(item.id)) {
+            let item = await collection.findOne({ $or: [{ id }, { previousId: id }] })
+            if (!item) {
+              const allCheck = await collection.find({}).toArray()
+              if (hasSequenceGaps(allCheck)) {
+                await migrateClaimSequences()
+                item = await collection.findOne({ $or: [{ id }, { previousId: id }] })
+              }
+            }
+            const currentDeleted = getPersistentDeletedTicketIds()
+            if (item && !currentDeleted.includes(item.id)) {
               return NextResponse.json({ success: true, ticket: enrichTicket(item), source: "mongodb" }, { headers: NO_CACHE_HEADERS })
             }
           } else {
-            const tickets = await collection.find({}).sort({ createdAt: -1 }).toArray()
-            const filteredTickets = tickets
-              .filter((t) => !persistentDeletedIds.includes(t.id))
-              .map(enrichTicket)
+            let tickets = await collection.find({}).toArray()
+            let currentDeleted = getPersistentDeletedTicketIds()
+            let activeMongoTickets = tickets.filter((t) => !currentDeleted.includes(t.id))
+
+            // Auto-normalize and resequence if any sequence gap exists (e.g. missing CLM-2026-004)
+            if (hasSequenceGaps(activeMongoTickets)) {
+              await migrateClaimSequences()
+              tickets = await collection.find({}).toArray()
+              currentDeleted = getPersistentDeletedTicketIds()
+              activeMongoTickets = tickets.filter((t) => !currentDeleted.includes(t.id))
+            }
+
+            const filteredTickets = sortTicketsByClaimId(activeMongoTickets).map(enrichTicket)
             return NextResponse.json(
               {
                 success: true,
                 source: "mongodb",
                 tickets: filteredTickets,
                 total: filteredTickets.length,
-                deletedIds: persistentDeletedIds,
+                deletedIds: currentDeleted,
               },
               { headers: NO_CACHE_HEADERS }
             )
@@ -74,10 +100,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const diskTickets = getPersistentTickets().map(enrichTicket)
+    let rawDiskTickets = getPersistentTickets()
+    if (hasSequenceGaps(rawDiskTickets)) {
+      await migrateClaimSequences()
+      rawDiskTickets = getPersistentTickets()
+    }
+    const diskTickets = sortTicketsByClaimId(rawDiskTickets).map(enrichTicket)
+    const activeDeletedIds = getPersistentDeletedTicketIds()
 
     if (id) {
-      const found = diskTickets.find((t) => t.id === id)
+      const found = diskTickets.find((t) => t.id === id || t.previousId === id)
       return NextResponse.json(
         { success: true, ticket: found || null, source: "persistent-local" },
         { headers: NO_CACHE_HEADERS }
@@ -90,7 +122,7 @@ export async function GET(request: NextRequest) {
         source: "persistent-local",
         tickets: diskTickets,
         total: diskTickets.length,
-        deletedIds: persistentDeletedIds,
+        deletedIds: activeDeletedIds,
       },
       { headers: NO_CACHE_HEADERS }
     )
@@ -496,13 +528,27 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     let id = searchParams.get("id")
+    let ids: string[] = []
 
-    if (!id) {
-      const body = await request.json().catch(() => ({}))
-      id = body.id
+    const idsParam = searchParams.get("ids")
+    if (idsParam) {
+      ids = idsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
     }
 
-    if (!id) {
+    if (!id && ids.length === 0) {
+      const body = await request.json().catch(() => ({}))
+      id = body.id
+      if (Array.isArray(body.ids)) {
+        ids = body.ids.map((s: unknown) => String(s).trim()).filter(Boolean)
+      }
+    }
+
+    const targetIds = ids.length > 0 ? ids : id ? [id] : []
+
+    if (targetIds.length === 0) {
       return NextResponse.json(
         { success: false, error: "Missing ticket id parameter" },
         { status: 400 }
@@ -516,26 +562,28 @@ export async function DELETE(request: NextRequest) {
       try {
         const db = await getDb()
         if (db) {
-          const currentTicket = await db.collection<TicketDocument>("tickets").findOne({ id })
-          if (currentTicket && currentTicket.serialNo) {
-            // Free equipment
-            await db.collection<EquipmentDocument>("equipments").updateOne(
-              { serial: currentTicket.serialNo },
-              { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
-            )
+          for (const targetId of targetIds) {
+            const currentTicket = await db.collection<TicketDocument>("tickets").findOne({ id: targetId })
+            if (currentTicket && currentTicket.serialNo) {
+              // Free equipment
+              await db.collection<EquipmentDocument>("equipments").updateOne(
+                { serial: currentTicket.serialNo },
+                { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
+              )
+            }
+
+            await db.collection("tickets").deleteOne({ id: targetId })
+
+            // Record Transaction Log
+            await db.collection("transaction_logs").insertOne({
+              id: `TX-CLAIM-DEL-${Date.now()}-${targetId}`,
+              action: "CLAIM_DELETED",
+              targetType: "ticket",
+              targetId,
+              details: { deletedAt: nowIso },
+              timestamp: nowIso,
+            })
           }
-
-          await db.collection("tickets").deleteOne({ id })
-
-          // Record Transaction Log
-          await db.collection("transaction_logs").insertOne({
-            id: `TX-CLAIM-DEL-${Date.now()}`,
-            action: "CLAIM_DELETED",
-            targetType: "ticket",
-            targetId: id,
-            details: { deletedAt: nowIso },
-            timestamp: nowIso,
-          })
         }
       } catch (dbErr) {
         console.warn("[Tickets API] MongoDB deletion warning:", dbErr)
@@ -543,24 +591,45 @@ export async function DELETE(request: NextRequest) {
     }
 
     // 2. Delete permanently from persistent disk store
-    deletePersistentTicket(id)
+    for (const targetId of targetIds) {
+      deletePersistentTicket(targetId)
+    }
 
-    // 3. Broadcast real-time deletion event across all active clients
-    realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
-      type: "ticket",
-      action: "delete",
-      data: { id },
-      timestamp: nowIso,
-    })
+    // 3. Automatically resequence remaining claims sequentially (CLM-YYYY-001..N with zero gaps)
+    const resequenceResult = await migrateClaimSequences()
+
+    // 4. Broadcast real-time deletion and resequencing event across all active clients
+    for (const targetId of targetIds) {
+      realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
+        type: "ticket",
+        action: "delete",
+        data: {
+          id: targetId,
+          reindexedCount: resequenceResult.reindexedCount,
+          idMapping: resequenceResult.idMapping,
+        },
+        timestamp: nowIso,
+      })
+    }
 
     // Instantly invalidate dashboard cache and broadcast fresh metrics
     await invalidateDashboardMetrics(true)
 
+    const primaryId = targetIds[0]
     return NextResponse.json(
       {
         success: true,
-        id,
-        message: `ลบเคสแจ้งเคลม ${id} ออกจากฐานข้อมูลเรียบร้อยแล้ว`,
+        id: primaryId,
+        deletedIds: targetIds,
+        resequencing: {
+          reindexedCount: resequenceResult.reindexedCount,
+          idMapping: resequenceResult.idMapping,
+          nextClaimNumber: resequenceResult.nextClaimNumber,
+        },
+        message:
+          targetIds.length > 1
+            ? `ลบเคสแจ้งเคลม ${targetIds.length} รายการ และจัดเรียงเลขที่เคลมใหม่เรียบร้อยแล้ว`
+            : `ลบเคสแจ้งเคลม ${primaryId} และจัดเรียงเลขที่เคลมต่อเนื่องเรียบร้อยแล้ว`,
         timestamp: nowIso,
       },
       { headers: NO_CACHE_HEADERS }

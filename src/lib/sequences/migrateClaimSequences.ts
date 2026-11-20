@@ -4,10 +4,14 @@ import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import {
   extractGregorianYear,
   formatClaimNumber,
+  parseClaimNumber,
   setClaimSequence,
 } from "./claimSequence"
 import { TicketDocument, RmaDocument, EquipmentDocument } from "@/types/database"
-import { getPersistentDeletedTicketIds } from "@/lib/storage/serverTicketStorage"
+import {
+  getPersistentDeletedTicketIds,
+  removePersistentDeletedTicketIds,
+} from "@/lib/storage/serverTicketStorage"
 
 const TICKETS_FILE = path.join(process.cwd(), "src/data/tickets.json")
 const RMA_FILE = path.join(process.cwd(), "src/data/rma.json")
@@ -44,6 +48,161 @@ export function parseDateToTimestamp(raw?: string | null): number {
   return !isNaN(parsed) ? parsed : 0
 }
 
+export interface ResequenceClaimsResult {
+  tickets: TicketDocument[]
+  idMapping: Record<string, string>
+  caseTitleMapping: Record<string, string>
+  maxSequencePerYear: Record<number, number>
+  reindexedCount: number
+}
+
+/**
+ * Checks whether the current claims array has any gaps or non-contiguous sequence numbers
+ * within any year group (e.g., jumping from CLM-2026-003 to CLM-2026-005).
+ */
+export function hasSequenceGaps(claims: TicketDocument[]): boolean {
+  if (!claims || claims.length === 0) return false
+
+  const yearSeqMap = new Map<number, number[]>()
+  for (const claim of claims) {
+    const parsed = parseClaimNumber(claim.id || "")
+    if (!parsed) {
+      return true
+    }
+    const list = yearSeqMap.get(parsed.year) || []
+    list.push(parsed.seq)
+    yearSeqMap.set(parsed.year, list)
+  }
+
+  for (const [, seqs] of yearSeqMap.entries()) {
+    const sorted = [...seqs].sort((a, b) => a - b)
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i] !== i + 1) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+/**
+ * Pure deterministic claim resequencing helper:
+ * 1. Sorts all claims in ascending chronological order (createdAt ascending, using original
+ *    numeric suffix order as tie-breaker / primary sequential anchor within the same year).
+ * 2. Groups claims by their year prefix (e.g., CLM-2026-) and reassigns contiguous 3-digit
+ *    zero-padded sequence numbers starting from 001 (CLM-2026-001..CLM-2026-00N).
+ * 3. Strips any MongoDB _id property so documents can be safely upserted without immutable _id conflicts.
+ */
+export function resequenceClaimNumbers(
+  claims: TicketDocument[],
+  nowIso: string = new Date().toISOString()
+): ResequenceClaimsResult {
+  const idMapping: Record<string, string> = {}
+  const caseTitleMapping: Record<string, string> = {}
+  const maxSequencePerYear: Record<number, number> = {}
+
+  const sortedClaims = [...claims].sort((a, b) => {
+    const parsedA = parseClaimNumber(a.id || "")
+    const parsedB = parseClaimNumber(b.id || "")
+
+    // If both claims already have valid CLM-YYYY-SEQ numbers in the same year with distinct suffixes,
+    // preserve their relative sequential order so deleting a middle claim shifts higher numbers down
+    // cleanly without reshuffling earlier claims.
+    if (parsedA && parsedB && parsedA.year === parsedB.year && parsedA.seq !== parsedB.seq) {
+      return parsedA.seq - parsedB.seq
+    }
+
+    const timeA = parseDateToTimestamp(a.createdAt || a.date)
+    const timeB = parseDateToTimestamp(b.createdAt || b.date)
+    if (timeA !== timeB) {
+      return timeA - timeB
+    }
+
+    if (parsedA && parsedB && parsedA.seq !== parsedB.seq) {
+      return parsedA.seq - parsedB.seq
+    }
+
+    return String(a.id || "").localeCompare(String(b.id || ""), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  })
+
+  // Group by Gregorian year prefix (e.g. 2026 -> CLM-2026-)
+  const yearGroups = new Map<number, TicketDocument[]>()
+  for (const ticket of sortedClaims) {
+    const parsed = parseClaimNumber(ticket.id || "")
+    const year = parsed ? parsed.year : extractGregorianYear(ticket.createdAt || ticket.date)
+    const group = yearGroups.get(year) || []
+    group.push(ticket)
+    yearGroups.set(year, group)
+  }
+
+  const updatedTickets: TicketDocument[] = []
+  let reindexedCount = 0
+
+  for (const [year, group] of yearGroups.entries()) {
+    group.forEach((ticket, index) => {
+      const oldId = ticket.id
+      const paddedIndex = String(index + 1).padStart(3, "0")
+      const newClaimNumber = `CLM-${year}-${paddedIndex}`
+
+      if (oldId !== newClaimNumber) {
+        reindexedCount++
+      }
+
+      idMapping[oldId] = newClaimNumber
+      if (ticket.title && ticket.title === oldId) {
+        caseTitleMapping[ticket.title] = newClaimNumber
+      }
+
+      // Harmonize title and claimTitle if they referenced the old Claim ID
+      const isRawNumberTitle = /^\d+$/.test(String(ticket.title || "").trim())
+      const isOldIdTitle = ticket.title === oldId || /^CLM-\d{4}-\d+$/i.test(String(ticket.title || "").trim())
+      let newTitle = ticket.title || newClaimNumber
+      if (isRawNumberTitle || isOldIdTitle) {
+        newTitle = newClaimNumber
+      } else if (oldId && newTitle.includes(oldId)) {
+        newTitle = newTitle.replaceAll(oldId, newClaimNumber)
+      }
+
+      let newClaimTitle = ticket.claimTitle
+      if (newClaimTitle) {
+        if (newClaimTitle === oldId || /^CLM-\d{4}-\d+$/i.test(newClaimTitle.trim())) {
+          newClaimTitle = newClaimNumber
+        } else if (oldId && newClaimTitle.includes(oldId)) {
+          newClaimTitle = newClaimTitle.replaceAll(oldId, newClaimNumber)
+        }
+      }
+
+      // Strip MongoDB immutable _id field to prevent updateOne / upsert errors
+      const rawRecord = { ...(ticket as TicketDocument & { _id?: unknown }) }
+      delete rawRecord._id
+
+      const updatedTicket: TicketDocument = {
+        ...rawRecord,
+        id: newClaimNumber,
+        title: newTitle,
+        ...(newClaimTitle !== undefined ? { claimTitle: newClaimTitle } : {}),
+        ...(oldId !== newClaimNumber ? { previousId: oldId, updatedAt: nowIso } : {}),
+      }
+
+      updatedTickets.push(updatedTicket)
+    })
+
+    maxSequencePerYear[year] = group.length
+  }
+
+  return {
+    tickets: updatedTickets,
+    idMapping,
+    caseTitleMapping,
+    maxSequencePerYear,
+    reindexedCount,
+  }
+}
+
 export interface MigrationResult {
   success: boolean
   totalClaimsProcessed: number
@@ -61,17 +220,13 @@ export interface MigrationResult {
 }
 
 /**
- * Idempotent Data Migration Engine:
- * Re-indexes all existing claim records sequentially in the format CLM-YYYY-XXX
- * sorted chronologically by initial creation timestamp (createdAt / openedAt ascending).
+ * Idempotent Data Migration & Automatic Resequencing Engine:
+ * Re-indexes all active claim records sequentially in the format CLM-YYYY-XXX (001..N with zero gaps).
  * Cascade-updates all foreign key relations across equipments, RMA records, attached permits,
  * and transaction logs. Calibrates sequence counters for subsequent atomic generation.
  */
 export async function migrateClaimSequences(): Promise<MigrationResult> {
   const nowIso = new Date().toISOString()
-  const idMapping: Record<string, string> = {}
-  const caseTitleMapping: Record<string, string> = {}
-  const maxSequencePerYear: Record<number, number> = {}
 
   let diskTickets: TicketDocument[] = []
   if (fs.existsSync(TICKETS_FILE)) {
@@ -84,96 +239,49 @@ export async function migrateClaimSequences(): Promise<MigrationResult> {
 
   let mongoTickets: TicketDocument[] = []
   let db: Awaited<ReturnType<typeof getDb>> = null
+  let mongoLoaded = false
 
   if (isMongoConfigured()) {
     try {
       db = await getDb()
       if (db) {
         mongoTickets = await db.collection<TicketDocument>("tickets").find({}).toArray()
+        mongoLoaded = true
       }
     } catch (err) {
       console.warn("Could not fetch mongo tickets during migration:", err)
     }
   }
 
-  // Combine unique tickets by ID, prioritizing mongo records if present, excluding deleted tickets
+  // Use authoritative MongoDB tickets when connected, or persistent disk tickets when offline
   const deletedSet = new Set(getPersistentDeletedTicketIds())
+  const sourceTickets = mongoLoaded && mongoTickets.length > 0 ? mongoTickets : diskTickets
   const ticketMap = new Map<string, TicketDocument>()
-  for (const t of diskTickets) {
-    if (t.id && !deletedSet.has(t.id)) ticketMap.set(t.id, t)
-  }
-  for (const t of mongoTickets) {
-    if (t.id && !deletedSet.has(t.id)) ticketMap.set(t.id, t)
+  for (const t of sourceTickets) {
+    if (t.id && !deletedSet.has(t.id)) {
+      ticketMap.set(t.id, t)
+    }
   }
 
   const allTickets = Array.from(ticketMap.values())
 
-  // Sort all claims chronologically by initial creation timestamp ascending
-  allTickets.sort((a, b) => {
-    const timeA = parseDateToTimestamp(a.createdAt || a.date)
-    const timeB = parseDateToTimestamp(b.createdAt || b.date)
+  // Run deterministic sequential re-numbering
+  const {
+    tickets: updatedTickets,
+    idMapping,
+    caseTitleMapping,
+    maxSequencePerYear,
+    reindexedCount,
+  } = resequenceClaimNumbers(allTickets, nowIso)
 
-    if (timeA !== timeB) {
-      return timeA - timeB
-    }
-
-    // Stable tie-breaker: existing CLM- prefix first, then alphabetical ID
-    const aIsClm = String(a.id).startsWith("CLM-")
-    const bIsClm = String(b.id).startsWith("CLM-")
-    if (aIsClm && !bIsClm) return -1
-    if (!aIsClm && bIsClm) return 1
-
-    return String(a.id).localeCompare(String(b.id))
-  })
-
-  // Group by Gregorian year to reassign CLM-{YYYY}-{SEQ} sequentially starting from 001
-  const yearGroups = new Map<number, TicketDocument[]>()
-  for (const ticket of allTickets) {
-    const year = extractGregorianYear(ticket.createdAt || ticket.date)
-    const group = yearGroups.get(year) || []
-    group.push(ticket)
-    yearGroups.set(year, group)
+  // Calibrate sequence counters per year
+  for (const [year, maxSeq] of Object.entries(maxSequencePerYear)) {
+    await setClaimSequence(Number(year), maxSeq)
   }
 
-  const updatedTickets: TicketDocument[] = []
-  let reindexedCount = 0
-
-  for (const [year, group] of yearGroups.entries()) {
-    let currentSeq = 1
-
-    for (const ticket of group) {
-      const oldId = ticket.id
-      const newId = formatClaimNumber(year, currentSeq)
-
-      if (oldId !== newId) {
-        reindexedCount++
-      }
-
-      idMapping[oldId] = newId
-      if (ticket.title && ticket.title === oldId) {
-        caseTitleMapping[ticket.title] = newId
-      }
-
-      // Preserve descriptive title, or harmonize if title was previously a raw legacy number
-      const isRawNumberTitle = /^\d+$/.test(String(ticket.title).trim())
-      const isOldIdTitle = ticket.title === oldId
-      const newTitle = isRawNumberTitle || isOldIdTitle ? newId : ticket.title || newId
-
-      const updatedTicket: TicketDocument = {
-        ...ticket,
-        id: newId,
-        title: newTitle,
-        updatedAt: nowIso,
-      }
-
-      updatedTickets.push(updatedTicket)
-      currentSeq++
-    }
-
-    maxSequencePerYear[year] = currentSeq - 1
-    // Calibrate sequence counter for this year
-    await setClaimSequence(year, currentSeq - 1)
-  }
+  // Ensure none of the active resequenced IDs remain marked as deleted on disk
+  const activeNewIds = updatedTickets.map((t) => t.id)
+  removePersistentDeletedTicketIds(activeNewIds)
 
   // Cascade updates metrics
   let equipmentsUpdated = 0
@@ -195,22 +303,27 @@ export async function migrateClaimSequences(): Promise<MigrationResult> {
 
       for (const rma of diskRma) {
         let changed = false
-        // Update ticketId reference
-        if (rma.ticketId && idMapping[rma.ticketId]) {
+        if (rma.ticketId && idMapping[rma.ticketId] && idMapping[rma.ticketId] !== rma.ticketId) {
           rma.ticketId = idMapping[rma.ticketId]
           changed = true
         }
 
-        // Check if caseName matched an old ticket ID or ticket title
-        if (rma.caseName && idMapping[rma.caseName]) {
+        if (rma.caseName && idMapping[rma.caseName] && idMapping[rma.caseName] !== rma.caseName) {
           rma.caseName = idMapping[rma.caseName]
           changed = true
-        } else if (rma.caseName && caseTitleMapping[rma.caseName]) {
+        } else if (rma.caseName && caseTitleMapping[rma.caseName] && caseTitleMapping[rma.caseName] !== rma.caseName) {
           rma.caseName = caseTitleMapping[rma.caseName]
           changed = true
+        } else if (rma.caseName) {
+          for (const [oldId, newId] of Object.entries(idMapping)) {
+            if (oldId !== newId && rma.caseName.includes(oldId)) {
+              rma.caseName = rma.caseName.replaceAll(oldId, newId)
+              changed = true
+              break
+            }
+          }
         }
 
-        // Link with ticket by matching equipment serial if unlinked
         if (!rma.ticketId && rma.serialNo) {
           const matchingTicket = updatedTickets.find((t) => t.serialNo === rma.serialNo)
           if (matchingTicket) {
@@ -222,14 +335,13 @@ export async function migrateClaimSequences(): Promise<MigrationResult> {
           }
         }
 
-        // Cascade attached permits if present
-        if (rma.permitInfo && rma.permitInfo.rmaId && idMapping[rma.permitInfo.rmaId]) {
+        if (rma.permitInfo && rma.permitInfo.rmaId && idMapping[rma.permitInfo.rmaId] && idMapping[rma.permitInfo.rmaId] !== rma.permitInfo.rmaId) {
           rma.permitInfo.rmaId = idMapping[rma.permitInfo.rmaId]
           changed = true
         }
         if (Array.isArray(rma.permits)) {
           for (const p of rma.permits) {
-            if (p.rmaId && idMapping[p.rmaId]) {
+            if (p.rmaId && idMapping[p.rmaId] && idMapping[p.rmaId] !== p.rmaId) {
               p.rmaId = idMapping[p.rmaId]
               changed = true
             }
@@ -259,7 +371,7 @@ export async function migrateClaimSequences(): Promise<MigrationResult> {
         if (Array.isArray(assets)) {
           let modified = false
           for (const a of assets) {
-            if (a.currentClaimId && idMapping[a.currentClaimId]) {
+            if (a.currentClaimId && idMapping[a.currentClaimId] && idMapping[a.currentClaimId] !== a.currentClaimId) {
               a.currentClaimId = idMapping[a.currentClaimId]
               a.updatedAt = nowIso
               equipmentsUpdated++
@@ -279,7 +391,7 @@ export async function migrateClaimSequences(): Promise<MigrationResult> {
   // 4. Update MongoDB (if configured and connected)
   if (db) {
     try {
-      // 4a. Update Tickets Collection (drop old docs or replace with bulkWrite)
+      // 4a. Upsert all resequenced tickets (with _id stripped so no immutable _id conflict occurs)
       for (const t of updatedTickets) {
         await db.collection("tickets").updateOne(
           { id: t.id },
@@ -288,64 +400,77 @@ export async function migrateClaimSequences(): Promise<MigrationResult> {
         )
       }
 
-      // Delete any tickets with old IDs that were changed
-      for (const [oldId, newId] of Object.entries(idMapping)) {
-        if (oldId !== newId) {
-          await db.collection("tickets").deleteOne({ id: oldId })
+      // Delete any leftover ticket documents whose ID is not in the active contiguous set
+      if (activeNewIds.length > 0) {
+        await db.collection("tickets").deleteMany({
+          id: { $nin: activeNewIds },
+        })
+      }
+
+      const changedEntries = Object.entries(idMapping).filter(([oldId, newId]) => oldId !== newId)
+
+      if (changedEntries.length > 0) {
+        // 4b. Two-phase cascade update Equipments Collection to prevent chain-shift collisions
+        for (const [oldId, newId] of changedEntries) {
+          await db.collection<EquipmentDocument>("equipments").updateMany(
+            { currentClaimId: oldId },
+            { $set: { currentClaimId: `__REINDEX__${newId}`, updatedAt: nowIso } }
+          )
+        }
+        for (const [, newId] of changedEntries) {
+          const res = await db.collection<EquipmentDocument>("equipments").updateMany(
+            { currentClaimId: `__REINDEX__${newId}` },
+            { $set: { currentClaimId: newId, updatedAt: nowIso } }
+          )
+          equipmentsUpdated += res.modifiedCount
+        }
+
+        // 4c. Two-phase cascade update RMA Collection
+        for (const [oldId, newId] of changedEntries) {
+          await db.collection<RmaDocument>("rma").updateMany(
+            { ticketId: oldId },
+            { $set: { ticketId: `__REINDEX__${newId}`, updatedAt: nowIso } }
+          )
+          await db.collection<RmaDocument>("rma").updateMany(
+            { caseName: oldId },
+            { $set: { caseName: `__REINDEX__${newId}`, updatedAt: nowIso } }
+          )
+        }
+        for (const [, newId] of changedEntries) {
+          const resTicket = await db.collection<RmaDocument>("rma").updateMany(
+            { ticketId: `__REINDEX__${newId}` },
+            { $set: { ticketId: newId, updatedAt: nowIso } }
+          )
+          const resCase = await db.collection<RmaDocument>("rma").updateMany(
+            { caseName: `__REINDEX__${newId}` },
+            { $set: { caseName: newId, updatedAt: nowIso } }
+          )
+          rmaRecordsUpdated += resTicket.modifiedCount + resCase.modifiedCount
+        }
+
+        // 4d. Two-phase cascade update Transaction Logs
+        for (const [oldId, newId] of changedEntries) {
+          await db.collection("transaction_logs").updateMany(
+            { targetType: "ticket", targetId: oldId },
+            { $set: { targetId: `__REINDEX__${newId}` } }
+          )
+          await db.collection("transaction_logs").updateMany(
+            { "details.currentClaimId": oldId },
+            { $set: { "details.currentClaimId": `__REINDEX__${newId}` } }
+          )
+        }
+        for (const [, newId] of changedEntries) {
+          const resLogs = await db.collection("transaction_logs").updateMany(
+            { targetType: "ticket", targetId: `__REINDEX__${newId}` },
+            { $set: { targetId: newId } }
+          )
+          const resDetails = await db.collection("transaction_logs").updateMany(
+            { "details.currentClaimId": `__REINDEX__${newId}` },
+            { $set: { "details.currentClaimId": newId } }
+          )
+          transactionLogsUpdated += resLogs.modifiedCount + resDetails.modifiedCount
         }
       }
-
-      // 4b. Cascade update Equipments Collection
-      for (const [oldId, newId] of Object.entries(idMapping)) {
-        const res = await db.collection<EquipmentDocument>("equipments").updateMany(
-          { currentClaimId: oldId },
-          { $set: { currentClaimId: newId, updatedAt: nowIso } }
-        )
-        equipmentsUpdated += res.modifiedCount
-      }
-
-      // 4c. Cascade update RMA Collection
-      for (const [oldId, newId] of Object.entries(idMapping)) {
-        const resTicket = await db.collection<RmaDocument>("rma").updateMany(
-          { ticketId: oldId },
-          { $set: { ticketId: newId, updatedAt: nowIso } }
-        )
-        const resCase = await db.collection<RmaDocument>("rma").updateMany(
-          { caseName: oldId },
-          { $set: { caseName: newId, updatedAt: nowIso } }
-        )
-        rmaRecordsUpdated += resTicket.modifiedCount + resCase.modifiedCount
-      }
-
-      // 4d. Cascade update Transaction Logs
-      for (const [oldId, newId] of Object.entries(idMapping)) {
-        const resLogs = await db.collection("transaction_logs").updateMany(
-          { targetType: "ticket", targetId: oldId },
-          { $set: { targetId: newId } }
-        )
-        const resDetails = await db.collection("transaction_logs").updateMany(
-          { "details.currentClaimId": oldId },
-          { $set: { "details.currentClaimId": newId } }
-        )
-        transactionLogsUpdated += resLogs.modifiedCount + resDetails.modifiedCount
-      }
-
-      // Record Migration Audit Log
-      await db.collection("transaction_logs").insertOne({
-        id: `TX-CLAIM-REINDEX-${Date.now()}`,
-        action: "CLAIM_UPDATED",
-        targetType: "ticket",
-        targetId: "SYSTEM_REINDEX",
-        details: {
-          migration: "CLAIM_SEQUENCE_REINDEX",
-          totalClaims: updatedTickets.length,
-          reindexedCount,
-          idMapping,
-          maxSequencePerYear,
-          timestamp: nowIso,
-        },
-        timestamp: nowIso,
-      })
     } catch (mongoErr) {
       console.warn("MongoDB cascade update encountered partial notice:", mongoErr)
     }
