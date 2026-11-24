@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { useRealtimeDashboard } from "@/hooks/useRealtimeDashboard"
 import { useLocale } from "@/i18n/LocaleContext"
+import { PdfPreviewModal } from "@/components/pdf/PdfPreviewModal"
 import type { DashboardMetrics } from "@/lib/dashboard/calculateMetrics"
 import type { TicketDocument, RmaDocument, StationDocument } from "@/types/database"
 
@@ -40,15 +41,58 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
   const [mounted, setMounted] = React.useState(false)
   const [isExportingPdf, setIsExportingPdf] = React.useState(false)
   const [isExportingExecutivePdf, setIsExportingExecutivePdf] = React.useState(false)
+  const previewReqIdRef = React.useRef(0)
+  const [pdfPreview, setPdfPreview] = React.useState<{
+    open: boolean
+    mode: "summary" | "monthly"
+    reportTitle: string
+    filename: string
+    blob: Blob | null
+    isLoading: boolean
+    errorMessage: string | null
+  }>({
+    open: false,
+    mode: "summary",
+    reportTitle: "",
+    filename: "",
+    blob: null,
+    isLoading: false,
+    errorMessage: null,
+  })
 
   React.useEffect(() => {
     setMounted(true)
   }, [])
 
+  const handleClosePdfPreview = React.useCallback(() => {
+    previewReqIdRef.current += 1
+    setPdfPreview((prev) => ({
+      ...prev,
+      open: false,
+      blob: null,
+      isLoading: false,
+      errorMessage: null,
+    }))
+  }, [])
+
   const handleExportPdf = React.useCallback(async () => {
+    const reqId = ++previewReqIdRef.current
+    const now = new Date()
+    const fallbackCode = `CLAIMS-RPT-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-Monthly.pdf`
+
+    setPdfPreview({
+      open: true,
+      mode: "monthly",
+      reportTitle: locale === "th" ? "พรีวิวรายงานประจำเดือน" : "Monthly Report Preview",
+      filename: fallbackCode,
+      blob: null,
+      isLoading: true,
+      errorMessage: null,
+    })
+
     try {
       setIsExportingPdf(true)
-      const [{ generateMonthlyReportData }, { exportMonthlyReportPdf }] = await Promise.all([
+      const [{ generateMonthlyReportData }, { generateMonthlyReportPdfBlob }] = await Promise.all([
         import("@/lib/pdf/generateReportData"),
         import("@/lib/pdf/exportMonthlyReportPdf"),
       ])
@@ -92,21 +136,56 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
         stations: liveStations,
       })
 
-      await exportMonthlyReportPdf(reportData)
+      const { blob, filename } = await generateMonthlyReportPdfBlob(reportData)
+      if (previewReqIdRef.current !== reqId) return
+
+      setPdfPreview((prev) => ({
+        ...prev,
+        blob,
+        filename,
+        isLoading: false,
+        errorMessage: null,
+      }))
     } catch (err) {
-      console.error("[Dashboard] Export PDF failed:", err)
+      console.error("[Dashboard] Preview Monthly PDF failed:", err)
+      if (previewReqIdRef.current !== reqId) return
+      setPdfPreview((prev) => ({
+        ...prev,
+        isLoading: false,
+        errorMessage:
+          err instanceof Error
+            ? err.message
+            : locale === "th"
+            ? "เกิดข้อผิดพลาดระหว่างสร้างเอกสาร PDF"
+            : "An unexpected error occurred while generating the PDF.",
+      }))
     } finally {
       setIsExportingPdf(false)
     }
-  }, [metrics])
+  }, [metrics, locale])
 
   const handleExportExecutivePdf = React.useCallback(async () => {
+    const reqId = ++previewReqIdRef.current
+    const now = new Date()
+    const fallbackCode = `CLAIMS-RPT-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}.pdf`
+
+    setPdfPreview({
+      open: true,
+      mode: "summary",
+      reportTitle: locale === "th" ? "พรีวิวรายงานสรุป" : "Summary Report Preview",
+      filename: fallbackCode,
+      blob: null,
+      isLoading: true,
+      errorMessage: null,
+    })
+
     try {
       setIsExportingExecutivePdf(true)
-      const [{ generateExecutiveSummaryData }, { exportExecutiveSummaryPdf }] = await Promise.all([
-        import("@/lib/pdf/generateReportData"),
-        import("@/lib/pdf/exportExecutiveSummaryPdf"),
-      ])
+      const [{ generateExecutiveSummaryData }, { generateExecutiveSummaryPdfBlob }] =
+        await Promise.all([
+          import("@/lib/pdf/generateReportData"),
+          import("@/lib/pdf/exportExecutiveSummaryPdf"),
+        ])
 
       // Fetch live production records concurrently (strictly zero mock data)
       const [ticketsRes, rmaRes, stationsRes] = await Promise.allSettled([
@@ -147,13 +226,33 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
         stations: liveStations,
       })
 
-      await exportExecutiveSummaryPdf(reportData)
+      const { blob, filename } = await generateExecutiveSummaryPdfBlob(reportData)
+      if (previewReqIdRef.current !== reqId) return
+
+      setPdfPreview((prev) => ({
+        ...prev,
+        blob,
+        filename,
+        isLoading: false,
+        errorMessage: null,
+      }))
     } catch (err) {
-      console.error("[Dashboard] Export Executive PDF failed:", err)
+      console.error("[Dashboard] Preview Executive PDF failed:", err)
+      if (previewReqIdRef.current !== reqId) return
+      setPdfPreview((prev) => ({
+        ...prev,
+        isLoading: false,
+        errorMessage:
+          err instanceof Error
+            ? err.message
+            : locale === "th"
+            ? "เกิดข้อผิดพลาดระหว่างสร้างเอกสาร PDF"
+            : "An unexpected error occurred while generating the PDF.",
+      }))
     } finally {
       setIsExportingExecutivePdf(false)
     }
-  }, [metrics])
+  }, [metrics, locale])
 
   const formattedSyncTime = React.useMemo(() => {
     if (!mounted || !lastSyncTime) return locale === "th" ? "พร้อมใช้งาน" : "Ready"
@@ -248,27 +347,27 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
 
           {/* Action Triggers: Export PDF & Refresh */}
           <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
-            {/* Export Single-Page Executive Summary PDF Button */}
+            {/* Preview Single-Page Summary PDF Button */}
             <button
               type="button"
               onClick={handleExportExecutivePdf}
               disabled={isExportingExecutivePdf}
               title={
                 locale === "th"
-                  ? "ส่งออกรายงานสรุปผู้บริหาร 1 หน้า A4 กะทัดรัด (Single-Page Executive Summary PDF)"
-                  : "Export Single-Page A4 Executive Summary Report (PDF)"
+                  ? "พรีวิวและดาวน์โหลดรายงานสรุป 1 หน้า A4 (Summary PDF)"
+                  : "Preview & Download Single-Page A4 Summary Report (PDF)"
               }
               className="inline-flex items-center gap-2 px-3.5 py-2 min-h-[44px] text-xs font-semibold rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/30 shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 backdrop-blur-md transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer touch-manipulation hover:-translate-y-0.5"
             >
               {isExportingExecutivePdf ? (
                 <>
                   <Loader2 className="size-3.5 animate-spin text-white" />
-                  <span>{locale === "th" ? "กำลังสร้างสรุป 1 หน้า..." : "Generating 1-Page PDF..."}</span>
+                  <span>{locale === "th" ? "กำลังสร้างสรุป..." : "Generating PDF..."}</span>
                 </>
               ) : (
                 <>
                   <FileText className="size-3.5 text-emerald-100" />
-                  <span>{locale === "th" ? "สรุปผู้บริหาร 1 หน้า (PDF)" : "Executive Summary (1-Page PDF)"}</span>
+                  <span>{locale === "th" ? "สรุป (PDF)" : "Summary (PDF)"}</span>
                 </>
               )}
             </button>
@@ -956,6 +1055,21 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
           </div>
         </div>
       </div>
+
+      {/* In-App PDF Preview Modal */}
+      <PdfPreviewModal
+        open={pdfPreview.open}
+        onClose={handleClosePdfPreview}
+        reportTitle={pdfPreview.reportTitle}
+        filename={pdfPreview.filename}
+        blob={pdfPreview.blob}
+        isLoading={pdfPreview.isLoading}
+        errorMessage={pdfPreview.errorMessage}
+        onRetry={
+          pdfPreview.mode === "monthly" ? handleExportPdf : handleExportExecutivePdf
+        }
+        locale={locale}
+      />
     </main>
   )
 }
