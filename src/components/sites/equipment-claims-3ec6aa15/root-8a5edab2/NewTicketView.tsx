@@ -446,8 +446,8 @@ export function NewTicketView() {
           )}
 
           {/* Section 1: อุปกรณ์ */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-border pb-2.5">
+          <div className="rounded-xl border border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 p-5 shadow-xs flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
               <h2 className="text-base font-semibold text-foreground">
                 1. อุปกรณ์ที่แจ้งเคลม
               </h2>
@@ -499,7 +499,7 @@ export function NewTicketView() {
                     placeholder="พิมพ์เพื่อค้นหา เช่น 1025B... หรือ Huawei..."
                     value={deviceSearch}
                     onChange={(e) => setDeviceSearch(e.target.value)}
-                    className="pl-8 pr-8 h-9 text-xs"
+                    className="pl-8 pr-8 h-9 text-xs bg-white text-slate-900 border-slate-200 placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700"
                   />
                   {deviceSearch && (
                     <button
@@ -538,7 +538,7 @@ export function NewTicketView() {
                       }
                     }
                   }}
-                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="">
                     {deviceSearch
@@ -582,12 +582,12 @@ export function NewTicketView() {
                     </p>
                   </div>
                 </div>
-                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 shrink-0">
+                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 shrink-0">
                   ทะเบียนฐานข้อมูลกลาง
                 </span>
               </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 rounded-lg bg-slate-100 dark:bg-slate-800/60 p-3 text-xs text-muted-foreground">
                 <Info className="size-4 shrink-0" />
                 <span>กรุณาเลือกอุปกรณ์จากรายการด้านบน ข้อมูลรุ่น ยี่ห้อ และหมวดหมู่จะถูกดึงมาให้อัตโนมัติ</span>
               </div>
@@ -595,8 +595,8 @@ export function NewTicketView() {
           </div>
 
           {/* Section 2: ข้อมูลสถานีและสถานที่ติดตั้ง (Cascaded Selection) */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-border pb-2.5">
+          <div className="rounded-xl border border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 p-5 shadow-xs flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
               <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
                 <MapPin className="size-4 text-brand" />
                 <span>2. ข้อมูลสถานีและสถานที่ติดตั้ง (ฐานข้อมูลสถานี 197 จุด)</span>
@@ -621,7 +621,7 @@ export function NewTicketView() {
                     setSelectedDistrict("")
                     setSelectedStationId("")
                   }}
-                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="">-- ทุกจังหวัด ({availableProvinces.length}) --</option>
                   {availableProvinces.map((prov) => (
@@ -642,7 +642,7 @@ export function NewTicketView() {
                     setSelectedStationId("")
                   }}
                   disabled={!selectedProvince}
-                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none disabled:opacity-50"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="">-- ทุกอำเภอ ({availableDistricts.length}) --</option>
                   {availableDistricts.map((dist) => (
@@ -659,7 +659,7 @@ export function NewTicketView() {
                 <select
                   value={selectedStationId}
                   onChange={(e) => handleStationChange(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="">-- เลือกสถานี ({availableStations.length}) --</option>
                   {availableStations.map((st) => (
@@ -675,7 +675,7 @@ export function NewTicketView() {
             {selectedStation && (
               <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3.5 text-xs text-foreground flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
                 <div className="flex items-start gap-2.5">
-                  <Building2 className="size-4 text-blue-600 mt-0.5 shrink-0" />
+                  <Building2 className="size-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-foreground">{selectedStation.name}</span>
@@ -691,7 +691,7 @@ export function NewTicketView() {
                     </p>
                   </div>
                 </div>
-                <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-700 shrink-0">
+                <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300 shrink-0">
                   พิกัด: {selectedStation.lat.toFixed(4)}, {selectedStation.lng.toFixed(4)}
                 </span>
               </div>
@@ -699,8 +699,8 @@ export function NewTicketView() {
           </div>
 
           {/* Section 3: ข้อมูลเคส */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
-            <h2 className="text-base font-semibold text-foreground border-b border-border pb-2.5">
+          <div className="rounded-xl border border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 p-5 shadow-xs flex flex-col gap-4">
+            <h2 className="text-base font-semibold text-foreground border-b border-slate-200 dark:border-slate-800 pb-2.5">
               3. ข้อมูลการแจ้งเคลม
             </h2>
 
@@ -721,7 +721,7 @@ export function NewTicketView() {
                     tabIndex={-1}
                     value={nextClaimPreview}
                     placeholder="CLM-2026-004"
-                    className="h-9 text-xs font-mono font-semibold bg-muted/60 text-foreground cursor-not-allowed border-dashed select-none pr-8 opacity-90"
+                    className="h-9 text-xs font-mono font-semibold bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/70 dark:text-slate-200 dark:border-slate-700 cursor-not-allowed border-dashed select-none pr-8 opacity-90"
                   />
                   <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
                     <Lock className="size-3.5" />
@@ -738,7 +738,7 @@ export function NewTicketView() {
                   type="date"
                   value={receivedDate}
                   onChange={(e) => setReceivedDate(e.target.value)}
-                  className="h-9 text-xs"
+                  className="h-9 text-xs bg-white text-slate-900 border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700"
                 />
               </div>
 
@@ -747,7 +747,7 @@ export function NewTicketView() {
                 <select
                   value={warranty}
                   onChange={(e) => setWarranty(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="warranty">อยู่ในประกัน</option>
                   <option value="expired">นอกประกัน</option>
@@ -768,7 +768,7 @@ export function NewTicketView() {
                     clearError("title")
                   }}
                   placeholder="ระบุหัวข้อหรือชื่อเรื่องการเคลม..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/60 border border-slate-700/60 text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+                  className="h-9 w-full rounded-md border bg-white text-slate-900 border-slate-200 placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700 dark:placeholder:text-slate-500 px-3 py-1 text-xs shadow-xs transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
                 {formErrors.claimTitle && (
                   <span className="text-[11px] text-destructive">
@@ -790,7 +790,7 @@ export function NewTicketView() {
                     clearError("problemDesc")
                   }}
                   placeholder="ระบุอาการผิดปกติหรือสาเหตุที่ต้องการส่งเคลมอย่างละเอียด..."
-                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                  className="w-full rounded-md border bg-white text-slate-900 border-slate-200 placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700 dark:placeholder:text-slate-500 px-3 py-2 text-xs shadow-xs outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                 />
                 {formErrors.problemDesc && (
                   <span className="text-[11px] text-destructive">
@@ -823,8 +823,8 @@ export function NewTicketView() {
           />
 
           {/* Section 4: กำหนดการและศูนย์บริการ */}
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs flex flex-col gap-4">
-            <h2 className="text-base font-semibold text-foreground border-b border-border pb-2.5">
+          <div className="rounded-xl border border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 p-5 shadow-xs flex flex-col gap-4">
+            <h2 className="text-base font-semibold text-foreground border-b border-slate-200 dark:border-slate-800 pb-2.5">
               4. กำหนดการและศูนย์บริการ
             </h2>
 
@@ -834,7 +834,7 @@ export function NewTicketView() {
                 <select
                   value={serviceCenter}
                   onChange={(e) => setServiceCenter(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="Huawei">Huawei</option>
                   <option value="Hytera">Hytera</option>
@@ -853,7 +853,7 @@ export function NewTicketView() {
                   type="date"
                   value={dueDate}
                   onChange={(e) => setDueDate(e.target.value)}
-                  className="h-9 text-xs"
+                  className="h-9 text-xs bg-white text-slate-900 border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700"
                 />
               </div>
             </div>
@@ -930,7 +930,7 @@ export function NewTicketView() {
                   placeholder="ค้นหา S/N, ยี่ห้อ, รุ่น, ชื่ออุปกรณ์..."
                   value={modalSearch}
                   onChange={(e) => setModalSearch(e.target.value)}
-                  className="pl-8 pr-7 h-8.5 text-xs"
+                  className="pl-8 pr-7 h-8.5 text-xs bg-white text-slate-900 border-slate-200 placeholder:text-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700"
                 />
                 {modalSearch && (
                   <button
@@ -947,7 +947,7 @@ export function NewTicketView() {
                 <select
                   value={modalVendor}
                   onChange={(e) => setModalVendor(e.target.value)}
-                  className="w-full h-8.5 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:border-ring focus-visible:outline-none"
+                  className="w-full h-8.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="all">ทุกยี่ห้อ (All Vendors)</option>
                   {modalVendors.map((v) => (
@@ -962,7 +962,7 @@ export function NewTicketView() {
                 <select
                   value={modalCategory}
                   onChange={(e) => setModalCategory(e.target.value)}
-                  className="w-full h-8.5 rounded-md border border-input bg-background px-2.5 text-xs focus-visible:border-ring focus-visible:outline-none truncate"
+                  className="w-full h-8.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none truncate dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="all">ทุกหมวดหมู่ (All Categories)</option>
                   {modalCategories.map((c) => (
