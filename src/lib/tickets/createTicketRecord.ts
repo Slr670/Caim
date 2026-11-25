@@ -176,12 +176,13 @@ export async function createTicketRecord(request: NextRequest) {
         }
         newTicketDoc.claimNumber = newTicketDoc.id
 
-        // 4. Record Transaction Log
+        // 4. Record Authentic Creation Timeline Entry Bound Strictly to Immutable claimId (uid)
         await db.collection("transaction_logs").insertOne({
           id: `TX-CLAIM-OPEN-${Date.now()}`,
           action: "CLAIM_OPENED",
           targetType: "ticket",
           targetId: newTicketDoc.id,
+          claimId: newTicketDoc.uid,
           claimUid: newTicketDoc.uid,
           details: {
             title: newTicketDoc.title,
@@ -189,6 +190,7 @@ export async function createTicketRecord(request: NextRequest) {
             stationId: newTicketDoc.stationId,
             station: newTicketDoc.station,
             status: newTicketDoc.status,
+            statusCode: newTicketDoc.statusCode || 1,
             reporter: newTicketDoc.reporter,
             assignee: newTicketDoc.assignee,
             remarks: newTicketDoc.remarks,

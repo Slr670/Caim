@@ -9,6 +9,7 @@ import {
   setClaimSequence,
 } from "./claimSequence"
 import { TicketDocument, RmaDocument, EquipmentDocument } from "@/types/database"
+import { reconcileClaimTimelineLogs } from "@/lib/claims/claimTimeline"
 import {
   getPersistentDeletedTicketIds,
   removePersistentDeletedTicketIds,
@@ -518,32 +519,12 @@ export async function migrateClaimSequences(): Promise<MigrationResult> {
           rmaRecordsUpdated += resTicket.modifiedCount + resCase.modifiedCount
         }
 
-        // 4d. Two-phase cascade update Transaction Logs
-        for (const [oldId, newId] of changedEntries) {
-          await db!.collection("transaction_logs").updateMany(
-            { targetType: "ticket", targetId: oldId },
-            { $set: { targetId: `__REINDEX__${newId}` } },
-            opts
-          )
-          await db!.collection("transaction_logs").updateMany(
-            { "details.currentClaimId": oldId },
-            { $set: { "details.currentClaimId": `__REINDEX__${newId}` } },
-            opts
-          )
-        }
-        for (const [, newId] of changedEntries) {
-          const resLogs = await db!.collection("transaction_logs").updateMany(
-            { targetType: "ticket", targetId: `__REINDEX__${newId}` },
-            { $set: { targetId: newId } },
-            opts
-          )
-          const resDetails = await db!.collection("transaction_logs").updateMany(
-            { "details.currentClaimId": `__REINDEX__${newId}` },
-            { $set: { "details.currentClaimId": newId } },
-            opts
-          )
-          transactionLogsUpdated += resLogs.modifiedCount + resDetails.modifiedCount
-        }
+        // 4d. Reconcile & purge orphaned timeline logs, binding all valid logs strictly to immutable claimId (uid)
+        const logRecon = await reconcileClaimTimelineLogs(db!, updatedTickets, session)
+        transactionLogsUpdated += logRecon.boundCount + logRecon.purgedCount
+      } else {
+        const logRecon = await reconcileClaimTimelineLogs(db!, updatedTickets, session)
+        transactionLogsUpdated += logRecon.boundCount + logRecon.purgedCount
       }
     }
 

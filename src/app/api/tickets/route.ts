@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse, after } from "next/server"
-import { getDb, isMongoConfigured } from "@/lib/mongodb"
+import { getDb, getMongoClient, isMongoConfigured } from "@/lib/mongodb"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import {
   TicketDocument,
   EquipmentDocument,
   CaimRepairOutcome,
-  ClaimTimelineEvent,
   TransactionLogDocument,
 } from "@/types/database"
 import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
@@ -18,7 +17,6 @@ import {
 import {
   calculateCaseDuration,
   calculateDueDate,
-  formatDisplayThaiDate,
 } from "@/lib/utils/caseDuration"
 import { dispatchStockFlowWebhook } from "@/lib/webhooks/stockFlowWebhook"
 import { requireCaimApiKey } from "@/lib/auth/apiKeyAuth"
@@ -30,6 +28,10 @@ import {
   hasSequenceGaps,
   migrateClaimSequences,
 } from "@/lib/sequences/migrateClaimSequences"
+import {
+  buildAuthoritativeTimeline,
+  reconcileClaimTimelineLogs,
+} from "@/lib/claims/claimTimeline"
 
 function sortTicketsByClaimId(list: TicketDocument[]): TicketDocument[] {
   return [...list].sort((a, b) =>
@@ -40,131 +42,6 @@ function sortTicketsByClaimId(list: TicketDocument[]): TicketDocument[] {
   )
 }
 
-const STAGE_TIMELINE_LABELS: Record<number, string> = {
-  1: "รับแจ้ง/รอตรวจสภาพ",
-  2: "ส่งศูนย์บริการแล้ว",
-  3: "รออะไหล่/กำลังซ่อม",
-  4: "ซ่อมเสร็จ/รอส่งมอบ",
-  5: "ปิดเคส (รับคืนเรียบร้อย)",
-  6: "ปฏิเสธเคลม (ไม่อยู่ในเงื่อนไข)",
-}
-
-function formatIsoToThaiDateTime(iso?: string): string {
-  if (!iso) return ""
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return formatDisplayThaiDate(iso)
-  return d.toLocaleDateString("th-TH", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
-function buildAuthoritativeTimeline(
-  ticket: TicketDocument,
-  durationDays: number,
-  txLogs: TransactionLogDocument[] = []
-): ClaimTimelineEvent[] {
-  const events: ClaimTimelineEvent[] = []
-  const statusCode = Number(ticket.statusCode) || 1
-  const reportedStr = formatDisplayThaiDate(ticket.reportedDate || ticket.date)
-
-  // 1. Add real status/update logs recorded in transaction_logs (newest first)
-  for (const log of txLogs) {
-    if (log.action === "CLAIM_UPDATED" && log.details) {
-      const nextCode =
-        typeof log.details.statusCode === "number" ? log.details.statusCode : undefined
-      const nextStatus =
-        typeof log.details.status === "string" ? log.details.status : undefined
-      const remark =
-        typeof log.details.remarks === "string" && log.details.remarks.trim() !== "-"
-          ? log.details.remarks.trim()
-          : ""
-      if (nextCode || nextStatus) {
-        const label = (nextCode && STAGE_TIMELINE_LABELS[nextCode]) || nextStatus || "อัปเดตสถานะ"
-        events.push({
-          title: `ปรับสถานะเป็น: ${label}${remark ? ` (${remark})` : ""}`,
-          timestamp: formatIsoToThaiDateTime(log.timestamp) || reportedStr,
-          duration: "บันทึกจากระบบฐานข้อมูล",
-        })
-      }
-    }
-  }
-
-  // 2. If no explicit status-update logs exist yet, synthesize exact milestones from this record's real DB fields
-  if (events.length === 0) {
-    if (statusCode === 5) {
-      const resolvedStamp =
-        ticket.returnDate && ticket.returnDate !== "—"
-          ? formatDisplayThaiDate(ticket.returnDate)
-          : ticket.lastTrackDate && ticket.lastTrackDate !== "—"
-          ? formatDisplayThaiDate(ticket.lastTrackDate)
-          : formatIsoToThaiDateTime(ticket.closedAt || ticket.updatedAt) || reportedStr
-      events.push({
-        title: `ปิดเคส · รับคืนอุปกรณ์เรียบร้อย${
-          ticket.repairResult && ticket.repairResult !== "-" ? ` (${ticket.repairResult})` : ""
-        }`,
-        timestamp: resolvedStamp,
-        duration: `รวมระยะเวลาดำเนินการ ${durationDays} วัน`,
-      })
-    } else if (statusCode === 6) {
-      const rejectedStamp =
-        ticket.returnDate && ticket.returnDate !== "—"
-          ? formatDisplayThaiDate(ticket.returnDate)
-          : formatIsoToThaiDateTime(ticket.closedAt || ticket.updatedAt) || reportedStr
-      events.push({
-        title: `ปฏิเสธเคลม${
-          ticket.repairResult && ticket.repairResult !== "-" ? ` (${ticket.repairResult})` : ""
-        }`,
-        timestamp: rejectedStamp,
-        duration: `ระยะเวลาดำเนินการ ${durationDays} วัน`,
-      })
-    } else if (statusCode === 3 || statusCode === 4) {
-      const trackStamp =
-        ticket.lastTrackDate && ticket.lastTrackDate !== "—"
-          ? formatDisplayThaiDate(ticket.lastTrackDate)
-          : formatIsoToThaiDateTime(ticket.updatedAt) || reportedStr
-      events.push({
-        title: `อัปเดตสถานะ · ${STAGE_TIMELINE_LABELS[statusCode]}`,
-        timestamp: trackStamp,
-        duration: `อายุงานสะสม ${durationDays} วัน`,
-      })
-    }
-
-    if (ticket.sentDate && ticket.sentDate !== "—" && statusCode >= 2) {
-      events.push({
-        title: `ส่งอุปกรณ์เข้าศูนย์บริการ${
-          ticket.serviceCenter ? ` (${ticket.serviceCenter})` : ""
-        }`,
-        timestamp: formatDisplayThaiDate(ticket.sentDate),
-        duration: "ดำเนินการส่งซ่อม",
-      })
-    }
-  }
-
-  // 3. Always anchor the initial claim creation milestone using ONLY this record's reportedDate / createdAt
-  const openLog = txLogs.find((l) => l.action === "CLAIM_OPENED")
-  const openTimestamp = openLog?.timestamp
-    ? `${reportedStr}`
-    : reportedStr
-  const openDetail =
-    statusCode === 1
-      ? `ค้างอยู่ ${durationDays} วัน`
-      : ticket.reporter && ticket.reporter !== "-"
-      ? `ผู้แจ้ง: ${ticket.reporter}`
-      : "เริ่มต้นกระบวนการเคลม"
-
-  events.push({
-    title: "เปิดเคส · รับแจ้ง/รอตรวจสภาพ",
-    timestamp: openTimestamp,
-    duration: openDetail,
-  })
-
-  return events
-}
-
 function enrichTicket(
   ticket: TicketDocument,
   txLogs: TransactionLogDocument[] = []
@@ -173,24 +50,27 @@ function enrichTicket(
   delete rawClean._id
 
   const uid = ensureImmutableClaimUid(rawClean)
-  const duration = calculateCaseDuration(rawClean)
-  const defaultDeadline = calculateDueDate(rawClean.date, 60).dueDateStr
-  const deadlineDate =
-    rawClean.deadlineDate && !rawClean.deadlineDate.includes("12 พ.ย. 2569")
-      ? rawClean.deadlineDate
-      : defaultDeadline
-
-  return {
+  const withUid: TicketDocument = {
     ...rawClean,
     uid,
     claimNumber: rawClean.id,
+  }
+  const duration = calculateCaseDuration(withUid)
+  const defaultDeadline = calculateDueDate(withUid.date, 60).dueDateStr
+  const deadlineDate =
+    withUid.deadlineDate && !withUid.deadlineDate.includes("12 พ.ย. 2569")
+      ? withUid.deadlineDate
+      : defaultDeadline
+
+  return {
+    ...withUid,
     deadlineDate,
     ageDays: duration.text,
     isOverdue: duration.isOverdue,
     overdueText: duration.isOverdue
-      ? duration.overdueText || rawClean.overdueText
+      ? duration.overdueText || withUid.overdueText
       : undefined,
-    timeline: buildAuthoritativeTimeline(rawClean, duration.days, txLogs),
+    timeline: buildAuthoritativeTimeline(withUid, duration.days, txLogs),
   }
 }
 
@@ -229,15 +109,24 @@ export async function GET(request: NextRequest) {
         if (db) {
           const collection = db.collection<TicketDocument>("tickets")
           if (id) {
-            // Ensure immutable UIDs & contiguous sequence numbers are persisted in DB first
-            const allCheck = await collection.find({}).toArray()
+            // Ensure immutable UIDs, contiguous sequence numbers, and reconciled timeline logs
+            let allCheck = await collection.find({}).toArray()
             const currentDeletedCheck = new Set(getPersistentDeletedTicketIds())
-            const activeCheck = allCheck.filter((t) => !currentDeletedCheck.has(t.id))
+            let activeCheck = allCheck.filter((t) => !currentDeletedCheck.has(t.id))
+            const unkeyedLogExists = await db
+              .collection("transaction_logs")
+              .findOne({ targetType: "ticket", claimUid: { $exists: false } })
+              .catch(() => null)
+
             if (
               hasSequenceGaps(activeCheck) ||
               activeCheck.some((t) => !t.uid || !t.claimNumber)
             ) {
               await migrateClaimSequences()
+              allCheck = await collection.find({}).toArray()
+              activeCheck = allCheck.filter((t) => !currentDeletedCheck.has(t.id))
+            } else if (unkeyedLogExists) {
+              await reconcileClaimTimelineLogs(db, activeCheck)
             }
 
             // Priority 1: Immutable primary key `uid`
@@ -259,23 +148,23 @@ export async function GET(request: NextRequest) {
               !currentDeleted.includes(item.id) &&
               (!item.uid || !currentDeleted.includes(item.uid))
             ) {
+              const resolvedItemUid = ensureImmutableClaimUid(item)
+              // Strictly query timeline logs ONLY via immutable foreign key (claimId / claimUid) — NEVER via mutable claimNumber!
               const txLogs = await db
                 .collection<TransactionLogDocument>("transaction_logs")
                 .find({
-                  $or: [
-                    ...(item.uid ? [{ claimUid: item.uid }] : []),
-                    { targetType: "ticket", targetId: item.id },
-                  ],
+                  targetType: "ticket",
+                  $or: [{ claimId: resolvedItemUid }, { claimUid: resolvedItemUid }],
                 })
                 .sort({ timestamp: -1 })
-                .limit(20)
+                .limit(30)
                 .toArray()
                 .catch(() => [])
 
               return NextResponse.json(
                 {
                   success: true,
-                  ticket: enrichTicket(item, txLogs),
+                  ticket: enrichTicket({ ...item, uid: resolvedItemUid }, txLogs),
                   source: "mongodb",
                 },
                 { headers: NO_CACHE_HEADERS }
@@ -592,7 +481,7 @@ export async function PUT(request: NextRequest) {
           const resolvedUid =
             mongoExisting?.uid ||
             currentTicket?.uid ||
-            (lookupUid || undefined)
+            (lookupUid || ensureImmutableClaimUid(mongoExisting || currentTicket || { id: resolvedClaimId }))
 
           const filterQuery = resolvedUid
             ? { $or: [{ uid: resolvedUid }, { id: resolvedClaimId }] }
@@ -601,7 +490,7 @@ export async function PUT(request: NextRequest) {
           await collection.updateOne(filterQuery, {
             $set: {
               ...setFields,
-              ...(resolvedUid ? { uid: resolvedUid } : {}),
+              uid: resolvedUid,
               claimNumber: resolvedClaimId,
             },
           })
@@ -618,32 +507,48 @@ export async function PUT(request: NextRequest) {
             }
           }
 
-          // Record Transaction Log
-          await db.collection("transaction_logs").insertOne({
-            id: `TX-CLAIM-UPD-${Date.now()}`,
-            action: "CLAIM_UPDATED",
-            targetType: "ticket",
-            targetId: resolvedClaimId,
-            claimUid: resolvedUid,
-            details: setFields,
-            timestamp: nowIso,
-          })
+          // Append timeline event strictly bound to immutable claimId (uid) ONLY when a real status transition occurs
+          const priorCode =
+            Number(previousTicket?.statusCode) ||
+            (previousTicket?.status ? STATUS_TO_CODE[previousTicket.status] : 1)
+          const targetCode =
+            finalStatusCode !== undefined
+              ? finalStatusCode
+              : finalStatus
+              ? STATUS_TO_CODE[finalStatus]
+              : undefined
 
-          const fetched = await collection.findOne(filterQuery)
+          if (targetCode !== undefined && targetCode !== priorCode) {
+            await db.collection("transaction_logs").insertOne({
+              id: `TX-CLAIM-UPD-${Date.now()}`,
+              action: "CLAIM_UPDATED",
+              targetType: "ticket",
+              targetId: resolvedClaimId,
+              claimId: resolvedUid,
+              claimUid: resolvedUid,
+              details: {
+                ...setFields,
+                previousStatusCode: priorCode,
+                statusCode: targetCode,
+                status: STATUS_MAP[targetCode] || finalStatus,
+              },
+              timestamp: nowIso,
+            })
+          }
+
+          const fetched = await collection.findOne({ uid: resolvedUid }) || await collection.findOne(filterQuery)
           if (fetched) {
             const txLogs = await db
               .collection<TransactionLogDocument>("transaction_logs")
               .find({
-                $or: [
-                  ...(fetched.uid ? [{ claimUid: fetched.uid }] : []),
-                  { targetType: "ticket", targetId: fetched.id },
-                ],
+                targetType: "ticket",
+                $or: [{ claimId: resolvedUid }, { claimUid: resolvedUid }],
               })
               .sort({ timestamp: -1 })
-              .limit(20)
+              .limit(30)
               .toArray()
               .catch(() => [])
-            updatedTicketDoc = enrichTicket(fetched, txLogs)
+            updatedTicketDoc = enrichTicket({ ...fetched, uid: resolvedUid }, txLogs)
           }
         }
       } catch (dbErr) {
@@ -840,41 +745,69 @@ export async function DELETE(request: NextRequest) {
 
     const nowIso = new Date().toISOString()
 
-    // 1. Delete from MongoDB Atlas & update equipment status
+    // 1. Delete from MongoDB Atlas & cascade-delete all child timeline/history logs in the same transaction
     if (isMongoConfigured()) {
       try {
         const db = await getDb()
         if (db) {
-          for (const targetId of targetIds) {
-            const currentTicket =
-              (await db.collection<TicketDocument>("tickets").findOne({ uid: targetId })) ||
-              (await db.collection<TicketDocument>("tickets").findOne({
-                $or: [{ claimNumber: targetId }, { id: targetId }],
-              }))
-            if (currentTicket && currentTicket.serialNo) {
-              // Free equipment
-              await db.collection<EquipmentDocument>("equipments").updateOne(
-                { serial: currentTicket.serialNo },
-                { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } }
+          const executeCascadeDelete = async (session?: import("mongodb").ClientSession) => {
+            const opts = session ? { session } : {}
+            for (const targetId of targetIds) {
+              const currentTicket =
+                (await db.collection<TicketDocument>("tickets").findOne({ uid: targetId }, opts)) ||
+                (await db.collection<TicketDocument>("tickets").findOne(
+                  { $or: [{ claimNumber: targetId }, { id: targetId }] },
+                  opts
+                ))
+
+              if (currentTicket && currentTicket.serialNo) {
+                await db.collection<EquipmentDocument>("equipments").updateOne(
+                  { serial: currentTicket.serialNo },
+                  { $set: { status: "active", currentClaimId: undefined, updatedAt: nowIso } },
+                  opts
+                )
+              }
+
+              // Delete the parent claim document
+              await db.collection("tickets").deleteOne(
+                currentTicket?.uid
+                  ? { uid: currentTicket.uid }
+                  : { $or: [{ uid: targetId }, { claimNumber: targetId }, { id: targetId }] },
+                opts
+              )
+
+              // Cascade-delete ALL child timeline & history logs so zero orphaned logs remain behind
+              const deletedUid = currentTicket?.uid
+              const deletedClaimNumber = currentTicket?.id || targetId
+              await db.collection("transaction_logs").deleteMany(
+                {
+                  targetType: "ticket",
+                  $or: [
+                    ...(deletedUid
+                      ? [{ claimId: deletedUid }, { claimUid: deletedUid }]
+                      : []),
+                    { claimUid: { $exists: false }, targetId: deletedClaimNumber },
+                  ],
+                },
+                opts
               )
             }
+          }
 
-            await db.collection("tickets").deleteOne(
-              currentTicket?.uid
-                ? { uid: currentTicket.uid }
-                : { $or: [{ uid: targetId }, { claimNumber: targetId }, { id: targetId }] }
-            )
-
-            // Record Transaction Log
-            await db.collection("transaction_logs").insertOne({
-              id: `TX-CLAIM-DEL-${Date.now()}-${targetId}`,
-              action: "CLAIM_DELETED",
-              targetType: "ticket",
-              targetId: currentTicket?.id || targetId,
-              claimUid: currentTicket?.uid,
-              details: { deletedAt: nowIso },
-              timestamp: nowIso,
-            })
+          const client = await getMongoClient()
+          if (client) {
+            const session = client.startSession()
+            try {
+              await session.withTransaction(async () => {
+                await executeCascadeDelete(session)
+              })
+            } catch {
+              await executeCascadeDelete()
+            } finally {
+              await session.endSession()
+            }
+          } else {
+            await executeCascadeDelete()
           }
         }
       } catch (dbErr) {

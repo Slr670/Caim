@@ -203,6 +203,8 @@ export interface TransactionLogDocument {
   action: TransactionAction
   targetType: "equipment" | "station" | "ticket" | "rma"
   targetId: string
+  claimId?: string // Immutable foreign key -> TicketDocument.uid
+  claimUid?: string // Alias for immutable foreign key -> TicketDocument.uid
   details: Record<string, unknown>
   timestamp: string
 }

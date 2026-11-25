@@ -1,57 +1,57 @@
 {
   "summary": {
-    "total": 3,
-    "inProgress": 3,
-    "inProgressPct": 100,
-    "closed": 0,
-    "closedPct": 0,
+    "total": 7,
+    "inProgress": 1,
+    "inProgressPct": 14,
+    "closed": 6,
+    "closedPct": 86,
     "rejected": 0,
     "rejectedPct": 0
   },
   "kpi": {
-    "pendingMedianDays": 38,
-    "pendingCount": 3,
-    "overdueCount": 3,
-    "overduePct": 100,
-    "closedOnTimeText": "ยังไม่มีเคสในประเทศที่ปิดแล้ว",
-    "closedMedianDays": 0,
-    "closedCount": 0
+    "pendingMedianDays": 0,
+    "pendingCount": 1,
+    "overdueCount": 0,
+    "overduePct": 0,
+    "closedOnTimeText": "0 เคส",
+    "closedMedianDays": 48.5,
+    "closedCount": 6
   },
   "workStatus": [
     {
       "code": 1,
       "name": "รับแจ้ง/รอตรวจสภาพ",
       "color": "#0d9488",
-      "count": 0,
-      "pct": 0
+      "count": 1,
+      "pct": 14
     },
     {
       "code": 2,
       "name": "ส่งศูนย์บริการแล้ว",
       "color": "#7c3aed",
-      "count": 1,
-      "pct": 33
+      "count": 0,
+      "pct": 0
     },
     {
       "code": 3,
       "name": "รออะไหล่/กำลังซ่อม",
       "color": "#d97706",
-      "count": 1,
-      "pct": 33
+      "count": 0,
+      "pct": 0
     },
     {
       "code": 4,
       "name": "ซ่อมเสร็จ/รอส่งมอบ",
       "color": "#2563eb",
-      "count": 1,
-      "pct": 33
+      "count": 0,
+      "pct": 0
     },
     {
       "code": 5,
       "name": "ปิดเคส (รับคืนเรียบร้อย)",
       "color": "#16a34a",
-      "count": 0,
-      "pct": 0,
+      "count": 6,
+      "pct": 86,
       "isClosedGroup": true
     },
     {
@@ -64,11 +64,19 @@
     }
   ],
   "weekly": {
-    "thisWeekCount": 0,
-    "lastWeekCount": 1,
-    "trendPct": -100,
-    "isPositiveTrend": false,
+    "thisWeekCount": 1,
+    "lastWeekCount": 0,
+    "trendPct": 100,
+    "isPositiveTrend": true,
     "daysBreakdown": [
+      {
+        "day": "พฤ.",
+        "count": 0
+      },
+      {
+        "day": "ศ.",
+        "count": 0
+      },
       {
         "day": "ส.",
         "count": 0
@@ -88,17 +96,9 @@
       {
         "day": "พ.",
         "count": 0
-      },
-      {
-        "day": "พฤ.",
-        "count": 0
-      },
-      {
-        "day": "ศ.",
-        "count": 0
       }
     ],
-    "boxReceived": 0,
+    "boxReceived": 1,
     "boxRepaired": 0,
     "boxClosed": 0
   },
@@ -107,9 +107,9 @@
       "code": 1,
       "name": "รับแจ้ง/รอตรวจสภาพ",
       "color": "#0d9488",
-      "completedText": "1 วัน n=3",
+      "completedText": "1 วัน n=6",
       "completedDays": 1,
-      "pendingCount": 0,
+      "pendingCount": 1,
       "pendingDays": 0,
       "maxDays": 0
     },
@@ -117,44 +117,60 @@
       "code": 2,
       "name": "ส่งศูนย์บริการแล้ว",
       "color": "#7c3aed",
-      "completedText": "1 วัน n=2",
+      "completedText": "1 วัน n=6",
       "completedDays": 1,
-      "pendingCount": 1,
-      "pendingDays": 8,
-      "maxDays": 8
+      "pendingCount": 0,
+      "pendingDays": 0,
+      "maxDays": 0
     },
     {
       "code": 3,
       "name": "รออะไหล่/กำลังซ่อม",
       "color": "#d97706",
-      "completedText": "0 วัน n=1",
+      "completedText": "0 วัน n=6",
       "completedDays": 0,
-      "pendingCount": 1,
-      "pendingDays": 38,
-      "maxDays": 38
+      "pendingCount": 0,
+      "pendingDays": 0,
+      "maxDays": 0
     },
     {
       "code": 4,
       "name": "ซ่อมเสร็จ/รอส่งมอบ",
       "color": "#2563eb",
-      "completedText": "0 วัน n=0",
+      "completedText": "0 วัน n=6",
       "completedDays": 0,
-      "pendingCount": 1,
-      "pendingDays": 125,
-      "maxDays": 125
+      "pendingCount": 0,
+      "pendingDays": 0,
+      "maxDays": 0
     }
   ],
   "serviceCenters": [
     {
-      "vendor": "Huawei",
-      "totalCases": 2,
-      "atCenterNow": 2,
-      "avgDaysText": "23 วัน n=2",
-      "maxDaysText": "38 วัน",
-      "overdueCount": 2
+      "vendor": "SINCLAIR",
+      "totalCases": 1,
+      "atCenterNow": 0,
+      "avgDaysText": "— ยังไม่เคยเข้าขั้นส่งศูนย์",
+      "maxDaysText": "—",
+      "overdueCount": 0
+    },
+    {
+      "vendor": "Syndome",
+      "totalCases": 3,
+      "atCenterNow": 0,
+      "avgDaysText": "— ยังไม่เคยเข้าขั้นส่งศูนย์",
+      "maxDaysText": "—",
+      "overdueCount": 0
     },
     {
       "vendor": "Hytera",
+      "totalCases": 2,
+      "atCenterNow": 0,
+      "avgDaysText": "— ยังไม่เคยเข้าขั้นส่งศูนย์",
+      "maxDaysText": "—",
+      "overdueCount": 0
+    },
+    {
+      "vendor": "Huawei",
       "totalCases": 1,
       "atCenterNow": 0,
       "avgDaysText": "— ยังไม่เคยเข้าขั้นส่งศูนย์",
@@ -162,5 +178,5 @@
       "overdueCount": 0
     }
   ],
-  "lastCalculated": "2026-10-16T08:09:17.492Z"
+  "lastCalculated": "2026-11-25T08:28:16.890Z"
 }
