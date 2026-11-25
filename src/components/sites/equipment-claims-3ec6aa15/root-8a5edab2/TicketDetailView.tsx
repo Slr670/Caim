@@ -29,11 +29,13 @@ import {
   formatDisplayThaiDate,
   toISODateString,
 } from "@/lib/utils/caseDuration"
-import { useTicketsQuery, invalidateTicketsCache } from "@/hooks/useTicketsQuery"
-import type { CaimRepairOutcome } from "@/types/database"
+import { useTicketsQuery, invalidateTicketsCache, type Ticket } from "@/hooks/useTicketsQuery"
+import type { CaimRepairOutcome, ClaimTimelineEvent } from "@/types/database"
 
 export interface TicketDetailData {
+  uid: string
   id: string
+  claimNumber: string
   title: string
   problemDesc: string
   repairResult: string
@@ -59,14 +61,11 @@ export interface TicketDetailData {
   remainingDays: number
   reporter: string
   assignee: string
-  currentStage: number // 1: รับแจ้ง, 2: ส่งศูนย์, 3: รออะไหล่, 4: รอส่งมอบ, 5: ปิดเคส
+  currentStage: number // 1: รับแจ้ง, 2: ส่งศูนย์, 3: รออะไหล่, 4: ซ่อมเสร็จ, 5: ปิดเคส, 6: ปฏิเสธเคลม
   status?: string
-  timeline: {
-    title: string
-    timestamp: string
-    duration: string
-  }[]
+  timeline: ClaimTimelineEvent[]
   otherCases: {
+    uid?: string
     id: string
     title: string
     date: string
@@ -75,38 +74,183 @@ export interface TicketDetailData {
   }[]
 }
 
-const DEFAULT_TICKET_DATA: TicketDetailData = {
-  id: "CLM-2026-001",
-  title: "เครื่องรับส่งวิทยุ Hytera DIB-R5 outdoor ขัดข้อง",
-  problemDesc: "โมดูล RF กำลังส่งตก และระบบควบคุมภาคส่งสัญญาณแจ้งเตือนข้อผิดพลาด",
-  repairResult: "ส่งศูนย์บริการต่างประเทศเพื่อเข้ากระบวนการซ่อม",
-  remarks: "-",
-  vendor: "Hytera",
-  model: "DIB-R5 outdoor",
-  serialNo: "200426",
-  deviceType: "Base Station Transceiver",
-  category: "ระบบสื่อสารวิทยุเฉพาะกิจ (TETRA Base Station)",
-  location: "BS วัดบางอุดม จ.นครศรีธรรมราช",
+const EMPTY_EDIT_FORM: TicketDetailData = {
+  uid: "",
+  id: "",
+  claimNumber: "",
+  title: "",
+  problemDesc: "",
+  repairResult: "",
+  remarks: "",
+  vendor: "",
+  model: "",
+  serialNo: "",
+  category: "",
+  deviceType: "",
+  location: "",
   warrantyStatus: "อยู่ในประกัน",
-  serviceCenter: "Hytera",
-  reportedDate: "13 มิ.ย. 2569",
-  sentDate: "20 มิ.ย. 2569",
-  deadlineDate: "12 ส.ค. 2569",
-  lastTrackDate: "27 ก.ย. 2569",
+  serviceCenter: "Huawei",
+  reportedDate: "",
+  sentDate: "—",
+  deadlineDate: "",
+  lastTrackDate: "—",
   returnDate: "—",
-  ageDays: 107,
+  ageDays: 0,
   remainingDays: 0,
-  reporter: "-",
-  assignee: "-",
-  currentStage: 2,
-  timeline: [
-    {
-      title: "เปิดเคส · รับแจ้ง/รอตรวจสภาพ",
-      timestamp: "13 มิ.ย. 2569 01:09",
-      duration: "ค้างอยู่ 107 วัน",
-    },
-  ],
+  reporter: "",
+  assignee: "",
+  currentStage: 1,
+  timeline: [],
   otherCases: [],
+}
+
+function buildFallbackTimelineFromRecord(
+  t: Partial<Ticket> & { id: string; createdAt?: string; updatedAt?: string }
+): ClaimTimelineEvent[] {
+  if (Array.isArray(t.timeline) && t.timeline.length > 0) {
+    return t.timeline
+  }
+  const duration = calculateCaseDuration(t)
+  const statusCode = Number(t.statusCode) || 1
+  const reportedStr = formatDisplayThaiDate(t.reportedDate || t.date || "") || "—"
+  const events: ClaimTimelineEvent[] = []
+
+  if (statusCode === 5) {
+    const returnStamp =
+      t.returnDate && t.returnDate !== "—"
+        ? formatDisplayThaiDate(t.returnDate)
+        : t.lastTrackDate && t.lastTrackDate !== "—"
+        ? formatDisplayThaiDate(t.lastTrackDate)
+        : reportedStr
+    events.push({
+      title: `ปิดเคส · รับคืนอุปกรณ์เรียบร้อย${
+        t.repairResult && t.repairResult !== "-" ? ` (${t.repairResult})` : ""
+      }`,
+      timestamp: returnStamp,
+      duration: `รวมระยะเวลาดำเนินการ ${duration.days} วัน`,
+    })
+  } else if (statusCode === 6) {
+    events.push({
+      title: `ปฏิเสธเคลม${
+        t.repairResult && t.repairResult !== "-" ? ` (${t.repairResult})` : ""
+      }`,
+      timestamp:
+        t.returnDate && t.returnDate !== "—"
+          ? formatDisplayThaiDate(t.returnDate)
+          : reportedStr,
+      duration: `ระยะเวลาดำเนินการ ${duration.days} วัน`,
+    })
+  } else if (statusCode === 3 || statusCode === 4) {
+    events.push({
+      title:
+        statusCode === 3
+          ? "อัปเดตสถานะ · รออะไหล่/กำลังซ่อม"
+          : "อัปเดตสถานะ · ซ่อมเสร็จ/รอส่งมอบ",
+      timestamp:
+        t.lastTrackDate && t.lastTrackDate !== "—"
+          ? formatDisplayThaiDate(t.lastTrackDate)
+          : reportedStr,
+      duration: `อายุงานสะสม ${duration.days} วัน`,
+    })
+  }
+
+  if (t.sentDate && t.sentDate !== "—" && statusCode >= 2) {
+    events.push({
+      title: `ส่งอุปกรณ์เข้าศูนย์บริการ${t.serviceCenter ? ` (${t.serviceCenter})` : ""}`,
+      timestamp: formatDisplayThaiDate(t.sentDate),
+      duration: "ดำเนินการส่งซ่อม",
+    })
+  }
+
+  events.push({
+    title: "เปิดเคส · รับแจ้ง/รอตรวจสภาพ",
+    timestamp: reportedStr,
+    duration:
+      statusCode === 1
+        ? `ค้างอยู่ ${duration.days} วัน`
+        : t.reporter && t.reporter !== "-"
+        ? `ผู้แจ้ง: ${t.reporter}`
+        : "เริ่มต้นกระบวนการเคลม",
+  })
+
+  return events
+}
+
+function mapDbRecordToDetailData(
+  t: Partial<Ticket> & {
+    id: string
+    uid?: string
+    claimNumber?: string
+    createdAt?: string
+    updatedAt?: string
+  }
+): TicketDetailData {
+  const duration = calculateCaseDuration(t)
+  const resolvedClaimNumber = t.claimNumber || t.id
+  const resolvedTitle =
+    (t.claimTitle && t.claimTitle.trim()) ||
+    (t.title && t.title.trim()) ||
+    resolvedClaimNumber
+
+  const areaParts = [
+    t.subdistrict && `ต.${t.subdistrict}`,
+    t.district && `อ.${t.district}`,
+    t.province && `จ.${t.province}`,
+  ]
+    .filter(Boolean)
+    .join(" ")
+
+  let resolvedLocation = ""
+  if (t.station && t.station.trim()) {
+    resolvedLocation = areaParts
+      ? `${t.station.trim()} (${areaParts})`
+      : t.station.trim()
+  } else if (t.location && t.location.trim()) {
+    resolvedLocation = t.location.trim()
+  } else if (areaParts) {
+    resolvedLocation = areaParts
+  } else {
+    resolvedLocation = "—"
+  }
+
+  const reportedDateStr = t.reportedDate || t.date || ""
+  const defaultDeadline = reportedDateStr
+    ? calculateDueDate(reportedDateStr, 60).dueDateStr
+    : "—"
+
+  return {
+    uid: t.uid || resolvedClaimNumber,
+    id: resolvedClaimNumber,
+    claimNumber: resolvedClaimNumber,
+    title: resolvedTitle,
+    problemDesc: t.problemDesc || t.description || t.symptoms || "—",
+    repairResult: t.repairResult || "",
+    repairOutcome: t.repairOutcome,
+    replacedNewSerialNo: t.replacedNewSerialNo,
+    remarks: t.remarks && t.remarks.trim() ? t.remarks.trim() : "—",
+    vendor: t.vendor || "—",
+    model: t.model || "—",
+    serialNo: t.serialNo || "—",
+    category: t.category && t.category.trim() ? t.category.trim() : "—",
+    deviceType: t.deviceType && t.deviceType.trim() ? t.deviceType.trim() : "—",
+    location: resolvedLocation,
+    warrantyStatus: t.warrantyStatus || "อยู่ในประกัน",
+    serviceCenter: t.serviceCenter || t.vendor || "—",
+    reportedDate: reportedDateStr,
+    sentDate: t.sentDate && t.sentDate.trim() ? t.sentDate.trim() : "—",
+    deadlineDate: t.deadlineDate || defaultDeadline,
+    lastTrackDate: t.lastTrackDate && t.lastTrackDate.trim() ? t.lastTrackDate.trim() : "—",
+    returnDate: t.returnDate && t.returnDate.trim() ? t.returnDate.trim() : "—",
+    closedAt: t.closedAt,
+    ageDays: duration.days,
+    remainingDays: 0,
+    reporter: t.reporter && t.reporter.trim() ? t.reporter.trim() : "—",
+    assignee: t.assignee && t.assignee.trim() ? t.assignee.trim() : "—",
+    currentStage: Number(t.statusCode) || 1,
+    status: t.status || "รับแจ้ง",
+    timeline: buildFallbackTimelineFromRecord(t),
+    otherCases: [],
+  }
 }
 
 const REPAIR_OUTCOMES: { value: CaimRepairOutcome; label: string }[] = [
@@ -128,17 +272,16 @@ const STAGES = [
 export function TicketDetailView({ ticketId }: { ticketId?: string }) {
   const { tickets, updateTicket } = useTicketsQuery()
 
-  const activeTicketId = ticketId || DEFAULT_TICKET_DATA.id
+  const activeTicketId = decodeURIComponent(ticketId || "").trim()
 
-  const [data, setData] = React.useState<TicketDetailData>(() => ({
-    ...DEFAULT_TICKET_DATA,
-    id: activeTicketId,
-  }))
+  const [data, setData] = React.useState<TicketDetailData | null>(null)
+  const [isLoadingRecord, setIsLoadingRecord] = React.useState<boolean>(true)
+  const [notFoundError, setNotFoundError] = React.useState<string | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false)
   const [isStatusModalOpen, setIsStatusModalOpen] = React.useState(false)
   const [isSaving, setIsSaving] = React.useState(false)
-  const [editForm, setEditForm] = React.useState(DEFAULT_TICKET_DATA)
-  const [newStatusStage, setNewStatusStage] = React.useState(data.currentStage)
+  const [editForm, setEditForm] = React.useState<TicketDetailData>(EMPTY_EDIT_FORM)
+  const [newStatusStage, setNewStatusStage] = React.useState(1)
   const [statusRemark, setStatusRemark] = React.useState("")
   const [newRepairOutcome, setNewRepairOutcome] = React.useState<CaimRepairOutcome | "">("")
   const [newReplacedSerialNo, setNewReplacedSerialNo] = React.useState("")
@@ -164,105 +307,64 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
     }
   }, [])
 
-  // Direct sync function from Authoritative Tickets API
-  const syncTicketFromRemote = React.useCallback(async (targetId: string) => {
+  // Authoritative single-record fetch directly from live database API (/api/claims/:id)
+  const syncTicketFromRemote = React.useCallback(async (targetKey: string) => {
+    if (!targetKey) {
+      setIsLoadingRecord(false)
+      setNotFoundError("ไม่พบรหัสอ้างอิงของงานเคลมที่ระบุ")
+      return
+    }
     try {
-      const res = await fetch(`/api/tickets?id=${encodeURIComponent(targetId)}`, {
+      const res = await fetch(`/api/claims/${encodeURIComponent(targetKey)}`, {
         cache: "no-store",
-        headers: { "Cache-Control": "no-cache" },
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
       })
-      if (!res.ok) return
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
       const json = await res.json()
       if (json && json.success && json.ticket) {
-        const t = json.ticket
-        setData((prev) => ({
-          ...prev,
-          id: t.id,
-          title: t.title || prev.title,
-          problemDesc: t.problemDesc || prev.problemDesc,
-          repairResult: t.repairResult !== undefined ? t.repairResult : prev.repairResult,
-          repairOutcome: t.repairOutcome !== undefined ? t.repairOutcome : prev.repairOutcome,
-          replacedNewSerialNo:
-            t.replacedNewSerialNo !== undefined ? t.replacedNewSerialNo : prev.replacedNewSerialNo,
-          remarks: t.remarks !== undefined ? t.remarks : prev.remarks,
-          vendor: t.vendor || prev.vendor,
-          model: t.model || prev.model,
-          serialNo: t.serialNo || prev.serialNo,
-          category: t.category !== undefined ? t.category : prev.category,
-          deviceType: t.deviceType !== undefined ? t.deviceType : prev.deviceType,
-          location: t.location || [t.subdistrict, t.district, t.province].filter(Boolean).join(" ") || t.station || prev.location,
-          warrantyStatus: t.warrantyStatus !== undefined ? t.warrantyStatus : prev.warrantyStatus,
-          serviceCenter: t.serviceCenter !== undefined ? t.serviceCenter : prev.serviceCenter,
-          reportedDate: t.date || prev.reportedDate,
-          sentDate: t.sentDate !== undefined ? t.sentDate : prev.sentDate,
-          deadlineDate: t.deadlineDate || prev.deadlineDate,
-          lastTrackDate: t.lastTrackDate !== undefined ? t.lastTrackDate : prev.lastTrackDate,
-          returnDate: t.returnDate !== undefined ? t.returnDate : prev.returnDate,
-          closedAt: t.closedAt !== undefined ? t.closedAt : prev.closedAt,
-          reporter: t.reporter !== undefined ? t.reporter : prev.reporter,
-          assignee: t.assignee !== undefined ? t.assignee : prev.assignee,
-          currentStage: Number(t.statusCode) || prev.currentStage,
-          status: t.status || prev.status,
-        }))
+        const mapped = mapDbRecordToDetailData(json.ticket)
+        setData(mapped)
+        setNotFoundError(null)
+      } else {
+        setData(null)
+        setNotFoundError(`ไม่พบข้อมูลงานเคลมรหัส "${targetKey}" ในฐานข้อมูลกลาง`)
       }
     } catch (err) {
       console.warn("[TicketDetailView] syncTicketFromRemote error:", err)
+      setNotFoundError("ไม่สามารถดึงข้อมูลงานเคลมจากฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง")
+    } finally {
+      setIsLoadingRecord(false)
     }
   }, [])
 
-  // Sync state when tickets cache loads or ticketId matches
+  // Query live database on mount & subscribe to real-time updates strictly for this record's uid / id
   React.useEffect(() => {
-    const targetId = activeTicketId
-    const found = tickets.find(
-      (t) => t.id === targetId || (targetId === "CLM-2026-001" && t.id === "1") || (targetId === "1" && t.id === "CLM-2026-001")
-    )
+    setIsLoadingRecord(true)
+    setNotFoundError(null)
+    syncTicketFromRemote(activeTicketId)
 
-    if (found) {
-      setData((prev) => ({
-        ...prev,
-        id: found.id,
-        title: found.title,
-        problemDesc: found.problemDesc,
-        repairResult: found.repairResult !== undefined ? found.repairResult : prev.repairResult,
-        repairOutcome: found.repairOutcome !== undefined ? found.repairOutcome : prev.repairOutcome,
-        replacedNewSerialNo:
-          found.replacedNewSerialNo !== undefined ? found.replacedNewSerialNo : prev.replacedNewSerialNo,
-        remarks: found.remarks !== undefined ? found.remarks : prev.remarks,
-        vendor: found.vendor,
-        model: found.model,
-        serialNo: found.serialNo,
-        category: found.category !== undefined ? found.category : prev.category,
-        deviceType: found.deviceType !== undefined ? found.deviceType : prev.deviceType,
-        location: found.location || [found.subdistrict, found.district, found.province].filter(Boolean).join(" ") || found.station || prev.location,
-        warrantyStatus: found.warrantyStatus !== undefined ? found.warrantyStatus : prev.warrantyStatus,
-        serviceCenter: found.serviceCenter !== undefined ? found.serviceCenter : prev.serviceCenter,
-        reportedDate: found.date,
-        sentDate: found.sentDate !== undefined ? found.sentDate : prev.sentDate,
-        deadlineDate: found.deadlineDate || prev.deadlineDate,
-        lastTrackDate: found.lastTrackDate !== undefined ? found.lastTrackDate : prev.lastTrackDate,
-        returnDate: found.returnDate !== undefined ? found.returnDate : prev.returnDate,
-        closedAt: found.closedAt !== undefined ? found.closedAt : prev.closedAt,
-        reporter: found.reporter !== undefined ? found.reporter : prev.reporter,
-        assignee: found.assignee !== undefined ? found.assignee : prev.assignee,
-        currentStage: Number(found.statusCode) || prev.currentStage,
-        status: found.status || prev.status,
-      }))
-    }
-
-    // Initial fetch from remote
-    syncTicketFromRemote(targetId)
-
-    // Real-time synchronization event listener from SSE & mutations
     const handleRealtime = (e: Event) => {
       const custom = e as CustomEvent
-      const detail = custom.detail as { action?: string; data?: { id?: string } } | undefined
-      if (!detail?.data?.id || detail.data.id === targetId || (targetId === "CLM-2026-001" && detail.data.id === "1")) {
-        syncTicketFromRemote(targetId)
+      const detail = custom.detail as {
+        action?: string
+        data?: { id?: string; uid?: string }
+      } | undefined
+      if (
+        !detail?.data ||
+        detail.data.uid === activeTicketId ||
+        detail.data.id === activeTicketId
+      ) {
+        syncTicketFromRemote(activeTicketId)
       }
     }
 
     const handleInvalidate = () => {
-      syncTicketFromRemote(targetId)
+      syncTicketFromRemote(activeTicketId)
     }
 
     if (typeof window !== "undefined") {
@@ -280,24 +382,30 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
         window.removeEventListener("focus", handleInvalidate)
       }
     }
-  }, [activeTicketId, tickets, syncTicketFromRemote])
+  }, [activeTicketId, syncTicketFromRemote])
 
   // Harmonized Case Age Duration Calculation (Both Top Card & Sidebar)
   const caseDuration = React.useMemo(() => {
+    if (!data) {
+      return { days: 0, text: "0 วัน", isOverdue: false, overdueText: undefined }
+    }
     return calculateCaseDuration({
       date: data.reportedDate,
       statusCode: data.currentStage,
-      status: data.currentStage === 5 ? "ปิดเคส" : (data.status || "รับแจ้ง"),
+      status: data.currentStage === 5 ? "ปิดเคส" : data.status || "รับแจ้ง",
       ageDays: data.ageDays,
       returnDate: data.returnDate,
       closedAt: data.closedAt,
       closedDate: data.closedDate,
       deadlineDate: data.deadlineDate,
     })
-  }, [data.reportedDate, data.currentStage, data.ageDays, data.returnDate, data.closedAt, data.closedDate, data.status, data.deadlineDate])
+  }, [data])
 
   // Dynamic Remaining Days & Circular Progress Metric Calculation
   const remainingMetric = React.useMemo(() => {
+    if (!data) {
+      return calculateRemainingDays("", "", new Date(), 60)
+    }
     return calculateRemainingDays(data.deadlineDate, data.reportedDate, new Date(), 60, {
       returnDate: data.returnDate,
       closedAt: data.closedAt,
@@ -305,22 +413,21 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
       statusCode: data.currentStage,
       status: data.currentStage === 5 ? "ปิดเคส" : data.status,
     })
-  }, [data.deadlineDate, data.reportedDate, data.returnDate, data.closedAt, data.closedDate, data.currentStage, data.status])
+  }, [data])
 
-  // Historical claims for this device's Serial Number from database (excluding current claim)
+  // Historical claims for this device's Serial Number from database (excluding current claim by immutable uid & id)
   const historyCases = React.useMemo(() => {
+    if (!data) return []
     const sNo = data.serialNo?.trim()
-    if (!sNo) return []
+    if (!sNo || sNo === "—") return []
 
     return tickets.filter((t) => {
       if (!t.serialNo || t.serialNo.trim() !== sNo) return false
-      // Exclude current ticket
-      if (t.id === data.id || t.id === activeTicketId) return false
-      if ((data.id === "CLM-2026-001" || activeTicketId === "CLM-2026-001") && t.id === "1") return false
-      if ((data.id === "1" || activeTicketId === "1") && t.id === "CLM-2026-001") return false
+      if (data.uid && t.uid && t.uid === data.uid) return false
+      if (t.id === data.id || t.id === activeTicketId || t.uid === activeTicketId) return false
       return true
     })
-  }, [tickets, data.serialNo, data.id, activeTicketId])
+  }, [tickets, data, activeTicketId])
 
   const radius = 38
   const circumference = 2 * Math.PI * radius
@@ -336,27 +443,28 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
   }
 
   function handleOpenEdit() {
+    if (!data) return
     const autoDue = calculateDueDate(data.reportedDate || "", 60).dueDateStr
     setEditForm({
       ...data,
       title: data.title || "",
-      problemDesc: data.problemDesc || "",
+      problemDesc: data.problemDesc === "—" ? "" : data.problemDesc || "",
       repairResult: data.repairResult || "",
-      remarks: data.remarks || "",
-      vendor: data.vendor || "",
-      model: data.model || "",
-      serialNo: data.serialNo || "",
-      category: data.category || "",
-      deviceType: data.deviceType || "",
-      location: data.location || "",
+      remarks: data.remarks === "—" ? "" : data.remarks || "",
+      vendor: data.vendor === "—" ? "" : data.vendor || "",
+      model: data.model === "—" ? "" : data.model || "",
+      serialNo: data.serialNo === "—" ? "" : data.serialNo || "",
+      category: data.category === "—" ? "" : data.category || "",
+      deviceType: data.deviceType === "—" ? "" : data.deviceType || "",
+      location: data.location === "—" ? "" : data.location || "",
       warrantyStatus: data.warrantyStatus || "อยู่ในประกัน",
-      serviceCenter: data.serviceCenter || "Huawei",
+      serviceCenter: data.serviceCenter === "—" ? "Huawei" : data.serviceCenter || "Huawei",
       reportedDate: data.reportedDate || "",
       sentDate: data.sentDate || "—",
       lastTrackDate: data.lastTrackDate || "—",
       returnDate: data.returnDate || "—",
-      reporter: data.reporter || "",
-      assignee: data.assignee || "",
+      reporter: data.reporter === "—" ? "" : data.reporter || "",
+      assignee: data.assignee === "—" ? "" : data.assignee || "",
       deadlineDate:
         data.deadlineDate && !data.deadlineDate.includes("12 พ.ย. 2569")
           ? data.deadlineDate
@@ -368,7 +476,7 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
 
   async function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault()
-    if (isSaving) return
+    if (isSaving || !data) return
 
     // 1. Client-side Form Validation
     const title = (editForm.title || "").trim()
@@ -403,6 +511,7 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
         : autoDeadline
 
     const payload = {
+      uid: data.uid,
       id: data.id,
       title,
       problemDesc,
@@ -445,37 +554,14 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
         throw new Error(res.error || "บันทึกการแก้ไขไม่สำเร็จ")
       }
 
-      // Close modal automatically upon successful persistence
       setIsEditModalOpen(false)
 
-      // Instantly update active view state with modified fields
-      const updatedData: TicketDetailData = {
-        ...data,
-        ...editForm,
-        id: data.id,
-        title,
-        problemDesc,
-        vendor: payload.vendor,
-        model: payload.model,
-        serialNo,
-        category: payload.category,
-        deviceType: payload.deviceType,
-        location: payload.location,
-        warrantyStatus: payload.warrantyStatus,
-        serviceCenter: payload.serviceCenter,
-        repairResult: payload.repairResult,
-        remarks: payload.remarks,
-        reportedDate,
-        sentDate: payload.sentDate,
-        deadlineDate: effectiveDeadline,
-        lastTrackDate: payload.lastTrackDate,
-        returnDate: payload.returnDate,
-        reporter: payload.reporter,
-        assignee: payload.assignee,
+      if (res.data) {
+        setData(mapDbRecordToDetailData(res.data))
+      } else {
+        await syncTicketFromRemote(data.uid || data.id)
       }
-      setData(updatedData)
 
-      // Trigger cache invalidation so table list and overview counters refresh immediately
       await invalidateTicketsCache()
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("caim:tickets:invalidated"))
@@ -495,7 +581,7 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
 
   async function handleSaveStatus(e: React.FormEvent) {
     e.preventDefault()
-    if (isSaving) return
+    if (isSaving || !data) return
     if (newStatusStage === 5 && !newRepairOutcome) {
       showBanner("กรุณาระบุผลการซ่อมก่อนปิดเคส")
       return
@@ -526,25 +612,32 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
     const stageTitle = stageDisplayNames[newStatusStage] || "ปรับเปลี่ยนสถานะ"
     const nowStr = "วันนี้ " + new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })
 
-    setData((prev) => ({
-      ...prev,
-      currentStage: newStatusStage,
-      timeline: [
-        {
-          title: `ปรับสถานะเป็น: ${stageTitle}${statusRemark ? ` (${statusRemark})` : ""}`,
-          timestamp: nowStr,
-          duration: "ดำเนินการล่าสุด",
-        },
-        ...prev.timeline,
-      ],
-    }))
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            currentStage: newStatusStage,
+            status: stageNames[newStatusStage] || prev.status,
+            timeline: [
+              {
+                title: `ปรับสถานะเป็น: ${stageTitle}${statusRemark ? ` (${statusRemark})` : ""}`,
+                timestamp: nowStr,
+                duration: "ดำเนินการล่าสุด",
+              },
+              ...prev.timeline,
+            ],
+          }
+        : prev
+    )
 
-    const effectiveRemarks = statusRemark.trim() || data.remarks || undefined
+    const effectiveRemarks =
+      statusRemark.trim() || (data.remarks !== "—" ? data.remarks : undefined)
     setIsStatusModalOpen(false)
     setStatusRemark("")
 
     try {
       const updateRes = await updateTicket({
+        uid: data.uid,
         id: data.id,
         statusCode: newStatusStage,
         status: stageNames[newStatusStage] || "รับแจ้ง",
@@ -554,15 +647,24 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
               repairOutcome: newRepairOutcome || undefined,
               replacedNewSerialNo:
                 newRepairOutcome === "replaced_new" ? newReplacedSerialNo.trim() : undefined,
-              closedBy: data.assignee || data.reporter || undefined,
+              closedBy:
+                (data.assignee !== "—" ? data.assignee : undefined) ||
+                (data.reporter !== "—" ? data.reporter : undefined),
             }
           : newStatusStage === 6
           ? {
               repairOutcome: "rejected",
-              closedBy: data.assignee || data.reporter || undefined,
+              closedBy:
+                (data.assignee !== "—" ? data.assignee : undefined) ||
+                (data.reporter !== "—" ? data.reporter : undefined),
             }
           : {}),
       })
+      if (updateRes?.data) {
+        setData(mapDbRecordToDetailData(updateRes.data))
+      } else {
+        await syncTicketFromRemote(data.uid || data.id)
+      }
       await invalidateTicketsCache()
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("caim:tickets:invalidated"))
@@ -581,6 +683,44 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
       setNewRepairOutcome("")
       setNewReplacedSerialNo("")
     }
+  }
+
+  if (isLoadingRecord && !data) {
+    return (
+      <main id="main" className="flex-1 bg-background">
+        <div className="mx-auto flex max-w-350 flex-col items-center justify-center gap-3 px-4 py-20 text-center">
+          <Loader2 className="size-7 animate-spin text-brand" />
+          <p className="text-sm font-medium text-foreground">
+            กำลังดึงข้อมูลงานเคลมจากฐานข้อมูลกลาง...
+          </p>
+        </div>
+      </main>
+    )
+  }
+
+  if (!data) {
+    return (
+      <main id="main" className="flex-1 bg-background">
+        <div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-4 px-4 py-20 text-center">
+          <span className="flex size-12 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
+            <AlertCircle className="size-6" />
+          </span>
+          <div className="space-y-1">
+            <h1 className="text-base font-bold text-foreground">
+              ไม่พบข้อมูลงานเคลมที่ระบุ
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              {notFoundError || "รายการอาจถูกลบออกจากฐานข้อมูลแล้ว หรือรหัสอ้างอิงไม่ถูกต้อง"}
+            </p>
+          </div>
+          <Link href="/tickets">
+            <Button size="sm" variant="outline" className="text-xs">
+              กลับไปหน้ารายการงานเคลม
+            </Button>
+          </Link>
+        </div>
+      </main>
+    )
   }
 
   return (
@@ -612,7 +752,11 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
             <li className="flex items-center text-muted-foreground/60">
               <ChevronRight className="size-3" />
             </li>
-            <li className="inline-flex items-center gap-1">
+            <li className="inline-flex items-center gap-1.5">
+              <span className="font-mono font-semibold text-brand">
+                {data.claimNumber}
+              </span>
+              <span className="text-muted-foreground/60">·</span>
               <span className="font-normal text-foreground truncate max-w-xs">
                 {data.title}
               </span>
@@ -626,9 +770,14 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
             <ClipboardList className="size-5.5" />
           </span>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-              {data.title}
-            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-900/40 rounded-md px-2 py-0.5">
+                {data.claimNumber}
+              </span>
+              <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                {data.title}
+              </h1>
+            </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {data.problemDesc}
             </p>
@@ -670,14 +819,25 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
               <h2 className="text-base sm:text-lg font-bold text-foreground">
                 {data.title}
               </h2>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                <span className="size-1.5 rounded-full bg-emerald-600" />
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  data.currentStage === 6
+                    ? "bg-rose-500/10 text-rose-700 dark:text-rose-400"
+                    : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                }`}
+              >
+                <span
+                  className={`size-1.5 rounded-full ${
+                    data.currentStage === 6 ? "bg-rose-600" : "bg-emerald-600"
+                  }`}
+                />
                 <span>
                   {data.currentStage === 1 && "รับแจ้ง/รอตรวจสภาพ"}
                   {data.currentStage === 2 && "ส่งศูนย์บริการแล้ว"}
                   {data.currentStage === 3 && "รออะไหล่/กำลังซ่อม"}
                   {data.currentStage === 4 && "ซ่อมเสร็จ/รอส่งมอบ"}
                   {data.currentStage === 5 && "ปิดเคส"}
+                  {data.currentStage === 6 && "ปฏิเสธเคลม"}
                 </span>
               </span>
             </div>
@@ -714,7 +874,7 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
           <div className="py-6 px-2 sm:px-6">
             <div className="flex items-center justify-between">
               {STAGES.map((stage, idx) => {
-                const isPassed = data.currentStage > stage.step
+                const isPassed = data.currentStage > stage.step && stage.step !== 6
                 const isCurrent = data.currentStage === stage.step
 
                 return (
@@ -723,7 +883,9 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                       <div
                         className={`size-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
                           isCurrent
-                            ? "bg-emerald-600 text-white shadow-xs"
+                            ? stage.step === 6
+                              ? "bg-rose-600 text-white shadow-xs"
+                              : "bg-emerald-600 text-white shadow-xs"
                             : isPassed
                             ? "bg-emerald-600/20 text-emerald-700 dark:text-emerald-400"
                             : "border border-border bg-background text-muted-foreground"
@@ -747,7 +909,7 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                     {idx < STAGES.length - 1 && (
                       <div
                         className={`h-0.5 flex-1 mx-2 sm:mx-4 -mt-5 transition-colors ${
-                          data.currentStage > stage.step
+                          data.currentStage > stage.step && data.currentStage !== 6
                             ? "bg-emerald-600"
                             : "bg-border"
                         }`}
@@ -826,7 +988,7 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                 </div>
               </div>
 
-              {/* 5. ประวัติเคสอื่นของอุปกรณ์ชิ้นนี้ (Conditional Rendering - only renders if there are other cases for this S/N) */}
+              {/* 5. ประวัติเคสอื่นของอุปกรณ์ชิ้นนี้ */}
               {historyCases.length > 0 && (
                 <div>
                   <h3 className="text-xs font-semibold text-foreground mb-3">
@@ -836,12 +998,12 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                   <div className="flex flex-col divide-y divide-border/60 rounded-lg border border-border/70 overflow-hidden text-xs">
                     {historyCases.map((c) => (
                       <Link
-                        key={c.id}
-                        href={`/tickets/${c.id}`}
+                        key={c.uid || c.id}
+                        href={`/tickets/${encodeURIComponent(c.uid || c.id)}`}
                         className="flex items-center justify-between p-3 hover:bg-muted/30 transition-colors"
                       >
                         <span className="font-medium text-foreground hover:underline cursor-pointer">
-                          {c.title}
+                          {c.claimTitle || c.title}
                         </span>
                         <span className="text-muted-foreground">{c.date}</span>
                         <span

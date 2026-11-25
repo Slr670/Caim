@@ -1698,7 +1698,11 @@ export function TicketsView() {
                       <Pencil className="size-3.5" />
                       <span>แก้ไข</span>
                     </Button>
-                    <Link href={`/tickets/${selectedTicket.id}`}>
+                    <Link
+                      href={`/claims/${encodeURIComponent(
+                        selectedTicket.uid || selectedTicket.id
+                      )}`}
+                    >
                       <Button size="sm" className="gap-1.5 bg-[#0c1a30] dark:bg-blue-600 text-white hover:bg-[#1e293b] dark:hover:bg-blue-500 text-xs">
                         <span>เปิดดูหน้ารายละเอียดเต็ม</span>
                       </Button>

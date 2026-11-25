@@ -59,7 +59,9 @@
       "rejectUnauthorized": false,
       "targetRecipient": "dopa-only-tm@forth.co.th"
     },
-    "symptoms": "Base DIB-R5 Outdoor ไม่สามารถทำงานได้ บอร์ดเสีย"
+    "symptoms": "Base DIB-R5 Outdoor ไม่สามารถทำงานได้ บอร์ดเสีย",
+    "uid": "95bd4522-dc6d-4b79-a27e-dea1b314b04a",
+    "claimNumber": "CLM-2026-001"
   },
   {
     "id": "CLM-2026-002",
@@ -123,7 +125,9 @@
       "enforceSsl": true,
       "rejectUnauthorized": false,
       "targetRecipient": "dopa-only-tm@forth.co.th"
-    }
+    },
+    "uid": "924ab486-bc5c-465e-a78d-5382b5174fec",
+    "claimNumber": "CLM-2026-002"
   },
   {
     "id": "CLM-2026-003",
@@ -174,7 +178,9 @@
     "sentDateIso": "2026-10-12",
     "claimTitle": "เครื่องวิทยุรับสัญญาณไม่ได้",
     "closedBy": "อนุศักดิ์",
-    "repairOutcome": "repaired"
+    "repairOutcome": "repaired",
+    "uid": "cb725859-8175-413e-ac5e-e04d3d4651a6",
+    "claimNumber": "CLM-2026-003"
   },
   {
     "id": "CLM-2026-004",
@@ -226,7 +232,8 @@
     "warrantyStatus": "อยู่ในประกัน",
     "closedBy": "อนุศักดิ์",
     "repairOutcome": "repaired",
-    "previousId": "CLM-2026-005"
+    "uid": "96223464-1391-4db2-a001-a0b5c93a1263",
+    "claimNumber": "CLM-2026-004"
   },
   {
     "id": "CLM-2026-005",
@@ -278,7 +285,8 @@
     "warrantyStatus": "อยู่ในประกัน",
     "closedBy": "ศักดิภัช",
     "repairOutcome": "repaired",
-    "previousId": "CLM-2026-006"
+    "uid": "5a567036-8ac5-444a-a58b-efb7897f10e9",
+    "claimNumber": "CLM-2026-005"
   },
   {
     "id": "CLM-2026-006",
@@ -328,6 +336,8 @@
     "slaExpiry": "2 ม.ค. 2570",
     "symptoms": "ON แล้วเบรกเกอร์ทริป  DC Output ไม่จ่ายกระแสไฟ / Board PCA Power เสีย",
     "warrantyStatus": "อยู่ในประกัน",
-    "previousId": "CLM-2026-007"
+    "previousId": "CLM-2026-007",
+    "uid": "bbf66c6f-162f-4911-afe6-45ed27877a30",
+    "claimNumber": "CLM-2026-006"
   }
 ]

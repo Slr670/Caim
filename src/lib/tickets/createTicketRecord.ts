@@ -1,3 +1,4 @@
+import crypto from "crypto"
 import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
@@ -57,6 +58,10 @@ export async function createTicketRecord(request: NextRequest) {
         : ticketTitle
 
     const nowIso = new Date().toISOString()
+    const claimUid =
+      typeof body.uid === "string" && body.uid.trim().length > 0
+        ? body.uid.trim()
+        : crypto.randomUUID()
     const serialNo = String(body.serialNo || "").trim()
 
     let stationId = body.stationId ? String(body.stationId).trim() : undefined
@@ -122,7 +127,9 @@ export async function createTicketRecord(request: NextRequest) {
 
         // 3. Insert Ticket Document
         const newTicketDoc: TicketDocument = {
+          uid: claimUid,
           id: ticketId,
+          claimNumber: ticketId,
           title: ticketTitle,
           claimTitle: resolvedClaimTitle,
           problemDesc: body.problemDesc || "",
@@ -167,6 +174,7 @@ export async function createTicketRecord(request: NextRequest) {
           }
           newTicketDoc.id = finalAssignedId
         }
+        newTicketDoc.claimNumber = newTicketDoc.id
 
         // 4. Record Transaction Log
         await db.collection("transaction_logs").insertOne({
@@ -174,6 +182,7 @@ export async function createTicketRecord(request: NextRequest) {
           action: "CLAIM_OPENED",
           targetType: "ticket",
           targetId: newTicketDoc.id,
+          claimUid: newTicketDoc.uid,
           details: {
             title: newTicketDoc.title,
             serialNo: newTicketDoc.serialNo,
@@ -231,7 +240,9 @@ export async function createTicketRecord(request: NextRequest) {
 
     // Fallback store
     const fallbackDoc: TicketDocument = {
+      uid: claimUid,
       id: ticketId,
+      claimNumber: ticketId,
       title: ticketTitle,
       claimTitle: resolvedClaimTitle,
       problemDesc: body.problemDesc || "",
@@ -271,6 +282,7 @@ export async function createTicketRecord(request: NextRequest) {
       }
       fallbackDoc.id = finalFallbackId
     }
+    fallbackDoc.claimNumber = fallbackDoc.id
 
     realtimeEmitter.emit(REALTIME_EVENTS.TICKETS_CHANGED, {
       type: "ticket",

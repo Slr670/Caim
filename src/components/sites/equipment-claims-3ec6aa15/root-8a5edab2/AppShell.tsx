@@ -144,6 +144,7 @@ export function AppShell({ children }: AppShellProps) {
       if (href === "/tickets") {
         return (
           pathname === "/tickets" ||
+          pathname?.startsWith("/claims/") ||
           (pathname?.startsWith("/tickets/") && !pathname?.startsWith("/tickets/new"))
         )
       }

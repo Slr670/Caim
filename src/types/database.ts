@@ -44,8 +44,16 @@ export interface EquipmentDocument {
   updatedAt?: string
 }
 
+export interface ClaimTimelineEvent {
+  title: string
+  timestamp: string
+  duration: string
+}
+
 export interface TicketDocument {
-  id: string // e.g. "CLM-2026-0043" or "TICKET-174..."
+  uid?: string // Immutable database primary key (UUID v4 / deterministic UUID)
+  id: string // Contiguous display Claim ID, e.g. "CLM-2026-006"
+  claimNumber?: string // Canonical Claim Number mirror, e.g. "CLM-2026-006"
   title: string
   claimTitle?: string
   problemDesc: string
@@ -99,6 +107,7 @@ export interface TicketDocument {
   subdistrict?: string
   rmaId?: string // Foreign Key -> RmaDocument.id (if dispatched overseas)
   previousId?: string // Previous Claim ID prior to automatic resequencing
+  timeline?: ClaimTimelineEvent[] // Authoritative timeline events resolved from DB
   createdAt?: string
   updatedAt?: string
 }

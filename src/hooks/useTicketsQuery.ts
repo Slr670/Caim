@@ -1,13 +1,15 @@
 "use client"
 
 import * as React from "react"
-import type { CaimRepairOutcome } from "@/types/database"
+import type { CaimRepairOutcome, ClaimTimelineEvent } from "@/types/database"
 import { invalidateGlobalDashboardCache } from "@/hooks/useRealtimeDashboard"
 
 export const TICKETS_QUERY_KEY = ["tickets"] as const
 
 export interface Ticket {
+  uid?: string
   id: string
+  claimNumber?: string
   title: string
   claimTitle?: string
   problemDesc: string
@@ -52,6 +54,7 @@ export interface Ticket {
   province?: string
   district?: string
   subdistrict?: string
+  timeline?: ClaimTimelineEvent[]
 }
 
 // Global Singleton Query Cache Store for Tickets
@@ -168,18 +171,21 @@ export async function invalidateTicketsCache(): Promise<Ticket[]> {
 
 export function applyTicketMutation(
   action: "create" | "update" | "delete",
-  data: Partial<Ticket> & { id: string; description?: string; serialNumber?: string }
+  data: Partial<Ticket> & { id: string; uid?: string; description?: string; serialNumber?: string }
 ) {
-  if (!data || !data.id) return
+  if (!data || (!data.id && !data.uid)) return
 
-  const targetId = data.id
+  const matchesTarget = (t: Ticket) =>
+    (Boolean(data.uid) && Boolean(t.uid) && t.uid === data.uid) ||
+    t.id === data.id ||
+    t.uid === data.id
 
   if (action === "create") {
-    const filtered = globalTicketsCache.filter((t) => t.id !== targetId)
+    const filtered = globalTicketsCache.filter((t) => !matchesTarget(t))
     globalTicketsCache = [data as Ticket, ...filtered]
   } else if (action === "update") {
     globalTicketsCache = globalTicketsCache.map((t) => {
-      if (t.id !== targetId) return t
+      if (!matchesTarget(t)) return t
       const merged = { ...t, ...data }
       if (data.problemDesc || data.description) {
         merged.problemDesc = data.problemDesc || data.description || t.problemDesc
@@ -190,7 +196,7 @@ export function applyTicketMutation(
       return merged
     })
   } else if (action === "delete") {
-    globalTicketsCache = globalTicketsCache.filter((t) => t.id !== targetId)
+    globalTicketsCache = globalTicketsCache.filter((t) => !matchesTarget(t))
   }
 
   globalTotal = globalTicketsCache.length

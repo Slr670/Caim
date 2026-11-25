@@ -1,6 +1,7 @@
+import crypto from "crypto"
 import fs from "fs"
 import path from "path"
-import { getDb, isMongoConfigured } from "@/lib/mongodb"
+import { getDb, getMongoClient, isMongoConfigured } from "@/lib/mongodb"
 import {
   extractGregorianYear,
   formatClaimNumber,
@@ -46,6 +47,25 @@ export function parseDateToTimestamp(raw?: string | null): number {
   }
 
   return !isNaN(parsed) ? parsed : 0
+}
+
+/**
+ * Generates a deterministic UUID-formatted primary key for legacy claim records
+ * that were created prior to immutable `uid` introduction, ensuring 100% identical
+ * primary keys across MongoDB and local disk stores. Once assigned, `ticket.uid`
+ * is preserved permanently and never changes during sequence re-numbering.
+ */
+export function ensureImmutableClaimUid(ticket: Partial<TicketDocument>): string {
+  if (typeof ticket.uid === "string" && ticket.uid.trim().length > 0) {
+    return ticket.uid.trim()
+  }
+  const seed = [
+    ticket.serialNo || "",
+    ticket.createdAt || ticket.date || "",
+    ticket.problemDesc || ticket.title || ticket.id || crypto.randomUUID(),
+  ].join("|")
+  const hex = crypto.createHash("sha256").update(seed).digest("hex")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
 }
 
 export interface ResequenceClaimsResult {
@@ -180,9 +200,13 @@ export function resequenceClaimNumbers(
       const rawRecord = { ...(ticket as TicketDocument & { _id?: unknown }) }
       delete rawRecord._id
 
+      const immutableUid = ensureImmutableClaimUid(rawRecord)
+
       const updatedTicket: TicketDocument = {
         ...rawRecord,
+        uid: immutableUid,
         id: newClaimNumber,
+        claimNumber: newClaimNumber,
         title: newTitle,
         ...(newClaimTitle !== undefined ? { claimTitle: newClaimTitle } : {}),
         ...(oldId !== newClaimNumber ? { previousId: oldId, updatedAt: nowIso } : {}),
@@ -192,6 +216,14 @@ export function resequenceClaimNumbers(
     })
 
     maxSequencePerYear[year] = group.length
+  }
+
+  // Prevent stale previousId collisions with any currently active Claim ID
+  const activeClaimIds = new Set(updatedTickets.map((t) => t.id))
+  for (const t of updatedTickets) {
+    if (t.previousId && activeClaimIds.has(t.previousId)) {
+      delete t.previousId
+    }
   }
 
   return {
@@ -388,88 +420,149 @@ export async function migrateClaimSequences(): Promise<MigrationResult> {
     }
   }
 
-  // 4. Update MongoDB (if configured and connected)
+  // 4. Update MongoDB (if configured and connected) inside an atomic transaction when supported
   if (db) {
-    try {
-      // 4a. Upsert all resequenced tickets (with _id stripped so no immutable _id conflict occurs)
+    const activeNewUids = updatedTickets.map((t) => t.uid).filter((u): u is string => Boolean(u))
+    const changedEntries = Object.entries(idMapping).filter(([oldId, newId]) => oldId !== newId)
+
+    const applyMongoResequence = async (session?: Parameters<NonNullable<typeof db>["collection"]>[1] extends never ? never : import("mongodb").ClientSession) => {
+      const opts = session ? { session } : {}
+
+      // 4a. First bind uid onto any existing MongoDB documents matched by oldId or uid, using temporary IDs to avoid unique index collisions
       for (const t of updatedTickets) {
-        await db.collection("tickets").updateOne(
-          { id: t.id },
-          { $set: t },
-          { upsert: true }
+        const prevMappedId = Object.entries(idMapping).find(([, mappedNew]) => mappedNew === t.id)?.[0] || t.id
+        await db!.collection("tickets").updateOne(
+          { $or: [{ uid: t.uid }, { id: prevMappedId }] },
+          {
+            $set: {
+              ...t,
+              id: `__REINDEX__${t.id}`,
+              claimNumber: t.id,
+            },
+          },
+          { upsert: true, ...opts }
         )
       }
 
-      // Delete any leftover ticket documents whose ID is not in the active contiguous set
-      if (activeNewIds.length > 0) {
-        await db.collection("tickets").deleteMany({
-          id: { $nin: activeNewIds },
-        })
+      // Finalize contiguous claim numbers keyed strictly by immutable uid
+      for (const t of updatedTickets) {
+        await db!.collection("tickets").updateOne(
+          { uid: t.uid },
+          {
+            $set: {
+              ...t,
+              id: t.id,
+              claimNumber: t.id,
+            },
+            ...(t.previousId === undefined ? { $unset: { previousId: "" } } : {}),
+          },
+          opts
+        )
       }
 
-      const changedEntries = Object.entries(idMapping).filter(([oldId, newId]) => oldId !== newId)
+      // Remove any stale/orphaned ticket rows not belonging to the active immutable UID set
+      if (activeNewUids.length > 0) {
+        await db!.collection("tickets").deleteMany(
+          { uid: { $nin: activeNewUids } },
+          opts
+        )
+      } else if (activeNewIds.length > 0) {
+        await db!.collection("tickets").deleteMany(
+          { id: { $nin: activeNewIds } },
+          opts
+        )
+      }
 
       if (changedEntries.length > 0) {
-        // 4b. Two-phase cascade update Equipments Collection to prevent chain-shift collisions
+        // 4b. Two-phase cascade update Equipments Collection
         for (const [oldId, newId] of changedEntries) {
-          await db.collection<EquipmentDocument>("equipments").updateMany(
+          await db!.collection<EquipmentDocument>("equipments").updateMany(
             { currentClaimId: oldId },
-            { $set: { currentClaimId: `__REINDEX__${newId}`, updatedAt: nowIso } }
+            { $set: { currentClaimId: `__REINDEX__${newId}`, updatedAt: nowIso } },
+            opts
           )
         }
         for (const [, newId] of changedEntries) {
-          const res = await db.collection<EquipmentDocument>("equipments").updateMany(
+          const res = await db!.collection<EquipmentDocument>("equipments").updateMany(
             { currentClaimId: `__REINDEX__${newId}` },
-            { $set: { currentClaimId: newId, updatedAt: nowIso } }
+            { $set: { currentClaimId: newId, updatedAt: nowIso } },
+            opts
           )
           equipmentsUpdated += res.modifiedCount
         }
 
         // 4c. Two-phase cascade update RMA Collection
         for (const [oldId, newId] of changedEntries) {
-          await db.collection<RmaDocument>("rma").updateMany(
+          await db!.collection<RmaDocument>("rma").updateMany(
             { ticketId: oldId },
-            { $set: { ticketId: `__REINDEX__${newId}`, updatedAt: nowIso } }
+            { $set: { ticketId: `__REINDEX__${newId}`, updatedAt: nowIso } },
+            opts
           )
-          await db.collection<RmaDocument>("rma").updateMany(
+          await db!.collection<RmaDocument>("rma").updateMany(
             { caseName: oldId },
-            { $set: { caseName: `__REINDEX__${newId}`, updatedAt: nowIso } }
+            { $set: { caseName: `__REINDEX__${newId}`, updatedAt: nowIso } },
+            opts
           )
         }
         for (const [, newId] of changedEntries) {
-          const resTicket = await db.collection<RmaDocument>("rma").updateMany(
+          const resTicket = await db!.collection<RmaDocument>("rma").updateMany(
             { ticketId: `__REINDEX__${newId}` },
-            { $set: { ticketId: newId, updatedAt: nowIso } }
+            { $set: { ticketId: newId, updatedAt: nowIso } },
+            opts
           )
-          const resCase = await db.collection<RmaDocument>("rma").updateMany(
+          const resCase = await db!.collection<RmaDocument>("rma").updateMany(
             { caseName: `__REINDEX__${newId}` },
-            { $set: { caseName: newId, updatedAt: nowIso } }
+            { $set: { caseName: newId, updatedAt: nowIso } },
+            opts
           )
           rmaRecordsUpdated += resTicket.modifiedCount + resCase.modifiedCount
         }
 
         // 4d. Two-phase cascade update Transaction Logs
         for (const [oldId, newId] of changedEntries) {
-          await db.collection("transaction_logs").updateMany(
+          await db!.collection("transaction_logs").updateMany(
             { targetType: "ticket", targetId: oldId },
-            { $set: { targetId: `__REINDEX__${newId}` } }
+            { $set: { targetId: `__REINDEX__${newId}` } },
+            opts
           )
-          await db.collection("transaction_logs").updateMany(
+          await db!.collection("transaction_logs").updateMany(
             { "details.currentClaimId": oldId },
-            { $set: { "details.currentClaimId": `__REINDEX__${newId}` } }
+            { $set: { "details.currentClaimId": `__REINDEX__${newId}` } },
+            opts
           )
         }
         for (const [, newId] of changedEntries) {
-          const resLogs = await db.collection("transaction_logs").updateMany(
+          const resLogs = await db!.collection("transaction_logs").updateMany(
             { targetType: "ticket", targetId: `__REINDEX__${newId}` },
-            { $set: { targetId: newId } }
+            { $set: { targetId: newId } },
+            opts
           )
-          const resDetails = await db.collection("transaction_logs").updateMany(
+          const resDetails = await db!.collection("transaction_logs").updateMany(
             { "details.currentClaimId": `__REINDEX__${newId}` },
-            { $set: { "details.currentClaimId": newId } }
+            { $set: { "details.currentClaimId": newId } },
+            opts
           )
           transactionLogsUpdated += resLogs.modifiedCount + resDetails.modifiedCount
         }
+      }
+    }
+
+    try {
+      const client = await getMongoClient()
+      if (client) {
+        const session = client.startSession()
+        try {
+          await session.withTransaction(async () => {
+            await applyMongoResequence(session)
+          })
+        } catch {
+          // Fallback for standalone MongoDB instances that do not support replica-set transactions
+          await applyMongoResequence()
+        } finally {
+          await session.endSession()
+        }
+      } else {
+        await applyMongoResequence()
       }
     } catch (mongoErr) {
       console.warn("MongoDB cascade update encountered partial notice:", mongoErr)

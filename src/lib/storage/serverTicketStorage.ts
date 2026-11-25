@@ -60,19 +60,22 @@ export function getPersistentTickets(): TicketDocument[] {
 }
 
 /**
- * Save or update a persistent ticket record on disk
+ * Save or update a persistent ticket record on disk (matched by immutable uid first, then id)
  */
 export function savePersistentTicket(doc: TicketDocument): void {
   try {
     const list = getPersistentTickets()
-    const filtered = list.filter((t) => t.id !== doc.id)
+    const filtered = list.filter((t) => {
+      if (doc.uid && t.uid) return t.uid !== doc.uid
+      return t.id !== doc.id
+    })
     const updated = [doc, ...filtered]
     fs.writeFileSync(TICKETS_FILE, JSON.stringify(updated, null, 2), "utf-8")
 
     // If previously marked deleted, unmark it
     const deleted = getPersistentDeletedTicketIds()
-    if (deleted.includes(doc.id)) {
-      const remainingDeleted = deleted.filter((id) => id !== doc.id)
+    if (deleted.includes(doc.id) || (doc.uid && deleted.includes(doc.uid))) {
+      const remainingDeleted = deleted.filter((id) => id !== doc.id && id !== doc.uid)
       fs.writeFileSync(DELETED_FILE, JSON.stringify(remainingDeleted, null, 2), "utf-8")
     }
   } catch (err) {
@@ -81,17 +84,24 @@ export function savePersistentTicket(doc: TicketDocument): void {
 }
 
 /**
- * Delete a persistent ticket record from disk permanently
+ * Delete a persistent ticket record from disk permanently (supports uid or id)
  */
-export function deletePersistentTicket(id: string): void {
+export function deletePersistentTicket(idOrUid: string): void {
   try {
-    addPersistentDeletedTicketId(id)
-
     if (fs.existsSync(TICKETS_FILE)) {
       const content = fs.readFileSync(TICKETS_FILE, "utf-8")
       const list: TicketDocument[] = JSON.parse(content || "[]")
-      const filtered = list.filter((t) => t.id !== id)
+      const target = list.find((t) => t.uid === idOrUid || t.id === idOrUid)
+      if (target) {
+        addPersistentDeletedTicketId(target.id)
+        if (target.uid) addPersistentDeletedTicketId(target.uid)
+      } else {
+        addPersistentDeletedTicketId(idOrUid)
+      }
+      const filtered = list.filter((t) => t.uid !== idOrUid && t.id !== idOrUid)
       fs.writeFileSync(TICKETS_FILE, JSON.stringify(filtered, null, 2), "utf-8")
+    } else {
+      addPersistentDeletedTicketId(idOrUid)
     }
   } catch (err) {
     console.error("Failed to delete persistent ticket from disk:", err)
