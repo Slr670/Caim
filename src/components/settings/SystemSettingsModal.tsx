@@ -17,13 +17,17 @@ import {
   ShieldCheck,
   RotateCcw,
   BellRing,
+  Lock,
 } from "lucide-react"
 import { type SmtpSettings, DEFAULT_SMTP_SETTINGS } from "@/types/settings"
 import {
   triggerPwaInstallPrompt,
   subscribeBrowserToWebPush,
-  unsubscribeBrowserFromWebPush,
 } from "@/components/pwa/PwaManager"
+import {
+  ensureActivePushSubscription,
+  isStandalonePwaMode,
+} from "@/components/pwa/PwaPushAutoSubscriber"
 
 export interface SystemSettingsModalProps {
   isOpen: boolean
@@ -49,8 +53,11 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
   // Save state
   const [isSaved, setIsSaved] = React.useState(false)
 
-  // PWA 2.0.0 Web Push subscription state
+  // PWA 2.0.0 Web Push subscription state (Enforced Always-On)
   const [pushEnabled, setPushEnabled] = React.useState(false)
+  const [isStandaloneApp, setIsStandaloneApp] = React.useState(false)
+  const [pushPermission, setPushPermission] =
+    React.useState<NotificationPermission | "unsupported">("default")
   const [isTogglingPush, setIsTogglingPush] = React.useState(false)
   const [isTestingPush, setIsTestingPush] = React.useState(false)
 
@@ -62,50 +69,85 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
     setTimeout(() => setToastMessage(null), 4000)
   }, [])
 
-  // Load saved settings from localStorage and check active Push subscription on client mount
+  // Load saved settings from localStorage and auto-sync Always-On Push subscription on client mount
   React.useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY)
-        if (stored) {
-          const parsed = JSON.parse(stored)
-          setSmtpSettings((prev) => ({ ...prev, ...parsed }))
-          if (parsed.targetRecipient) {
-            setTestRecipient(parsed.targetRecipient)
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to load settings from localStorage:", err)
-      }
+    if (typeof window === "undefined") return
 
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.ready
-          .then((reg) => reg.pushManager?.getSubscription())
-          .then((sub) => setPushEnabled(Boolean(sub)))
-          .catch(() => null)
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        setSmtpSettings((prev) => ({ ...prev, ...parsed }))
+        if (parsed.targetRecipient) {
+          setTestRecipient(parsed.targetRecipient)
+        }
       }
+    } catch (err) {
+      console.warn("Failed to load settings from localStorage:", err)
+    }
+
+    setIsStandaloneApp(isStandalonePwaMode())
+
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+      setPushPermission("unsupported")
+      return
+    }
+
+    const currentPerm = Notification.permission
+    setPushPermission(currentPerm)
+
+    if (currentPerm === "granted") {
+      ensureActivePushSubscription({
+        requestPermissionIfNeeded: false,
+        sendWelcome: false,
+      })
+        .then((res) => {
+          if (res.success) {
+            setPushEnabled(true)
+          }
+        })
+        .catch(() => null)
+    } else {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.pushManager?.getSubscription())
+        .then((sub) => setPushEnabled(Boolean(sub)))
+        .catch(() => null)
+    }
+
+    const handlePushChanged = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail as
+        | { subscribed?: boolean; permission?: NotificationPermission }
+        | undefined
+      if (typeof detail?.subscribed === "boolean") {
+        setPushEnabled(detail.subscribed)
+      }
+      if (detail?.permission) {
+        setPushPermission(detail.permission)
+      }
+    }
+
+    window.addEventListener("caim:pwa:push-changed", handlePushChanged)
+    return () => {
+      window.removeEventListener("caim:pwa:push-changed", handlePushChanged)
     }
   }, [isOpen])
 
-  const handleTogglePushSubscription = async () => {
+  const handleEnablePushPermission = async () => {
+    if (pushEnabled) {
+      showToast("ระบบบังคับเปิดการแจ้งเตือนอัตโนมัติ (Always On) อยู่แล้ว")
+      return
+    }
     setIsTogglingPush(true)
     try {
-      if (pushEnabled) {
-        const res = await unsubscribeBrowserFromWebPush()
-        if (res.success) {
-          setPushEnabled(false)
-          showToast("ปิดการแจ้งเตือนผ่านแอป (PWA 2.0.0 Push) เรียบร้อยแล้ว")
-        } else {
-          showToast(res.error || "ไม่สามารถยกเลิกการแจ้งเตือนได้")
-        }
+      const res = await subscribeBrowserToWebPush(true)
+      if ("Notification" in window) {
+        setPushPermission(Notification.permission)
+      }
+      if (res.success) {
+        setPushEnabled(true)
+        showToast("เปิดรับการแจ้งเตือนผ่านแอป (Always On) เรียบร้อยแล้ว")
       } else {
-        const res = await subscribeBrowserToWebPush(true)
-        if (res.success) {
-          setPushEnabled(true)
-          showToast("เปิดรับการแจ้งเตือนผ่านแอป (PWA 2.0.0 Push) เรียบร้อยแล้ว")
-        } else {
-          showToast(res.error || "ไม่สามารถเปิดรับการแจ้งเตือน Push ได้")
-        }
+        showToast(res.error || "ไม่สามารถเปิดรับการแจ้งเตือน Push ได้")
       }
     } finally {
       setIsTogglingPush(false)
@@ -304,7 +346,7 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1 text-slate-200 text-xs">
           {activeTab === "smtp" ? (
             <>
-              {/* Section: การแจ้งเตือนผ่านแอป (PWA 2.0.0 Push Notifications) */}
+              {/* Section: การแจ้งเตือนผ่านแอป (PWA 2.0.0 Push Notifications — Mandatory Always-On) */}
               <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-950/30 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
@@ -312,42 +354,80 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
                       <BellRing className="size-4" />
                     </span>
                     <div>
-                      <div className="text-xs font-bold text-white">
-                        การแจ้งเตือนผ่านแอป (PWA 2.0.0 Push Notifications)
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold text-white">
+                          การแจ้งเตือนผ่านแอป (PWA 2.0.0 Push Notifications)
+                        </span>
+                        {isStandaloneApp && (
+                          <span className="rounded-full bg-sky-500/15 border border-sky-400/30 px-2 py-0.5 text-[10px] font-semibold text-sky-300">
+                            Installed App
+                          </span>
+                        )}
                       </div>
                       <p className="text-[11px] text-slate-400">
-                        ส่ง Web Push แจ้งเตือนคู่ขนานกับอีเมลทันทีเมื่อเปิดเคสใหม่หรืออัปเดตสถานะงานเคลม
+                        ส่ง Web Push แจ้งเตือนคู่ขนานกับอีเมลอัตโนมัติทันทีเมื่อเปิดเคสใหม่หรืออัปเดตสถานะงานเคลม
                       </p>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={pushEnabled}
-                    disabled={isTogglingPush}
-                    onClick={handleTogglePushSubscription}
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors cursor-pointer disabled:opacity-60 ${
-                      pushEnabled
-                        ? "bg-emerald-500 border-emerald-400"
-                        : "bg-slate-700 border-slate-600"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block size-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                        pushEnabled ? "translate-x-5" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/35 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
+                      <Lock className="size-3 text-emerald-400" />
+                      <span>บังคับเปิดอัตโนมัติ (Always On)</span>
+                    </span>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={true}
+                      aria-readonly="true"
+                      disabled={pushEnabled || isTogglingPush}
+                      onClick={handleEnablePushPermission}
+                      title="ระบบบังคับเปิดการแจ้งเตือนอัตโนมัติ (Always On) เพื่อป้องกันการพลาดแจ้งเตือนงานเคลมสำคัญ"
+                      className="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border bg-emerald-500 border-emerald-400 transition-colors disabled:opacity-90 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      <span className="inline-block size-4 translate-x-5 transform rounded-full bg-white shadow-sm transition-transform" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10">
-                  <span className="text-[11px] text-slate-300">
-                    สถานะปัจจุบัน:{" "}
-                    <strong className={pushEnabled ? "text-emerald-400" : "text-amber-400"}>
-                      {pushEnabled ? "เปิดรับการแจ้งเตือน (Subscribed)" : "ยังไม่ได้เปิดใช้งานบนเบราว์เซอร์นี้"}
-                    </strong>
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] text-slate-300">
+                      สถานะปัจจุบัน:{" "}
+                      <strong
+                        className={
+                          pushEnabled
+                            ? "text-emerald-400"
+                            : pushPermission === "denied"
+                            ? "text-rose-400"
+                            : "text-amber-400"
+                        }
+                      >
+                        {pushEnabled
+                          ? "เปิดรับการแจ้งเตือน (Subscribed)"
+                          : pushPermission === "denied"
+                          ? "สิทธิ์การแจ้งเตือนถูกปิดกั้นในการตั้งค่าอุปกรณ์"
+                          : "รออนุญาตสิทธิ์แจ้งเตือนจากอุปกรณ์"}
+                      </strong>
+                    </span>
+
+                    {!pushEnabled && pushPermission === "default" && (
+                      <button
+                        type="button"
+                        onClick={handleEnablePushPermission}
+                        disabled={isTogglingPush}
+                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 text-[10px] font-semibold transition-all cursor-pointer disabled:opacity-60"
+                      >
+                        {isTogglingPush ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          <Check className="size-3" />
+                        )}
+                        <span>อนุญาตสิทธิ์แจ้งเตือนทันที</span>
+                      </button>
+                    )}
+                  </div>
 
                   <button
                     type="button"

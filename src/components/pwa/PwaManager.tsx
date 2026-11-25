@@ -2,6 +2,13 @@
 
 import * as React from "react"
 import { Download, X, Share, PlusSquare, CheckCircle2, Smartphone, ShieldCheck, BellRing } from "lucide-react"
+import {
+  ensureActivePushSubscription,
+  isStandalonePwaMode,
+  urlBase64ToUint8Array,
+} from "./PwaPushAutoSubscriber"
+
+export { urlBase64ToUint8Array, isStandalonePwaMode }
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[]
@@ -13,79 +20,20 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 const DISMISS_KEY = "claims_pwa_v2_dismissed_at"
-const DEFAULT_PUBLIC_VAPID_KEY =
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
-  "BIZ_IMFjP249T3BdUCaWwZVwdptwEZnwnQxKgkl_lGR2SsKGdid2Nri8CLI7vTre4_LnqoGQkkYP_XcRPqSfewg"
-
-export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
-  const rawData = typeof window !== "undefined" ? window.atob(base64) : ""
-  const buffer = new ArrayBuffer(rawData.length)
-  const outputArray = new Uint8Array(buffer)
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i)
-  }
-  return outputArray
-}
 
 export async function subscribeBrowserToWebPush(sendWelcome = false): Promise<{
   success: boolean
   endpoint?: string
   error?: string
 }> {
-  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
-    return { success: false, error: "เบราว์เซอร์นี้ไม่รองรับระบบ Web Push Notifications" }
-  }
-
-  try {
-    const permission = await Notification.requestPermission()
-    if (permission !== "granted") {
-      return { success: false, error: "ผู้ใช้งานไม่อนุญาตสิทธิ์การแสดงการแจ้งเตือน (Permission Denied)" }
-    }
-
-    const registration = await navigator.serviceWorker.ready
-    let publicKey = DEFAULT_PUBLIC_VAPID_KEY
-    try {
-      const keyRes = await fetch("/api/push/subscribe", { cache: "no-store" })
-      if (keyRes.ok) {
-        const keyData = await keyRes.json()
-        if (keyData?.publicKey) {
-          publicKey = keyData.publicKey
-        }
-      }
-    } catch {
-      // use fallback public key
-    }
-
-    let sub = await registration.pushManager.getSubscription()
-    if (!sub) {
-      sub = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      })
-    }
-
-    const subJson = sub.toJSON()
-    const res = await fetch("/api/push/subscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscription: subJson,
-        sendWelcome,
-      }),
-    })
-
-    const data = await res.json()
-    if (!res.ok || !data.success) {
-      return { success: false, error: data?.error || "ไม่สามารถบันทึกข้อมูล Push Subscription ได้" }
-    }
-
-    window.dispatchEvent(new CustomEvent("caim:pwa:push-changed", { detail: { subscribed: true } }))
-    return { success: true, endpoint: sub.endpoint }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { success: false, error: msg }
+  const res = await ensureActivePushSubscription({
+    requestPermissionIfNeeded: true,
+    sendWelcome,
+  })
+  return {
+    success: res.success,
+    endpoint: res.endpoint,
+    error: res.error,
   }
 }
 
@@ -93,6 +41,13 @@ export async function unsubscribeBrowserFromWebPush(): Promise<{
   success: boolean
   error?: string
 }> {
+  if (isStandalonePwaMode()) {
+    return {
+      success: false,
+      error: "ระบบบังคับเปิดการแจ้งเตือนอัตโนมัติ (Always On) สำหรับแอปที่ติดตั้งแล้ว",
+    }
+  }
+
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
     return { success: false, error: "Service Worker not available" }
   }
@@ -137,23 +92,25 @@ export function PwaManager() {
   React.useEffect(() => {
     if (typeof window === "undefined") return
 
-    // 1. Register PWA 2.0.0 Service Worker (/sw.js) and check existing Push subscription
+    // 1. Register PWA 2.0.0 Service Worker (/sw.js) and auto-subscribe if permission is already granted
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js", { scope: "/" })
         .then(async (registration) => {
           setSwActive(true)
           registration.update().catch(() => null)
-          if ("pushManager" in registration) {
+          if ("Notification" in window && Notification.permission === "granted") {
+            const subRes = await ensureActivePushSubscription({
+              requestPermissionIfNeeded: false,
+              sendWelcome: false,
+            })
+            if (subRes.success) {
+              setPushSubscribed(true)
+            }
+          } else if ("pushManager" in registration) {
             const existingSub = await registration.pushManager.getSubscription().catch(() => null)
             if (existingSub) {
               setPushSubscribed(true)
-              // Sync active subscription with server store silently
-              fetch("/api/push/subscribe", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ subscription: existingSub.toJSON() }),
-              }).catch(() => null)
             }
           }
         })

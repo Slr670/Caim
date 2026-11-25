@@ -3,6 +3,7 @@ import localFont from "next/font/local"
 import { ThemeProvider } from "@/components/theme-provider"
 import { LocaleProvider } from "@/i18n/LocaleContext"
 import { PwaManager } from "@/components/pwa/PwaManager"
+import { PwaPushAutoSubscriber } from "@/components/pwa/PwaPushAutoSubscriber"
 import "./globals.css"
 
 const sarabun = localFont({
@@ -105,6 +106,7 @@ export default function RootLayout({
         <LocaleProvider>
           <ThemeProvider defaultTheme="system" storageKey="theme">
             {children}
+            <PwaPushAutoSubscriber />
             <PwaManager />
           </ThemeProvider>
         </LocaleProvider>
