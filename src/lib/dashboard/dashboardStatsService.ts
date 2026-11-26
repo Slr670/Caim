@@ -24,110 +24,143 @@ declare global {
 }
 
 let indexEnsured = false
+let indexEnsureInFlight = false
 
 /**
  * Ensure MongoDB has the optimal compound indexes to prevent slow ad-hoc COLLSCAN (table scans).
- * Index on { statusCode: 1, vendor: 1, createdAt: -1 } enables single-digit millisecond index scan.
+ * Runs non-blocking in the background so cold-start GET requests are never delayed or failed by index checks.
  */
+export function ensureDashboardIndexesBackground(): void {
+  if (indexEnsured || indexEnsureInFlight || !isMongoConfigured()) return
+  indexEnsureInFlight = true
+  getDb()
+    .then((db) => {
+      if (!db) return
+      return db
+        .collection("tickets")
+        .createIndex(
+          { statusCode: 1, vendor: 1, createdAt: -1 },
+          { name: "idx_tickets_dashboard_stats", background: true }
+        )
+        .then(() => {
+          indexEnsured = true
+        })
+    })
+    .catch((err) => {
+      console.warn("[DashboardService] Background index ensure skipped:", err)
+    })
+    .finally(() => {
+      indexEnsureInFlight = false
+    })
+}
+
 export async function ensureDashboardIndexes(): Promise<void> {
-  if (indexEnsured || !isMongoConfigured()) return
-  try {
-    const db = await getDb()
-    if (db) {
-      const collection = db.collection("tickets")
-      await collection.createIndex(
-        { statusCode: 1, vendor: 1, createdAt: -1 },
-        { name: "idx_tickets_dashboard_stats", background: true }
-      )
-      indexEnsured = true
-    }
-  } catch (err) {
-    console.warn("[DashboardService] Failed to ensure compound index on tickets:", err)
-  }
+  ensureDashboardIndexesBackground()
 }
 
 /**
- * Persist pre-aggregated summary to disk and MongoDB for zero-delay cold boots
+ * Persist pre-aggregated summary to local disk when running on a writable filesystem.
+ * Skipped on Vercel serverless read-only filesystems (VERCEL=1) to prevent EROFS warnings and dangling sockets.
  */
 function persistSummary(metrics: DashboardMetrics): void {
+  if (process.env.VERCEL === "1") {
+    return
+  }
   try {
     fs.writeFileSync(SUMMARY_FILE, JSON.stringify(metrics, null, 2), "utf-8")
-  } catch (err) {
-    console.warn("[DashboardService] Failed to write disk summary:", err)
-  }
-
-  if (isMongoConfigured()) {
-    getDb()
-      .then((db) => {
-        if (db) {
-          return db.collection("dashboard_summary").updateOne(
-            { _id: "current" as unknown as import("mongodb").ObjectId },
-            { $set: { metrics, updatedAt: new Date() } },
-            { upsert: true }
-          )
-        }
-      })
-      .catch((err) => {
-        console.warn("[DashboardService] Failed to save summary to MongoDB:", err)
-      })
+  } catch {
+    // Read-only filesystem in serverless environments — safely ignored
   }
 }
 
 /**
- * Compute fresh dashboard metrics with lean projections and pre-aggregated counters.
+ * Compute fresh dashboard metrics with lean projections and safe optional field guards.
  */
 async function computeMetrics(): Promise<DashboardMetrics> {
   let tickets: TicketItem[] = []
+  let mongoSucceeded = false
 
   if (isMongoConfigured()) {
     try {
-      await ensureDashboardIndexes()
+      ensureDashboardIndexesBackground()
       const db = await getDb()
       if (db) {
-        // Lean projection avoids transferring large fields (problem descriptions, logs, base64 images)
+        // Lean projection including frozen-SLA dates & optional project fields (safe when absent)
         const docs = await db
           .collection<TicketItem>("tickets")
-          .find({}, {
-            projection: {
-              id: 1,
-              title: 1,
-              vendor: 1,
-              model: 1,
-              serialNo: 1,
-              status: 1,
-              statusCode: 1,
-              date: 1,
-              ageDays: 1,
-              isOverdue: 1,
-              overdueText: 1,
-              station: 1,
-              createdAt: 1,
-            },
-          })
+          .find(
+            {},
+            {
+              projection: {
+                id: 1,
+                uid: 1,
+                title: 1,
+                vendor: 1,
+                model: 1,
+                serialNo: 1,
+                status: 1,
+                statusCode: 1,
+                date: 1,
+                deadlineDate: 1,
+                returnDate: 1,
+                closedAt: 1,
+                ageDays: 1,
+                isOverdue: 1,
+                overdueText: 1,
+                station: 1,
+                projectId: 1,
+                projectName: 1,
+                createdAt: 1,
+              },
+            }
+          )
           .sort({ createdAt: -1 })
+          .maxTimeMS(6000)
           .toArray()
 
-        if (Array.isArray(docs) && docs.length > 0) {
+        mongoSucceeded = true
+        if (Array.isArray(docs)) {
           tickets = docs
         }
       }
     } catch (err) {
-      console.warn("[DashboardService] MongoDB fetch error, falling back to disk store:", err)
+      console.error("[DashboardService] MongoDB stats query failed, attempting resilient fallback:", err)
     }
   }
 
-  // Fallback to local persistent ticket store if MongoDB is unconfigured or empty
-  if (tickets.length === 0) {
-    tickets = getPersistentTickets() as unknown as TicketItem[]
+  // Fallback to local persistent ticket store only if MongoDB was unconfigured or unreachable
+  if (!mongoSucceeded && tickets.length === 0) {
+    try {
+      tickets = getPersistentTickets() as unknown as TicketItem[]
+    } catch (diskErr) {
+      console.error("[DashboardService] Persistent disk fallback failed:", diskErr)
+      if (global._dashboardInMemoryMetrics) {
+        return global._dashboardInMemoryMetrics
+      }
+      tickets = []
+    }
   }
 
-  // Strictly filter out any permanently deleted tickets to avoid re-populating removed counters
-  const persistentDeleted = new Set(getPersistentDeletedTicketIds())
-  const activeTickets = tickets.filter((t) => !persistentDeleted.has(t.id))
+  // Strictly filter out any permanently deleted tickets (guarding optional id/uid safely)
+  let persistentDeleted = new Set<string>()
+  try {
+    persistentDeleted = new Set(getPersistentDeletedTicketIds())
+  } catch {
+    // Ignore read errors on serverless environments
+  }
+
+  const activeTickets = tickets.filter((t) => {
+    if (!t || typeof t !== "object") return false
+    const id = typeof t.id === "string" ? t.id : ""
+    const uid = typeof (t as { uid?: unknown }).uid === "string" ? String((t as { uid?: unknown }).uid) : ""
+    if (id && persistentDeleted.has(id)) return false
+    if (uid && persistentDeleted.has(uid)) return false
+    return true
+  })
 
   const freshMetrics = calculateDashboardMetrics(activeTickets)
 
-  // Update in-memory cache and persistent stores
+  // Update in-memory cache and local disk summary (when writable)
   global._dashboardInMemoryMetrics = freshMetrics
   global._dashboardInMemoryTimestamp = Date.now()
   global._dashboardIsCacheDirty = false

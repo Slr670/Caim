@@ -52,28 +52,72 @@ export async function invalidateGlobalDashboardCache(): Promise<void> {
   }
 }
 
+export interface DashboardFetchError extends Error {
+  status?: number
+  code?: string
+  offline?: boolean
+  retryable?: boolean
+}
+
+const MAX_STATS_RETRY_COUNT = 2
+const BASE_STATS_RETRY_INTERVAL_MS = 5000
+
 /**
- * Fast SWR fetcher targeting pre-aggregated stats endpoint with no-store cache policy
+ * Fast SWR fetcher targeting pre-aggregated stats endpoint.
+ * Preserves clean URL (without volatile `?_t=` cache-buster) so PWA SW offline cache can match cleanly,
+ * while attaching structured HTTP status & error metadata for smart retry throttling.
  */
 const dashboardFetcher = async (url: string): Promise<DashboardMetrics> => {
-  const sep = url.includes("?") ? "&" : "?"
-  const fetchUrl = `${url}${sep}_t=${Date.now()}`
-  const res = await fetch(fetchUrl, {
+  const res = await fetch(url, {
     cache: "no-store",
     headers: {
       Accept: "application/json",
-      "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
       Pragma: "no-cache",
     },
   })
+
   if (!res.ok) {
-    throw new Error(`Failed to fetch dashboard metrics: ${res.statusText}`)
+    let errorBody: {
+      error?: string
+      code?: string
+      offline?: boolean
+      retryable?: boolean
+    } | null = null
+    try {
+      errorBody = (await res.json()) as {
+        error?: string
+        code?: string
+        offline?: boolean
+        retryable?: boolean
+      }
+    } catch {
+      // non-JSON response body
+    }
+
+    const err: DashboardFetchError = new Error(
+      errorBody?.error ||
+        `ไม่สามารถโหลดข้อมูลแดชบอร์ดได้ (HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""})`
+    )
+    err.status = res.status
+    err.code = errorBody?.code || `HTTP_${res.status}`
+    err.offline = Boolean(errorBody?.offline) || (typeof navigator !== "undefined" && !navigator.onLine)
+    err.retryable =
+      errorBody?.retryable !== undefined
+        ? Boolean(errorBody.retryable)
+        : res.status >= 500 && !err.offline
+    throw err
   }
+
   const data = await res.json()
   if (data.success && (data.metrics || data.summary)) {
     return (data.metrics || data) as DashboardMetrics
   }
-  throw new Error("Invalid metrics response payload")
+
+  const payloadErr: DashboardFetchError = new Error("ข้อมูลสถิติแดชบอร์ดไม่อยู่ในรูปแบบที่ถูกต้อง")
+  payloadErr.code = "INVALID_PAYLOAD"
+  payloadErr.retryable = false
+  throw payloadErr
 }
 
 export interface UseRealtimeDashboardOptions {
@@ -96,22 +140,60 @@ function areMetricsEqual(a?: DashboardMetrics, b?: DashboardMetrics): boolean {
 
 export function useRealtimeDashboard(options: UseRealtimeDashboardOptions = {}) {
   const { initialMetrics } = options
+  const retryExhaustedRef = React.useRef(false)
 
-  // Instant SWR Sync with zero-latency revalidation:
+  // Throttled SWR Sync: caps retries at max 2 with exponential backoff (5s -> 10s)
+  // and immediately halts retries on persistent config/schema failures or offline states.
   const {
     data: metrics,
+    error: statsError,
     mutate,
     isValidating: isRefreshing,
-  } = useSWR<DashboardMetrics>(DASHBOARD_STATS_API_KEY, dashboardFetcher, {
-    fallbackData: initialMetrics,
-    revalidateOnMount: true, // Always revalidate on mount to catch fresh server updates
-    revalidateOnFocus: true, // Silent revalidation on tab/window focus
-    revalidateIfStale: true, // Always refetch if stale
-    revalidateOnReconnect: true,
-    dedupingInterval: 1000,
-    focusThrottleInterval: 5000,
-    keepPreviousData: true,
-  })
+  } = useSWR<DashboardMetrics, DashboardFetchError>(
+    DASHBOARD_STATS_API_KEY,
+    dashboardFetcher,
+    {
+      fallbackData: initialMetrics,
+      revalidateOnMount: true,
+      revalidateOnFocus: false, // Controlled explicitly via throttled listener below
+      revalidateIfStale: true,
+      revalidateOnReconnect: true,
+      dedupingInterval: 2000,
+      focusThrottleInterval: 10000,
+      keepPreviousData: true,
+      shouldRetryOnError: true,
+      errorRetryCount: MAX_STATS_RETRY_COUNT,
+      errorRetryInterval: BASE_STATS_RETRY_INTERVAL_MS,
+      onSuccess: () => {
+        retryExhaustedRef.current = false
+      },
+      onErrorRetry: (error, _key, _config, revalidate, { retryCount }) => {
+        // 1. Stop immediately on persistent config/schema/client errors or offline state
+        const isPersistentFailure =
+          error.retryable === false ||
+          error.offline === true ||
+          error.code === "SCHEMA_OR_CONFIG_ERROR" ||
+          error.code === "OFFLINE_NO_CACHE" ||
+          (typeof error.status === "number" && error.status >= 400 && error.status < 500) ||
+          (typeof navigator !== "undefined" && !navigator.onLine)
+
+        if (isPersistentFailure || retryCount >= MAX_STATS_RETRY_COUNT) {
+          retryExhaustedRef.current = true
+          return
+        }
+
+        // 2. Exponential backoff: 5s (retry 0) -> 10s (retry 1), then halt
+        const backoffMs = BASE_STATS_RETRY_INTERVAL_MS * Math.pow(2, retryCount)
+        setTimeout(() => {
+          if (typeof navigator !== "undefined" && !navigator.onLine) {
+            retryExhaustedRef.current = true
+            return
+          }
+          revalidate({ retryCount })
+        }, backoffMs)
+      },
+    }
+  )
 
   // Safe fallback ensuring metrics are always defined
   const safeMetrics = React.useMemo(() => {
@@ -121,6 +203,14 @@ export function useRealtimeDashboard(options: UseRealtimeDashboardOptions = {}) 
   const [connectionStatus, setConnectionStatus] =
     React.useState<ConnectionStatus>("connecting")
   const [lastSyncTime, setLastSyncTime] = React.useState<Date | null>(null)
+
+  React.useEffect(() => {
+    if (statsError) {
+      setConnectionStatus("fallback-polling")
+    } else if (metrics) {
+      setConnectionStatus("connected")
+    }
+  }, [statsError, metrics])
 
   // Keep a stable ref to current metrics to compare before re-rendering
   const currentMetricsRef = React.useRef<DashboardMetrics | undefined>(metrics ?? initialMetrics)
@@ -144,14 +234,25 @@ export function useRealtimeDashboard(options: UseRealtimeDashboardOptions = {}) 
     let mutateDebounceTimer: NodeJS.Timeout | null = null
     let syncBc: BroadcastChannel | null = null
 
-    // Debounced mutate helper to coalesce high-frequency events
+    // Debounced mutate helper to coalesce high-frequency events.
+    // Skips automatic background re-fetches once retries are exhausted to prevent retry storms.
     const throttledMutate = () => {
+      if (retryExhaustedRef.current) return
+      if (typeof navigator !== "undefined" && !navigator.onLine) return
       if (mutateDebounceTimer) return
       mutateDebounceTimer = setTimeout(() => {
         mutateDebounceTimer = null
-        mutate()
-      }, 400)
+        if (!retryExhaustedRef.current) {
+          mutate()
+        }
+      }, 600)
     }
+
+    const handleOnlineRecovery = () => {
+      retryExhaustedRef.current = false
+      throttledMutate()
+    }
+    window.addEventListener("online", handleOnlineRecovery)
 
     const applyFreshMetrics = (payload: unknown) => {
       if (!payload || typeof payload !== "object") {
@@ -233,6 +334,7 @@ export function useRealtimeDashboard(options: UseRealtimeDashboardOptions = {}) 
         clearTimeout(mutateDebounceTimer)
         mutateDebounceTimer = null
       }
+      window.removeEventListener("online", handleOnlineRecovery)
       window.removeEventListener("caim:realtime:metrics", handleRealtimeMetricsEvent)
       window.removeEventListener("caim:realtime:ticket", handleTicketChangeEvent)
       window.removeEventListener("caim:realtime:rma", handleTicketChangeEvent)
@@ -247,33 +349,25 @@ export function useRealtimeDashboard(options: UseRealtimeDashboardOptions = {}) 
    * updating state immediately without waiting for background deduping windows.
    */
   const refresh = React.useCallback(async () => {
+    retryExhaustedRef.current = false
     try {
       const freshData = await mutate(
-        async () => {
-          const res = await fetch(`/api/dashboard/stats?refresh=true&_t=${Date.now()}`, {
-            cache: "no-store",
-            headers: {
-              "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
-              Pragma: "no-cache",
-            },
-          })
-          if (!res.ok) throw new Error("Failed to refresh")
-          const data = await res.json()
-          return (data.metrics || data) as DashboardMetrics
-        },
+        async () => dashboardFetcher(`/api/dashboard/stats?refresh=true`),
         { revalidate: false }
       )
       if (freshData) {
         setLastSyncTime(new Date())
+        setConnectionStatus("connected")
       }
     } catch {
-      await mutate()
-      setLastSyncTime(new Date())
+      // Error is captured by SWR statsError state for clean inline UI display
+      setConnectionStatus("fallback-polling")
     }
   }, [mutate])
 
   return {
     metrics: safeMetrics,
+    error: statsError ?? null,
     connectionStatus,
     lastSyncTime,
     isRefreshing,

@@ -10,7 +10,7 @@
  *    with App Badge support (navigator.setAppBadge) and deep-link window focusing (/tickets/[id]).
  */
 
-const CACHE_PREFIX = "claims-pwa-v2.0.0"
+const CACHE_PREFIX = "claims-pwa-v2.0.1"
 const STATIC_CACHE = `${CACHE_PREFIX}-static`
 const API_CACHE = `${CACHE_PREFIX}-api`
 const PAGES_CACHE = `${CACHE_PREFIX}-pages`
@@ -202,34 +202,61 @@ self.addEventListener("fetch", (event) => {
     return
   }
 
-  // 1. API & Live Data (/api/*): Network-First Strategy
+  // 1. API & Live Data (/api/*): Network-First Strategy with normalized cache key
+  // Strip volatile `_t` cache-buster query params so offline/transient fallback actually hits cached JSON
+  // instead of fabricating synthetic 503 responses.
   if (url.pathname.startsWith("/api/")) {
+    const normalizedUrl = new URL(url.href)
+    normalizedUrl.searchParams.delete("_t")
+    normalizedUrl.searchParams.delete("refresh")
+    normalizedUrl.searchParams.delete("force")
+    const cacheKey = new Request(normalizedUrl.toString(), { method: "GET" })
+
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const cloned = networkResponse.clone()
             caches.open(API_CACHE).then((cache) => {
-              cache.put(request, cloned).catch(() => null)
+              cache.put(cacheKey, cloned).catch(() => null)
             })
           }
           return networkResponse
         })
-        .catch(async () => {
-          const cachedResponse = await caches.match(request)
+        .catch(async (networkErr) => {
+          const cachedResponse =
+            (await caches.match(cacheKey)) ||
+            (await caches.match(request, { ignoreSearch: true }))
           if (cachedResponse) {
-            return cachedResponse
+            const headers = new Headers(cachedResponse.headers)
+            headers.set("X-CLAIMS-Cache-Fallback", "1")
+            return new Response(cachedResponse.body, {
+              status: cachedResponse.status,
+              statusText: cachedResponse.statusText,
+              headers,
+            })
           }
+
+          const isOffline =
+            typeof self.navigator !== "undefined" && self.navigator.onLine === false
+
           return new Response(
             JSON.stringify({
               success: false,
-              offline: true,
-              pwaVersion: "2.0.0",
-              error: "ขณะนี้อุปกรณ์อยู่ในโหมดออฟไลน์ (Offline Mode)",
+              offline: isOffline,
+              code: isOffline ? "OFFLINE_NO_CACHE" : "NETWORK_UNREACHABLE",
+              retryable: !isOffline,
+              pwaVersion: "2.0.1",
+              error: isOffline
+                ? "ขณะนี้อุปกรณ์อยู่ในโหมดออฟไลน์ (Offline Mode)"
+                : `ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ชั่วคราว (${networkErr instanceof Error ? networkErr.message : "Network error"})`,
             }),
             {
               status: 503,
-              headers: { "Content-Type": "application/json; charset=utf-8" },
+              headers: {
+                "Content-Type": "application/json; charset=utf-8",
+                "X-CLAIMS-SW-Fallback": "1",
+              },
             }
           )
         })

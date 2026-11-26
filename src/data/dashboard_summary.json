@@ -13,8 +13,8 @@
     "pendingCount": 0,
     "overdueCount": 0,
     "overduePct": 0,
-    "closedOnTimeText": "0 เคส",
-    "closedMedianDays": 49.5,
+    "closedOnTimeText": "5 เคส",
+    "closedMedianDays": 11,
     "closedCount": 6
   },
   "workStatus": [
@@ -64,10 +64,10 @@
     }
   ],
   "weekly": {
-    "thisWeekCount": 0,
-    "lastWeekCount": 0,
-    "trendPct": 0,
-    "isPositiveTrend": true,
+    "thisWeekCount": 1,
+    "lastWeekCount": 3,
+    "trendPct": -67,
+    "isPositiveTrend": false,
     "daysBreakdown": [
       {
         "day": "ศ.",
@@ -100,7 +100,7 @@
     ],
     "boxReceived": 0,
     "boxRepaired": 0,
-    "boxClosed": 0
+    "boxClosed": 1
   },
   "bottlenecks": [
     {
@@ -170,5 +170,5 @@
       "overdueCount": 0
     }
   ],
-  "lastCalculated": "2026-11-26T04:41:12.103Z"
+  "lastCalculated": "2026-11-26T08:02:48.000Z"
 }

@@ -21,6 +21,7 @@ import {
   FileDown,
   FileText,
   Loader2,
+  AlertTriangle,
 } from "lucide-react"
 import { useRealtimeDashboard } from "@/hooks/useRealtimeDashboard"
 import { useLocale } from "@/i18n/LocaleContext"
@@ -35,7 +36,7 @@ export interface DashboardViewProps {
 export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
   const router = useRouter()
   const realtimeOptions = React.useMemo(() => ({ initialMetrics }), [initialMetrics])
-  const { metrics, connectionStatus, lastSyncTime, isRefreshing, refresh } =
+  const { metrics, error: statsError, connectionStatus, lastSyncTime, isRefreshing, refresh } =
     useRealtimeDashboard(realtimeOptions)
   const { t, locale } = useLocale()
   const [mounted, setMounted] = React.useState(false)
@@ -418,6 +419,47 @@ export function DashboardView({ initialMetrics }: DashboardViewProps = {}) {
             </button>
           </div>
         </div>
+
+        {/* Non-blocking Stats Sync Error / Manual Retry Banner */}
+        {statsError && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-300/80 dark:border-amber-500/30 bg-amber-50/90 dark:bg-amber-950/35 px-4 py-3 text-xs text-amber-900 dark:text-amber-200 shadow-2xs"
+          >
+            <div className="flex items-start sm:items-center gap-2.5">
+              <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5 sm:mt-0" />
+              <div className="leading-snug">
+                <span className="font-semibold">
+                  {locale === "th"
+                    ? "ไม่สามารถซิงก์ข้อมูลสถิติล่าสุดได้ชั่วคราว"
+                    : "Unable to sync latest dashboard metrics"}
+                </span>
+                <span className="mx-1.5 opacity-60">·</span>
+                <span className="text-amber-800/90 dark:text-amber-300/90">
+                  {statsError.message}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => refresh()}
+              disabled={isRefreshing}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-400/70 dark:border-amber-500/40 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-amber-900 dark:text-amber-200 hover:bg-amber-100/70 dark:hover:bg-slate-700 transition-colors cursor-pointer disabled:opacity-60 shrink-0"
+            >
+              <RefreshCw className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+              <span>
+                {isRefreshing
+                  ? locale === "th"
+                    ? "กำลังเชื่อมต่อใหม่..."
+                    : "Retrying..."
+                  : locale === "th"
+                  ? "ลองใหม่อีกครั้ง"
+                  : "Retry"}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* =========================================================================
             2. TOP CONTAINER: SUMMARY CARDS & CORE PERFORMANCE WIDGETS

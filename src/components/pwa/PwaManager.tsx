@@ -21,6 +21,10 @@ interface BeforeInstallPromptEvent extends Event {
 
 const DISMISS_KEY = "claims_pwa_v2_dismissed_at"
 
+// Module-level reference so clicking any "Install App" button across AppShell or Settings
+// can invoke deferredPrompt.prompt() directly inside the user click gesture.
+let globalDeferredInstallPrompt: BeforeInstallPromptEvent | null = null
+
 export async function subscribeBrowserToWebPush(sendWelcome = false): Promise<{
   success: boolean
   endpoint?: string
@@ -73,10 +77,27 @@ export async function unsubscribeBrowserFromWebPush(): Promise<{
   }
 }
 
-export function triggerPwaInstallPrompt() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("caim:pwa:open-prompt"))
+export async function triggerPwaInstallPrompt() {
+  if (typeof window === "undefined") return
+
+  if (globalDeferredInstallPrompt) {
+    const promptEvent = globalDeferredInstallPrompt
+    try {
+      await promptEvent.prompt()
+      const choice = await promptEvent.userChoice
+      if (choice.outcome === "accepted") {
+        globalDeferredInstallPrompt = null
+      }
+      window.dispatchEvent(
+        new CustomEvent("caim:pwa:prompt-consumed", { detail: { outcome: choice.outcome } })
+      )
+      return
+    } catch {
+      globalDeferredInstallPrompt = null
+    }
   }
+
+  window.dispatchEvent(new CustomEvent("caim:pwa:open-prompt"))
 }
 
 export function PwaManager() {
@@ -151,18 +172,39 @@ export function PwaManager() {
       setShowBanner(true)
     }
 
-    // 4. Capture beforeinstallprompt on Desktop / Android
+    // 4. Capture beforeinstallprompt on Desktop / Android ONLY when our custom install UI will be shown
+    // Calling preventDefault() without showing a custom install banner triggers Chrome's
+    // "Banner not shown: beforeinstallpromptevent.preventDefault() called" warning.
     const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault()
-      setDeferredPrompt(e as BeforeInstallPromptEvent)
+      if (standaloneMatch) return
+
       const dismissed = Number(localStorage.getItem(DISMISS_KEY) || "0")
       const isDismissed = dismissed > 0 && Date.now() - dismissed < 1000 * 60 * 60 * 24 * 3
-      if (!standaloneMatch && !isDismissed) {
-        setShowBanner(true)
+
+      // If the user recently dismissed our custom banner, do NOT suppress Chrome's default behavior
+      // so no orphaned preventDefault() warning is emitted in the console.
+      if (isDismissed) {
+        return
+      }
+
+      e.preventDefault()
+      const promptEvent = e as BeforeInstallPromptEvent
+      globalDeferredInstallPrompt = promptEvent
+      setDeferredPrompt(promptEvent)
+      setShowBanner(true)
+    }
+
+    const handlePromptConsumed = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail as { outcome?: string } | undefined
+      if (detail?.outcome === "accepted") {
+        globalDeferredInstallPrompt = null
+        setDeferredPrompt(null)
+        setShowBanner(false)
       }
     }
 
     const handleAppInstalled = () => {
+      globalDeferredInstallPrompt = null
       setIsStandalone(true)
       setDeferredPrompt(null)
       setShowBanner(false)
@@ -188,6 +230,7 @@ export function PwaManager() {
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt)
     window.addEventListener("appinstalled", handleAppInstalled)
     window.addEventListener("caim:pwa:open-prompt", handleManualOpen)
+    window.addEventListener("caim:pwa:prompt-consumed", handlePromptConsumed)
     window.addEventListener("caim:pwa:push-changed", handlePushChanged)
 
     return () => {
@@ -195,16 +238,19 @@ export function PwaManager() {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt)
       window.removeEventListener("appinstalled", handleAppInstalled)
       window.removeEventListener("caim:pwa:open-prompt", handleManualOpen)
+      window.removeEventListener("caim:pwa:prompt-consumed", handlePromptConsumed)
       window.removeEventListener("caim:pwa:push-changed", handlePushChanged)
     }
   }, [])
 
   const handleInstallClick = async () => {
-    if (deferredPrompt) {
+    const promptEvent = deferredPrompt || globalDeferredInstallPrompt
+    if (promptEvent) {
       try {
-        await deferredPrompt.prompt()
-        const choice = await deferredPrompt.userChoice
+        await promptEvent.prompt()
+        const choice = await promptEvent.userChoice
         if (choice.outcome === "accepted") {
+          globalDeferredInstallPrompt = null
           setDeferredPrompt(null)
           setShowBanner(false)
         }
