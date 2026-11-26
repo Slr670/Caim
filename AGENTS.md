@@ -58,6 +58,16 @@ scripts/            # Database migration, seed, and data generation utilities
 ```
 # Agent Workflow & Operating Guidelines
 
+## Mandatory Pre-Task Protocol: Read `design.md` First
+
+ทุกครั้งที่มีการแก้ไข เพิ่ม ลดฟีเจอร์ หรือปรับปรุงดีไซน์ (UI/UX, Component, API, Database หรือ PDF Report) **คุณต้องเปิดอ่านไฟล์ข้อกำหนดการออกแบบ [`design.md`](./design.md) (`d:\DD\Caim\design.md`) ก่อนเริ่มลงมือแก้ไขโค้ดทุกครั้งโดยไม่มีข้อยกเว้น**:
+
+1. **Read First (`design.md`)**: อ่าน [`design.md`](./design.md) ในเทิร์นแรกก่อนเริ่มปรับแต่ง เพื่อยึดตามมาตรฐานสถาปัตยกรรม, ระบบสี Light/Dark Theme Tokens, ฟอนต์ `THSarabunNew`, กฎ Immutable Primary Key (`uid`), Frozen SLA Calculator, PWA 2.0.0 และรูปแบบรายงาน PDF ของโปรเจกต์อย่างเคร่งครัด
+2. **Design & Architecture Parity**: ห้ามเขียนโค้ดหรือใช้คลาสสีที่ขัดแย้งกับข้อกำหนดใน `design.md` (เช่น ห้าม Hardcode สีโทนมืดโดยไม่มี `dark:` prefix และห้ามใช้ `claimNumber` แทน `uid` ในการผูก Foreign Key/Timeline)
+3. **Keep `design.md` Synced**: หากมีการเปลี่ยนแปลงโครงสร้างสถาปัตยกรรม โมเดลฐานข้อมูล หรือมาตรฐานดีไซน์หลัก ให้อัปเดต `design.md` ให้สอดคล้องกับระบบล่าสุดเสมอ
+
+---
+
 ## Mandatory Post-Task Protocol: Automated Git Push
 
 You must strictly adhere to this rule at the conclusion of every single task, feature addition, refactoring, or bug fix without requiring explicit reminders.

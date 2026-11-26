@@ -5,6 +5,8 @@ description: Comprehensive expert UX/UI design system and heuristics skill. Enfo
 
 # UX/UI Pro Max Design System & Engineering Guidelines
 
+> **MANDATORY PRE-TASK REQUIREMENT:** Before adding, removing, editing, or restyling any UI/UX component, page, form, modal, or PDF report in this repository, you **MUST** first read [`d:\DD\Caim\design.md`](../../../design.md) and strictly follow all project-specific design tokens, Light/Dark surface parity rules, typography, and architectural invariants documented there.
+
 This skill provides an authoritative, enterprise-grade UX/UI standard for all frontend components, layouts, pages, and interactive workflows.
 
 ---
