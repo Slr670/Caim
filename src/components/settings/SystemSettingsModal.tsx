@@ -56,7 +56,6 @@ export function SystemSettingsModal({
   const {
     projects,
     isLoading: isLoadingProjects,
-    refetch: refetchProjects,
     createProject,
     updateProject,
     deleteProject,
@@ -101,9 +100,11 @@ export function SystemSettingsModal({
     setTimeout(() => setToastMessage(null), 4000)
   }, [])
 
-  // Load saved settings from localStorage and auto-sync Always-On Push subscription on client mount
+  // Load saved settings from localStorage and inspect Push status only while the modal is open
   React.useEffect(() => {
-    if (typeof window === "undefined") return
+    if (!isOpen || typeof window === "undefined") return
+
+    setProjectFeedback(null)
 
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
@@ -128,23 +129,29 @@ export function SystemSettingsModal({
     const currentPerm = Notification.permission
     setPushPermission(currentPerm)
 
-    if (currentPerm === "granted") {
-      ensureActivePushSubscription({
-        requestPermissionIfNeeded: false,
-        sendWelcome: false,
+    let cancelled = false
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager?.getSubscription())
+      .then((sub) => {
+        if (cancelled) return
+        if (sub) {
+          setPushEnabled(true)
+          return
+        }
+        if (currentPerm === "granted") {
+          // Session-guarded singleton lock ensures at most one POST /api/push/subscribe per session
+          return ensureActivePushSubscription({
+            requestPermissionIfNeeded: false,
+            sendWelcome: false,
+          }).then((res) => {
+            if (!cancelled && res.success) {
+              setPushEnabled(true)
+            }
+          })
+        }
+        setPushEnabled(false)
       })
-        .then((res) => {
-          if (res.success) {
-            setPushEnabled(true)
-          }
-        })
-        .catch(() => null)
-    } else {
-      navigator.serviceWorker.ready
-        .then((reg) => reg.pushManager?.getSubscription())
-        .then((sub) => setPushEnabled(Boolean(sub)))
-        .catch(() => null)
-    }
+      .catch(() => null)
 
     const handlePushChanged = (e: Event) => {
       const detail = (e as CustomEvent)?.detail as
@@ -160,16 +167,10 @@ export function SystemSettingsModal({
 
     window.addEventListener("caim:pwa:push-changed", handlePushChanged)
     return () => {
+      cancelled = true
       window.removeEventListener("caim:pwa:push-changed", handlePushChanged)
     }
   }, [isOpen])
-
-  React.useEffect(() => {
-    if (isOpen) {
-      refetchProjects().catch(() => {})
-      setProjectFeedback(null)
-    }
-  }, [isOpen, refetchProjects])
 
   const handleAddProject = async (e: React.FormEvent) => {
     e.preventDefault()

@@ -18,7 +18,7 @@ import {
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { getPersistentTickets, getPersistentDeletedTicketIds } from "@/lib/storage/serverTicketStorage"
 import { getPersistentRma, getPersistentDeletedRmaIds } from "@/lib/storage/serverRmaStorage"
-import { getPersistentEquipments } from "@/lib/storage/serverEquipmentStorage"
+import { getAllLocalEquipments } from "@/lib/storage/serverEquipmentStorage"
 
 const DATA_DIR = path.join(process.cwd(), "src", "data")
 const PROJECTS_FILE = path.join(DATA_DIR, "projects.json")
@@ -218,7 +218,7 @@ export async function getProjectUsageMap(
     try {
       const db = await getDb()
       if (db) {
-        const [tickets, rmas, equipments, stations] = await Promise.all([
+        const [tickets, rmas, equipmentsRaw, assetsRaw, stations] = await Promise.all([
           db
             .collection<TicketDocument>("tickets")
             .find({}, { projection: { id: 1, uid: 1, projectId: 1, projectName: 1 } })
@@ -232,10 +232,21 @@ export async function getProjectUsageMap(
             .find({}, { projection: { serial: 1, projectId: 1, projectName: 1 } })
             .toArray(),
           db
+            .collection<EquipmentDocument>("assets")
+            .find({}, { projection: { serial: 1, projectId: 1, projectName: 1 } })
+            .toArray(),
+          db
             .collection<StationDocument>("stations")
             .find({}, { projection: { id: 1, projectId: 1, projectName: 1 } })
             .toArray(),
         ])
+
+        const equipments =
+          equipmentsRaw.length > 0
+            ? equipmentsRaw
+            : assetsRaw.length > 0
+              ? assetsRaw
+              : getAllLocalEquipments()
 
         for (const t of tickets) {
           if (deletedTickets.has(t.id) || (t.uid && deletedTickets.has(t.uid))) continue
@@ -275,7 +286,7 @@ export async function getProjectUsageMap(
     }
   }
 
-  // Fallback local JSON counts
+  // Fallback local JSON counts (includes full baseline assets.json + custom_equipments.json)
   for (const t of getPersistentTickets()) {
     if (deletedTickets.has(t.id)) continue
     const b = matchBucket(t)
@@ -292,7 +303,7 @@ export async function getProjectUsageMap(
       b.totalReferences += 1
     }
   }
-  for (const eq of getPersistentEquipments()) {
+  for (const eq of getAllLocalEquipments()) {
     const b = matchBucket(eq)
     if (b) {
       b.equipmentsCount += 1

@@ -17,8 +17,11 @@ export const PROJECTS_QUERY_KEY = ["projects"] as const
 let globalProjectsCache: ProjectWithUsage[] = [{ ...DEFAULT_PROJECT_SEED }]
 let globalIsLoading = false
 let globalLastUpdated = 0
+let globalUsageLastUpdated = 0
 let activeFetchPromise: Promise<ProjectWithUsage[]> | null = null
+let activeUsageFetchPromise: Promise<ProjectWithUsage[]> | null = null
 let hasEverFetched = false
+let hasUsageData = false
 
 const subscribers = new Set<() => void>()
 
@@ -38,18 +41,33 @@ export async function fetchProjectsFromApi(
   const { force = false, includeUsage = false } = options
   const now = Date.now()
 
-  if (
-    !force &&
-    !includeUsage &&
-    hasEverFetched &&
-    globalLastUpdated > 0 &&
-    now - globalLastUpdated < 180_000
-  ) {
-    return globalProjectsCache
-  }
-
-  if (!force && !includeUsage && activeFetchPromise) {
-    return activeFetchPromise
+  if (includeUsage) {
+    if (
+      !force &&
+      hasUsageData &&
+      globalUsageLastUpdated > 0 &&
+      now - globalUsageLastUpdated < 15_000
+    ) {
+      return globalProjectsCache
+    }
+    if (activeUsageFetchPromise) {
+      return activeUsageFetchPromise
+    }
+  } else {
+    if (
+      !force &&
+      hasEverFetched &&
+      globalLastUpdated > 0 &&
+      now - globalLastUpdated < 180_000
+    ) {
+      return globalProjectsCache
+    }
+    if (activeFetchPromise) {
+      return activeFetchPromise
+    }
+    if (activeUsageFetchPromise) {
+      return activeUsageFetchPromise
+    }
   }
 
   globalIsLoading = true
@@ -70,27 +88,44 @@ export async function fetchProjectsFromApi(
       }
       const data = await res.json()
       if (data?.success && Array.isArray(data.projects) && data.projects.length > 0) {
+        const fetchedAt = Date.now()
         globalProjectsCache = data.projects
-        globalLastUpdated = Date.now()
+        globalLastUpdated = fetchedAt
         hasEverFetched = true
+        if (includeUsage) {
+          globalUsageLastUpdated = fetchedAt
+          hasUsageData = true
+        }
       }
       return globalProjectsCache
     } catch (err) {
       console.warn("[useProjectsQuery] fetch fallback:", err)
       return globalProjectsCache
     } finally {
-      globalIsLoading = false
-      activeFetchPromise = null
+      if (includeUsage) {
+        activeUsageFetchPromise = null
+      } else {
+        activeFetchPromise = null
+      }
+      globalIsLoading = Boolean(activeFetchPromise || activeUsageFetchPromise)
       broadcastProjectsUpdate()
     }
   })()
 
-  activeFetchPromise = promise
+  if (includeUsage) {
+    activeUsageFetchPromise = promise
+  } else {
+    activeFetchPromise = promise
+  }
+
   return promise
 }
 
 export async function invalidateProjectsCache(includeUsage = false): Promise<ProjectWithUsage[]> {
   globalLastUpdated = 0
+  if (includeUsage) {
+    globalUsageLastUpdated = 0
+  }
   return fetchProjectsFromApi({ force: true, includeUsage })
 }
 
@@ -102,24 +137,26 @@ export function useProjectsQuery(options: { includeUsage?: boolean } = {}) {
     const onUpdate = () => setVersion((v) => v + 1)
     subscribers.add(onUpdate)
 
-    if (!hasEverFetched || includeUsage) {
-      fetchProjectsFromApi({ force: includeUsage, includeUsage })
+    if (includeUsage) {
+      void fetchProjectsFromApi({ force: true, includeUsage: true })
+    } else if (!hasEverFetched) {
+      void fetchProjectsFromApi({ force: false, includeUsage: false })
     }
 
     const handleRealtimeProject = () => {
+      // Skip redundant network refetch if a local mutation just hydrated the cache within 2 seconds
+      if (Date.now() - globalLastUpdated < 2_000) return
       invalidateProjectsCache(includeUsage).catch(() => {})
     }
 
     if (typeof window !== "undefined") {
       window.addEventListener("caim:realtime:project", handleRealtimeProject)
-      window.addEventListener("caim:projects:changed", handleRealtimeProject)
     }
 
     return () => {
       subscribers.delete(onUpdate)
       if (typeof window !== "undefined") {
         window.removeEventListener("caim:realtime:project", handleRealtimeProject)
-        window.removeEventListener("caim:projects:changed", handleRealtimeProject)
       }
     }
   }, [includeUsage])
@@ -169,15 +206,15 @@ export function useProjectsQuery(options: { includeUsage?: boolean } = {}) {
           return { success: false, error: data.error || "ไม่สามารถเพิ่มโครงการได้" }
         }
         if (Array.isArray(data.projects)) {
+          const updatedAt = Date.now()
           globalProjectsCache = data.projects
-          globalLastUpdated = Date.now()
+          globalLastUpdated = updatedAt
+          globalUsageLastUpdated = updatedAt
           hasEverFetched = true
+          hasUsageData = true
           broadcastProjectsUpdate()
         } else {
           await invalidateProjectsCache(true)
-        }
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("caim:projects:changed"))
         }
         return {
           success: true,
@@ -213,9 +250,12 @@ export function useProjectsQuery(options: { includeUsage?: boolean } = {}) {
           return { success: false, error: data.error || "ไม่สามารถแก้ไขโครงการได้" }
         }
         if (Array.isArray(data.projects)) {
+          const updatedAt = Date.now()
           globalProjectsCache = data.projects
-          globalLastUpdated = Date.now()
+          globalLastUpdated = updatedAt
+          globalUsageLastUpdated = updatedAt
           hasEverFetched = true
+          hasUsageData = true
           broadcastProjectsUpdate()
         } else {
           await invalidateProjectsCache(true)
@@ -228,9 +268,6 @@ export function useProjectsQuery(options: { includeUsage?: boolean } = {}) {
             invalidateEquipmentsCache(),
             invalidateStationsCache(),
           ]).catch(() => {})
-        }
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("caim:projects:changed"))
         }
         return {
           success: true,
@@ -266,15 +303,15 @@ export function useProjectsQuery(options: { includeUsage?: boolean } = {}) {
           return { success: false, error: data.error || "ไม่สามารถลบโครงการได้" }
         }
         if (Array.isArray(data.projects)) {
+          const updatedAt = Date.now()
           globalProjectsCache = data.projects
-          globalLastUpdated = Date.now()
+          globalLastUpdated = updatedAt
+          globalUsageLastUpdated = updatedAt
           hasEverFetched = true
+          hasUsageData = true
           broadcastProjectsUpdate()
         } else {
           await invalidateProjectsCache(true)
-        }
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("caim:projects:changed"))
         }
         return { success: true, message: data.message }
       } catch (err: unknown) {
@@ -287,11 +324,16 @@ export function useProjectsQuery(options: { includeUsage?: boolean } = {}) {
     []
   )
 
+  const refetch = React.useCallback(
+    () => invalidateProjectsCache(includeUsage),
+    [includeUsage]
+  )
+
   return {
     projects: globalProjectsCache,
     defaultProject,
     isLoading: globalIsLoading,
-    refetch: () => invalidateProjectsCache(includeUsage),
+    refetch,
     resolveProjectByIdOrName,
     createProject,
     updateProject,

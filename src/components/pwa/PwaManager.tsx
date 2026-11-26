@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Download, X, Share, PlusSquare, CheckCircle2, Smartphone, ShieldCheck, BellRing } from "lucide-react"
 import {
+  clearSyncedEndpointInSession,
   ensureActivePushSubscription,
   isStandalonePwaMode,
   urlBase64ToUint8Array,
@@ -33,6 +34,7 @@ export async function subscribeBrowserToWebPush(sendWelcome = false): Promise<{
   const res = await ensureActivePushSubscription({
     requestPermissionIfNeeded: true,
     sendWelcome,
+    force: true,
   })
   return {
     success: res.success,
@@ -62,6 +64,7 @@ export async function unsubscribeBrowserFromWebPush(): Promise<{
     if (sub) {
       const endpoint = sub.endpoint
       await sub.unsubscribe().catch(() => null)
+      clearSyncedEndpointInSession(endpoint)
       await fetch("/api/push/unsubscribe", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -113,22 +116,15 @@ export function PwaManager() {
   React.useEffect(() => {
     if (typeof window === "undefined") return
 
-    // 1. Register PWA 2.0.0 Service Worker (/sw.js) and auto-subscribe if permission is already granted
+    // 1. Register PWA 2.0.0 Service Worker (/sw.js) and read local push subscription state
+    // (Single-source push auto-sync is owned by PwaPushAutoSubscriber with a session lock.)
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js", { scope: "/" })
         .then(async (registration) => {
           setSwActive(true)
           registration.update().catch(() => null)
-          if ("Notification" in window && Notification.permission === "granted") {
-            const subRes = await ensureActivePushSubscription({
-              requestPermissionIfNeeded: false,
-              sendWelcome: false,
-            })
-            if (subRes.success) {
-              setPushSubscribed(true)
-            }
-          } else if ("pushManager" in registration) {
+          if ("pushManager" in registration) {
             const existingSub = await registration.pushManager.getSubscription().catch(() => null)
             if (existingSub) {
               setPushSubscribed(true)

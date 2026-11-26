@@ -15,6 +15,69 @@ export const DEFAULT_PUBLIC_VAPID_KEY =
   process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
   "BIZ_IMFjP249T3BdUCaWwZVwdptwEZnwnQxKgkl_lGR2SsKGdid2Nri8CLI7vTre4_LnqoGQkkYP_XcRPqSfewg"
 
+const SESSION_SYNCED_ENDPOINT_KEY = "caim_pwa_push_synced_endpoint_v1"
+
+export interface EnsurePushSubscriptionResult {
+  success: boolean
+  endpoint?: string
+  permission?: NotificationPermission
+  cached?: boolean
+  error?: string
+}
+
+// Module-level singleton / in-flight lock + per-session endpoint guard
+// Ensures POST /api/push/subscribe executes at most once per session per endpoint
+// with zero duplicate concurrent calls or retry storms.
+let inFlightPushSubscribePromise: Promise<EnsurePushSubscriptionResult> | null = null
+const syncedEndpointsInMemory = new Set<string>()
+let autoSyncAttemptedInSession = false
+let cachedPublicVapidKey: string | null = null
+
+function hasSyncedEndpointInSession(endpoint: string): boolean {
+  if (!endpoint) return false
+  if (syncedEndpointsInMemory.has(endpoint)) return true
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.sessionStorage.getItem(SESSION_SYNCED_ENDPOINT_KEY)
+      if (stored === endpoint) {
+        syncedEndpointsInMemory.add(endpoint)
+        return true
+      }
+    } catch {
+      // ignore restricted storage modes
+    }
+  }
+  return false
+}
+
+function markEndpointSyncedInSession(endpoint: string): void {
+  if (!endpoint) return
+  syncedEndpointsInMemory.add(endpoint)
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.setItem(SESSION_SYNCED_ENDPOINT_KEY, endpoint)
+    } catch {
+      // ignore restricted storage modes
+    }
+  }
+}
+
+export function clearSyncedEndpointInSession(endpoint?: string): void {
+  if (endpoint) {
+    syncedEndpointsInMemory.delete(endpoint)
+  } else {
+    syncedEndpointsInMemory.clear()
+  }
+  autoSyncAttemptedInSession = false
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.removeItem(SESSION_SYNCED_ENDPOINT_KEY)
+    } catch {
+      // ignore restricted storage modes
+    }
+  }
+}
+
 export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
@@ -42,17 +105,13 @@ export function isStandalonePwaMode(): boolean {
 
 /**
  * Ensures the Service Worker is registered, retrieves or creates an active PushSubscription,
- * and syncs it with POST /api/push/subscribe.
+ * and syncs it with POST /api/push/subscribe at most once per session per endpoint.
  */
 export async function ensureActivePushSubscription(options?: {
   requestPermissionIfNeeded?: boolean
   sendWelcome?: boolean
-}): Promise<{
-  success: boolean
-  endpoint?: string
-  permission?: NotificationPermission
-  error?: string
-}> {
+  force?: boolean
+}): Promise<EnsurePushSubscriptionResult> {
   if (
     typeof window === "undefined" ||
     !("serviceWorker" in navigator) ||
@@ -65,85 +124,154 @@ export async function ensureActivePushSubscription(options?: {
     }
   }
 
-  try {
-    let permission = Notification.permission
-    if (permission === "default" && options?.requestPermissionIfNeeded) {
-      permission = await Notification.requestPermission()
+  const isUserInitiated = Boolean(
+    options?.force || options?.requestPermissionIfNeeded || options?.sendWelcome
+  )
+
+  // Fast-path permission check before acquiring any network/SW resources
+  if (Notification.permission !== "granted" && !options?.requestPermissionIfNeeded) {
+    return {
+      success: false,
+      permission: Notification.permission,
+      error:
+        Notification.permission === "denied"
+          ? "สิทธิ์การแจ้งเตือนถูกปฏิเสธ กรุณาเปิดอนุญาตในการตั้งค่าของโทรศัพท์"
+          : "ยังไม่ได้รับสิทธิ์การแสดงการแจ้งเตือน",
     }
+  }
 
-    if (permission !== "granted") {
-      return {
-        success: false,
-        permission,
-        error:
-          permission === "denied"
-            ? "สิทธิ์การแจ้งเตือนถูกปฏิเสธ กรุณาเปิดอนุญาตในการตั้งค่าของโทรศัพท์"
-            : "ยังไม่ได้รับสิทธิ์การแสดงการแจ้งเตือน",
-      }
-    }
+  // Deduplicate all concurrent callers via module-level singleton promise
+  if (inFlightPushSubscribePromise) {
+    return inFlightPushSubscribePromise
+  }
 
-    // Ensure Service Worker (/sw.js) is registered prior to awaiting .ready
-    const existingReg = await navigator.serviceWorker.getRegistration("/")
-    if (!existingReg) {
-      await navigator.serviceWorker.register("/sw.js", { scope: "/" })
-    }
-
-    const registration = await navigator.serviceWorker.ready
-
-    let publicKey = DEFAULT_PUBLIC_VAPID_KEY
+  const run = async (): Promise<EnsurePushSubscriptionResult> => {
     try {
-      const keyRes = await fetch("/api/push/subscribe", { cache: "no-store" })
-      if (keyRes.ok) {
-        const keyData = await keyRes.json()
-        if (keyData?.publicKey) {
-          publicKey = keyData.publicKey
+      let permission = Notification.permission
+      if (permission === "default" && options?.requestPermissionIfNeeded) {
+        permission = await Notification.requestPermission()
+      }
+
+      if (permission !== "granted") {
+        return {
+          success: false,
+          permission,
+          error:
+            permission === "denied"
+              ? "สิทธิ์การแจ้งเตือนถูกปฏิเสธ กรุณาเปิดอนุญาตในการตั้งค่าของโทรศัพท์"
+              : "ยังไม่ได้รับสิทธิ์การแสดงการแจ้งเตือน",
         }
       }
-    } catch {
-      // Fallback to bundled VAPID public key when offline/transient
-    }
 
-    let sub = await registration.pushManager.getSubscription()
-    if (!sub) {
-      sub = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      })
-    }
-
-    const res = await fetch("/api/push/subscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subscription: sub.toJSON(),
-        sendWelcome: Boolean(options?.sendWelcome),
-      }),
-    })
-
-    const data = await res.json().catch(() => null)
-    if (!res.ok || !data?.success) {
-      return {
-        success: false,
-        permission,
-        error: data?.error || "ไม่สามารถซิงก์ข้อมูล Push Subscription กับเซิร์ฟเวอร์ได้",
+      // Ensure Service Worker (/sw.js) is registered prior to awaiting .ready
+      const existingReg = await navigator.serviceWorker.getRegistration("/")
+      if (!existingReg) {
+        await navigator.serviceWorker.register("/sw.js", { scope: "/" })
       }
-    }
 
-    window.dispatchEvent(
-      new CustomEvent("caim:pwa:push-changed", {
-        detail: { subscribed: true, permission: "granted" },
+      const registration = await navigator.serviceWorker.ready
+      let sub = await registration.pushManager.getSubscription()
+
+      // Session guard: if this exact subscription endpoint was already synced this session
+      // and this is a background auto-sync, skip GET & POST /api/push/subscribe completely.
+      if (sub && !isUserInitiated && hasSyncedEndpointInSession(sub.endpoint)) {
+        return {
+          success: true,
+          endpoint: sub.endpoint,
+          permission: "granted",
+          cached: true,
+        }
+      }
+
+      // Prevent background auto-sync retry storms if an earlier attempt in this session failed
+      if (!isUserInitiated && autoSyncAttemptedInSession) {
+        return {
+          success: Boolean(sub),
+          endpoint: sub?.endpoint,
+          permission: "granted",
+          cached: true,
+        }
+      }
+
+      if (!isUserInitiated) {
+        autoSyncAttemptedInSession = true
+      }
+
+      if (!sub) {
+        let publicKey = cachedPublicVapidKey || DEFAULT_PUBLIC_VAPID_KEY
+        if (!cachedPublicVapidKey) {
+          try {
+            const keyRes = await fetch("/api/push/subscribe", { cache: "no-store" })
+            if (keyRes.ok) {
+              const keyData = await keyRes.json()
+              if (keyData?.publicKey) {
+                publicKey = keyData.publicKey
+                cachedPublicVapidKey = keyData.publicKey
+              }
+            }
+          } catch {
+            // Fallback to bundled VAPID public key when offline/transient
+          }
+        }
+
+        sub = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        })
+      }
+
+      // Re-check session guard in case the newly retrieved endpoint was already synced
+      if (!isUserInitiated && hasSyncedEndpointInSession(sub.endpoint)) {
+        return {
+          success: true,
+          endpoint: sub.endpoint,
+          permission: "granted",
+          cached: true,
+        }
+      }
+
+      const res = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscription: sub.toJSON(),
+          sendWelcome: Boolean(options?.sendWelcome),
+        }),
       })
-    )
 
-    return {
-      success: true,
-      endpoint: sub.endpoint,
-      permission: "granted",
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.success) {
+        return {
+          success: false,
+          permission,
+          error: data?.error || "ไม่สามารถซิงก์ข้อมูล Push Subscription กับเซิร์ฟเวอร์ได้",
+        }
+      }
+
+      markEndpointSyncedInSession(sub.endpoint)
+
+      window.dispatchEvent(
+        new CustomEvent("caim:pwa:push-changed", {
+          detail: { subscribed: true, permission: "granted" },
+        })
+      )
+
+      return {
+        success: true,
+        endpoint: sub.endpoint,
+        permission: "granted",
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { success: false, error: msg }
     }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { success: false, error: msg }
   }
+
+  inFlightPushSubscribePromise = run().finally(() => {
+    inFlightPushSubscribePromise = null
+  })
+
+  return inFlightPushSubscribePromise
 }
 
 /**
@@ -168,7 +296,9 @@ export function PwaPushAutoSubscriber() {
   const [deniedBannerDismissed, setDeniedBannerDismissed] = React.useState(false)
   const [mounted, setMounted] = React.useState(false)
 
-  const syncSubscriptionState = React.useCallback(async () => {
+  const hasInitializedRef = React.useRef(false)
+
+  const syncSubscriptionState = React.useCallback(async (force = false) => {
     if (typeof window === "undefined") return
 
     const standalone = isStandalonePwaMode()
@@ -193,6 +323,7 @@ export function PwaPushAutoSubscriber() {
       const res = await ensureActivePushSubscription({
         requestPermissionIfNeeded: false,
         sendWelcome: false,
+        force,
       })
       if (res.success) {
         setIsSubscribed(true)
@@ -203,11 +334,16 @@ export function PwaPushAutoSubscriber() {
 
   React.useEffect(() => {
     setMounted(true)
-    syncSubscriptionState()
 
-    const handleVisibilityOrFocus = () => {
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true
+      void syncSubscriptionState(false)
+    }
+
+    const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        syncSubscriptionState()
+        // Lightweight local permission/display-mode check; session guard prevents duplicate POSTs
+        void syncSubscriptionState(false)
       }
     }
 
@@ -227,17 +363,15 @@ export function PwaPushAutoSubscriber() {
 
     const displayModeQuery = window.matchMedia("(display-mode: standalone)")
     const handleDisplayModeChange = () => {
-      syncSubscriptionState()
+      setIsStandalone(isStandalonePwaMode())
     }
 
-    window.addEventListener("focus", handleVisibilityOrFocus)
-    document.addEventListener("visibilitychange", handleVisibilityOrFocus)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
     window.addEventListener("caim:pwa:push-changed", handlePushChanged)
     displayModeQuery.addEventListener?.("change", handleDisplayModeChange)
 
     return () => {
-      window.removeEventListener("focus", handleVisibilityOrFocus)
-      document.removeEventListener("visibilitychange", handleVisibilityOrFocus)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
       window.removeEventListener("caim:pwa:push-changed", handlePushChanged)
       displayModeQuery.removeEventListener?.("change", handleDisplayModeChange)
     }
@@ -251,6 +385,7 @@ export function PwaPushAutoSubscriber() {
       const res = await ensureActivePushSubscription({
         requestPermissionIfNeeded: true,
         sendWelcome: true,
+        force: true,
       })
       if (res.permission) {
         setPermissionState(res.permission)
@@ -360,7 +495,7 @@ export function PwaPushAutoSubscriber() {
             <div className="mt-2 flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => syncSubscriptionState()}
+                onClick={() => void syncSubscriptionState(true)}
                 className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-500 cursor-pointer"
               >
                 <RefreshCw className="size-3" />

@@ -4,6 +4,7 @@ import { EquipmentDocument } from "@/types/database"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
 import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 import {
+  getAllLocalEquipments,
   getPersistentEquipments,
   savePersistentEquipment,
   deletePersistentEquipment,
@@ -116,8 +117,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fallback: persistent disk store (strictly dynamic - zero mock data)
-    let list = persistentCustom
+    // Fallback: merged local equipment inventory (assets.json + custom_equipments.json)
+    let list = getAllLocalEquipments()
       .filter((e) => !deletedSerials.has(e.serial.toUpperCase()))
       .map((e) => enrichEquipment(e))
 
