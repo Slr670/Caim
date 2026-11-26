@@ -11,6 +11,7 @@ import {
 } from "@react-pdf/renderer"
 import type { ExecutiveSummaryReportData } from "./types"
 import { registerPdfFonts } from "./registerFonts"
+import { DEFAULT_PROJECT_NAME } from "@/lib/projects/projectConstants"
 
 // Ensure fonts are registered
 registerPdfFonts().catch(() => {})
@@ -343,88 +344,89 @@ const styles = StyleSheet.create({
     minHeight: 17,
   },
   tableHeaderText: {
-    fontSize: 8,
+    fontSize: 7.5,
     fontFamily: "THSarabunNew",
     fontWeight: "bold",
     color: "#ffffff",
     lineHeight: 1.15,
-    paddingHorizontal: 3,
+    paddingHorizontal: 2.5,
   },
   tableRow: {
     flexDirection: "row",
     borderTopWidth: 0.5,
     borderTopColor: "#e2e8f0",
-    paddingVertical: 2.5,
+    paddingVertical: 2.2,
     alignItems: "center",
-    minHeight: 18,
+    minHeight: 17,
   },
   tableCellText: {
     fontSize: 7.5,
     fontFamily: "THSarabunNew",
     color: "#1e293b",
-    lineHeight: 1.15,
-    paddingHorizontal: 3,
+    lineHeight: 1.12,
+    paddingHorizontal: 2.5,
+  },
+  tableCellProjectText: {
+    fontSize: 7,
+    fontFamily: "THSarabunNew",
+    fontWeight: "bold",
+    color: "#1e3a8a",
+    lineHeight: 1.12,
+    paddingHorizontal: 2.5,
   },
   tableCellSubtext: {
     fontSize: 6.5,
     color: "#64748b",
     lineHeight: 1.1,
-    paddingHorizontal: 3,
+    paddingHorizontal: 2.5,
   },
 
-  // Column Widths (Sum = 100%)
+  // Column Widths (7 Columns, Sum = 100%)
+  // 12% + 15% + 25% + 18% + 9% + 11% + 10% = 100%
   colClaimNo: {
+    width: "12%",
+  },
+  colProject: {
     width: "15%",
   },
   colTitle: {
-    width: "27%",
+    width: "25%",
   },
   colEquipment: {
-    width: "20%",
+    width: "18%",
   },
   colStatus: {
-    width: "13%",
-    alignItems: "center",
-    justifyContent: "center",
-    textAlign: "center",
-  },
-  tableColStatus: {
-    width: "13%",
+    width: "9%",
     alignItems: "center",
     justifyContent: "center",
     textAlign: "center",
   },
   colSla: {
-    width: "13%",
-    alignItems: "center",
-    justifyContent: "center",
-    textAlign: "center",
-  },
-  tableColSla: {
-    width: "13%",
+    width: "11%",
     alignItems: "center",
     justifyContent: "center",
     textAlign: "center",
   },
   colAssignee: {
-    width: "12%",
+    width: "10%",
   },
 
   // Status Badges
   statusBadge: {
     borderRadius: 2.5,
-    paddingVertical: 1.5,
-    paddingHorizontal: 5,
+    paddingVertical: 1.2,
+    paddingHorizontal: 3.5,
     borderWidth: 0.5,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
+    maxWidth: "96%",
   },
   statusBadgeText: {
-    fontSize: 6.5,
+    fontSize: 6.2,
     fontFamily: "THSarabunNew",
     fontWeight: "bold",
-    lineHeight: 1.15,
+    lineHeight: 1.1,
     textAlign: "center",
   },
 
@@ -509,9 +511,13 @@ const styles = StyleSheet.create({
 
 export interface CaimExecutiveSummaryPDFProps {
   data: ExecutiveSummaryReportData
+  logoSrc?: string
 }
 
-export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) {
+export function CaimExecutiveSummaryPDF({
+  data,
+  logoSrc = "/images/forth-logo.png",
+}: CaimExecutiveSummaryPDFProps) {
   const {
     reportNumber,
     reportTitle,
@@ -591,7 +597,7 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
         <View style={styles.headerContainer}>
           <View style={styles.headerLeft}>
             <Image 
-              src="/images/forth-logo.png" 
+              src={logoSrc} 
               style={{ width: 110, height: 42, objectFit: "contain", marginRight: 10 }} 
             />
             <View style={styles.companyInfoBlock}>
@@ -847,9 +853,10 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
 
         {/* Section 2: Claims Inventory Table */}
         <View style={styles.tableContainer}>
-          {/* Table Header */}
+          {/* Table Header (7 Columns = 100%) */}
           <View style={styles.tableHeaderRow}>
             <Text style={[styles.tableHeaderText, styles.colClaimNo]}>เลขที่เคลม</Text>
+            <Text style={[styles.tableHeaderText, styles.colProject]}>โครงการ</Text>
             <Text style={[styles.tableHeaderText, styles.colTitle]}>หัวข้อเคลม / อาการ</Text>
             <Text style={[styles.tableHeaderText, styles.colEquipment]}>อุปกรณ์ / S/N</Text>
             <Text style={[styles.tableHeaderText, styles.colStatus, { textAlign: "center" }]}>สถานะ</Text>
@@ -866,22 +873,26 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
             sortedClaims.map((row, index) => {
               const badgeStyle = getStatusBadgeStyle(row.statusCode)
               const isEven = index % 2 === 0
+              const projectLabel = row.projectName?.trim() || DEFAULT_PROJECT_NAME
               return (
                 <View
                   key={row.id}
+                  wrap={false}
                   style={[
                     styles.tableRow,
                     { backgroundColor: isEven ? "#ffffff" : "#f8fafc" },
                   ]}
                 >
-                  {/* Claim No & Project */}
+                  {/* Claim No */}
                   <View style={styles.colClaimNo}>
                     <Text style={[styles.tableCellText, { fontFamily: "THSarabunNew", fontWeight: "bold" }]}>
                       {row.id}
                     </Text>
-                    {row.projectName ? (
-                      <Text style={styles.tableCellSubtext}>{row.projectName}</Text>
-                    ) : null}
+                  </View>
+
+                  {/* Dedicated Project Column */}
+                  <View style={styles.colProject}>
+                    <Text style={styles.tableCellProjectText}>{projectLabel}</Text>
                   </View>
 
                   {/* Title & Symptoms */}
