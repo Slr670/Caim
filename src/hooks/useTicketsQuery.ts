@@ -54,6 +54,8 @@ export interface Ticket {
   province?: string
   district?: string
   subdistrict?: string
+  projectId?: string
+  projectName?: string
   timeline?: ClaimTimelineEvent[]
 }
 

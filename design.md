@@ -131,6 +131,10 @@ flowchart TB
 
 ```mermaid
 erDiagram
+  PROJECTS ||--o{ STATIONS : "classifies (projectId)"
+  PROJECTS ||--o{ EQUIPMENTS : "classifies (projectId)"
+  PROJECTS ||--o{ TICKETS : "classifies (projectId)"
+  PROJECTS ||--o{ RMA : "classifies (projectId)"
   STATIONS ||--o{ EQUIPMENTS : "hosts (stationId)"
   STATIONS ||--o{ TICKETS : "incident_at (stationId)"
   EQUIPMENTS ||--o{ TICKETS : "claimed_in (serialNo)"
@@ -139,10 +143,20 @@ erDiagram
   TICKETS ||--o{ TRANSACTION_LOGS : "logs_bound_by (uid -> claimId)"
   RMA ||--o{ PERMITS : "regulated_by (rmaId)"
 
+  PROJECTS {
+    string id PK "Master Project ID (e.g. proj-uso-shf-2)"
+    string name UK "Project label & code (e.g. USO-SHF 2 (25310-9999))"
+    boolean isDefault "Default project flag"
+    string createdAt "ISO creation timestamp"
+    string updatedAt "ISO update timestamp"
+  }
+
   TICKETS {
     string uid PK "Immutable UUID Primary Key"
     string id UK "Contiguous Claim Number (CLM-YYYY-XXX)"
     string claimNumber "Mirror of contiguous Claim ID"
+    string projectId FK "Master Project ID"
+    string projectName "Resolved Project Name"
     string title "Claim subject"
     string problemDesc "Detailed symptoms"
     string serialNo FK "Equipment Serial Number"
@@ -312,6 +326,7 @@ sequenceDiagram
 
 | Endpoint | Methods | หน้าที่และการทำงานหลัก |
 |---|---|---|
+| `/api/projects` | `GET`, `POST`, `PATCH`, `DELETE` | ดึงรายชื่อโครงการหลักสำหรับฟอร์ม/ตัวกรอง (`GET` เปิดทั่วไป) และเพิ่ม/เปลี่ยนชื่อ/ลบโครงการพร้อม Cascade Update (`POST`/`PATCH`/`DELETE` ป้องกันด้วยรหัสผ่านตั้งค่าระบบ `x-settings-passcode`) |
 | `/api/claims` | `GET`, `POST`, `PUT`, `PATCH`, `DELETE` | ดึงรายการเคลมทั้งหมด, ดูเลขลำดับถัดไป (`?action=next-sequence`), เปิดเคสใหม่พร้อม Validate ด้วย Zod |
 | `/api/claims/[id]` | `GET`, `PUT`, `PATCH`, `DELETE` | ดึง/แก้ไข/ลบเคสเดี่ยวโดยค้นหาจาก `uid` (Primary Key) เป็นอันดับแรก พร้อม Cascade Delete ประวัติ Timeline |
 | `/api/tickets` | `GET`, `POST`, `PUT`, `DELETE` | Core Ticket Engine และ Endpoint สำหรับเชื่อมต่อระบบภายนอก (`POST` ป้องกันด้วย `Bearer <CAIM_API_KEY>`) |
@@ -325,5 +340,5 @@ sequenceDiagram
 ### 8.2 มาตรการความปลอดภัยและคุณภาพโค้ด (Security & Quality Guardrails)
 - **Authentication & M2M Security:** แยก Endpoint ภายในพอร์ทัล (`/api/claims`) ออกจาก Endpoint เชื่อมต่อระหว่างเครื่อง (`/api/tickets` `POST` ที่บังคับตรวจ `CAIM_API_KEY` ฝั่งเซิร์ฟเวอร์โดยไม่เปิดเผยคีย์ในฝั่งเบราว์เซอร์)
 - **Non-Blocking Outbound Webhooks:** การแจ้งผลปิดเคสกลับไปยังระบบคลังสินค้า (`Stock-Flow`) ทำงานผ่าน `after()` ของ `next/server` เพื่อไม่ให้ปัญหาเครือข่ายปลายทางกระทบความเร็วในการบันทึกงานของเจ้าหน้าที่
-- **Protected System Configuration:** การเข้าถึงหน้าต่างตั้งค่าระบบและรหัสผ่าน SMTP ถูกป้องกันด้วยหน้าจอยืนยันรหัสผ่านผู้ดูแลระบบ (`PasscodeModal`)
+- **Protected System Configuration & Master Projects:** การเข้าถึงหน้าต่างตั้งค่าระบบ การจัดการข้อมูลโครงการหลัก (`จัดการโครงการ` — เพิ่ม/แก้ไข/ป้องกันการลบโครงการที่ยังมีรายการอ้างอิงอยู่) และรหัสผ่าน SMTP ถูกป้องกันด้วยหน้าจอยืนยันรหัสผ่านผู้ดูแลระบบ (`SettingsPasswordDialog` + การตรวจ `x-settings-passcode` ฝั่งเซิร์ฟเวอร์บน `/api/projects`)
 - **Strict Build Verification:** บังคับตรวจสอบ `tsc --noEmit` (TypeScript Strict Mode, ห้ามใช้ `any`), `eslint` (0 warnings) และ `next build --webpack` ก่อนส่งมอบขึ้นสาขาหลักทุกครั้ง

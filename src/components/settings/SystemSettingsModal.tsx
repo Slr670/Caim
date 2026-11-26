@@ -18,6 +18,11 @@ import {
   RotateCcw,
   BellRing,
   Lock,
+  FolderKanban,
+  Plus,
+  Pencil,
+  Trash2,
+  Star,
 } from "lucide-react"
 import { type SmtpSettings, DEFAULT_SMTP_SETTINGS } from "@/types/settings"
 import {
@@ -28,16 +33,43 @@ import {
   ensureActivePushSubscription,
   isStandalonePwaMode,
 } from "@/components/pwa/PwaPushAutoSubscriber"
+import { useProjectsQuery } from "@/hooks/useProjectsQuery"
+import { DEFAULT_SETTINGS_PASSCODE } from "@/lib/projects/projectConstants"
 
 export interface SystemSettingsModalProps {
   isOpen: boolean
   onClose: () => void
+  passcode?: string
 }
 
 const STORAGE_KEY = "caim_smtp_settings"
 
-export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProps) {
-  const [activeTab, setActiveTab] = React.useState<"smtp" | "general">("smtp")
+export function SystemSettingsModal({
+  isOpen,
+  onClose,
+  passcode,
+}: SystemSettingsModalProps) {
+  const [activeTab, setActiveTab] = React.useState<"projects" | "smtp" | "general">("projects")
+  const effectivePasscode = passcode || DEFAULT_SETTINGS_PASSCODE
+
+  // Master Projects CRUD states (Passcode-protected)
+  const {
+    projects,
+    isLoading: isLoadingProjects,
+    refetch: refetchProjects,
+    createProject,
+    updateProject,
+    deleteProject,
+  } = useProjectsQuery({ includeUsage: isOpen })
+  const [newProjectName, setNewProjectName] = React.useState("")
+  const [isCreatingProject, setIsCreatingProject] = React.useState(false)
+  const [editingProjectId, setEditingProjectId] = React.useState<string | null>(null)
+  const [editingProjectName, setEditingProjectName] = React.useState("")
+  const [projectActionId, setProjectActionId] = React.useState<string | null>(null)
+  const [projectFeedback, setProjectFeedback] = React.useState<{
+    type: "success" | "error"
+    message: string
+  } | null>(null)
   const [smtpSettings, setSmtpSettings] = React.useState<SmtpSettings>(DEFAULT_SMTP_SETTINGS)
   const [showPassword, setShowPassword] = React.useState(false)
 
@@ -131,6 +163,107 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
       window.removeEventListener("caim:pwa:push-changed", handlePushChanged)
     }
   }, [isOpen])
+
+  React.useEffect(() => {
+    if (isOpen) {
+      refetchProjects().catch(() => {})
+      setProjectFeedback(null)
+    }
+  }, [isOpen, refetchProjects])
+
+  const handleAddProject = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = newProjectName.trim()
+    if (!trimmed) {
+      setProjectFeedback({ type: "error", message: "กรุณาระบุชื่อและรหัสโครงการก่อนกดเพิ่ม" })
+      return
+    }
+    setIsCreatingProject(true)
+    setProjectFeedback(null)
+    try {
+      const res = await createProject(trimmed, effectivePasscode)
+      if (res.success) {
+        setNewProjectName("")
+        const msg = res.message || `เพิ่มโครงการ "${trimmed}" เรียบร้อยแล้ว`
+        setProjectFeedback({ type: "success", message: msg })
+        showToast(msg)
+      } else {
+        setProjectFeedback({
+          type: "error",
+          message: res.error || "ไม่สามารถเพิ่มโครงการได้",
+        })
+      }
+    } finally {
+      setIsCreatingProject(false)
+    }
+  }
+
+  const handleSaveRenameProject = async (id: string) => {
+    const trimmed = editingProjectName.trim()
+    if (!trimmed) {
+      setProjectFeedback({ type: "error", message: "ชื่อโครงการต้องไม่เว้นว่าง" })
+      return
+    }
+    setProjectActionId(id)
+    setProjectFeedback(null)
+    try {
+      const res = await updateProject({ id, name: trimmed }, effectivePasscode)
+      if (res.success) {
+        setEditingProjectId(null)
+        setEditingProjectName("")
+        const msg = res.message || `เปลี่ยนชื่อโครงการเป็น "${trimmed}" เรียบร้อยแล้ว`
+        setProjectFeedback({ type: "success", message: msg })
+        showToast(msg)
+      } else {
+        setProjectFeedback({
+          type: "error",
+          message: res.error || "ไม่สามารถแก้ไขชื่อโครงการได้",
+        })
+      }
+    } finally {
+      setProjectActionId(null)
+    }
+  }
+
+  const handleSetDefaultProject = async (id: string, name: string) => {
+    setProjectActionId(id)
+    setProjectFeedback(null)
+    try {
+      const res = await updateProject({ id, isDefault: true }, effectivePasscode)
+      if (res.success) {
+        const msg = `ตั้งค่า "${name}" เป็นโครงการเริ่มต้นของระบบเรียบร้อยแล้ว`
+        setProjectFeedback({ type: "success", message: msg })
+        showToast(msg)
+      } else {
+        setProjectFeedback({
+          type: "error",
+          message: res.error || "ไม่สามารถตั้งเป็นโครงการเริ่มต้นได้",
+        })
+      }
+    } finally {
+      setProjectActionId(null)
+    }
+  }
+
+  const handleDeleteProject = async (id: string, name: string) => {
+    setProjectActionId(id)
+    setProjectFeedback(null)
+    try {
+      const res = await deleteProject(id, effectivePasscode)
+      if (res.success) {
+        const msg = `ลบโครงการ "${name}" ออกจากระบบเรียบร้อยแล้ว`
+        setProjectFeedback({ type: "success", message: msg })
+        showToast(msg)
+      } else {
+        setProjectFeedback({
+          type: "error",
+          message: res.error || "ไม่สามารถลบโครงการได้",
+        })
+      }
+    } finally {
+      setProjectActionId(null)
+    }
+  }
 
   const handleEnablePushPermission = async () => {
     if (pushEnabled) {
@@ -295,10 +428,10 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
             </span>
             <div>
               <h3 className="text-base font-bold text-white tracking-tight">
-                การตั้งค่าระบบ & การแจ้งเตือน (System Settings)
+                การตั้งค่าระบบ & จัดการโครงการ (System Settings)
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                จัดการการเชื่อมต่อ และเซิร์ฟเวอร์ SMTP
+                จัดการข้อมูลโครงการหลัก การแจ้งเตือน และเซิร์ฟเวอร์ SMTP
               </p>
             </div>
           </div>
@@ -314,37 +447,301 @@ export function SystemSettingsModal({ isOpen, onClose }: SystemSettingsModalProp
         </div>
 
         {/* Sub-tabs Navigation */}
-        <div className="flex items-center border-b border-white/10 bg-slate-900/60 px-5 sm:px-6 shrink-0 gap-1 sm:gap-2">
+        <div className="flex items-center overflow-x-auto border-b border-white/10 bg-slate-900/60 px-5 sm:px-6 shrink-0 gap-1 sm:gap-2">
           <button
             type="button"
-            onClick={() => setActiveTab("general")}
-            className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
-              activeTab === "general"
+            onClick={() => setActiveTab("projects")}
+            className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === "projects"
                 ? "border-sky-500 text-sky-400"
                 : "border-transparent text-slate-400 hover:text-slate-200"
             }`}
           >
-            <Sliders className="size-3.5" />
-            <span>การตั้งค่าทั่วไป/ระบบ (General Settings)</span>
+            <FolderKanban className="size-3.5" />
+            <span>จัดการโครงการ (Project Management)</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab("smtp")}
-            className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === "smtp"
                 ? "border-sky-500 text-sky-400"
                 : "border-transparent text-slate-400 hover:text-slate-200"
             }`}
           >
             <Mail className="size-3.5" />
-            <span>การแจ้งเตือน / SMTP & Alert Intervals</span>
+            <span>การแจ้งเตือน / SMTP</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("general")}
+            className={`flex items-center gap-2 py-3 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === "general"
+                ? "border-sky-500 text-sky-400"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Sliders className="size-3.5" />
+            <span>การตั้งค่าทั่วไป (General)</span>
           </button>
         </div>
 
         {/* Modal Scrollable Content */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1 text-slate-200 text-xs">
-          {activeTab === "smtp" ? (
+          {activeTab === "projects" ? (
+            <div className="space-y-5">
+              {/* Header & Security Notice */}
+              <div className="flex flex-wrap items-start justify-between gap-3 p-4 rounded-xl border border-sky-500/30 bg-sky-950/25">
+                <div className="flex items-start gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 border border-sky-400/30 text-sky-300">
+                    <FolderKanban className="size-4.5" />
+                  </span>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-bold text-white">
+                        จัดการโครงการ (Master Project Management)
+                      </h4>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-400/35 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                        <Lock className="size-2.5 text-emerald-400" />
+                        <span>Passcode Verified</span>
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                      กำหนดรายชื่อโครงการกลางสำหรับจัดหมวดหมู่งานเคลม, ใบส่งซ่อมต่างประเทศ (RMA), ทะเบียนอุปกรณ์ และสถานีติดตั้ง เมื่อเพิ่มหรือแก้ไขแล้วจะซิงก์ไปยังตัวเลือกในทุกฟอร์มและตารางทันที
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Add New Project Form */}
+              <form
+                onSubmit={handleAddProject}
+                className="p-4 rounded-xl border border-white/10 bg-slate-900/70 space-y-3"
+              >
+                <label className="block text-xs font-semibold text-white">
+                  เพิ่มโครงการใหม่เข้าสู่ระบบ (Add New Project)
+                </label>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                  <input
+                    type="text"
+                    value={newProjectName}
+                    onChange={(e) => {
+                      setNewProjectName(e.target.value)
+                      if (projectFeedback) setProjectFeedback(null)
+                    }}
+                    placeholder="ระบุชื่อและรหัสโครงการ เช่น USO-SHF 3 (25310-8888)"
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-950 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/30"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isCreatingProject}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-60 shrink-0"
+                  >
+                    {isCreatingProject ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="size-3.5" />
+                    )}
+                    <span>{isCreatingProject ? "กำลังเพิ่ม..." : "เพิ่มโครงการ"}</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Inline Feedback Alert */}
+              {projectFeedback && (
+                <div
+                  className={`flex items-center gap-2 p-3 rounded-xl border text-xs animate-in fade-in ${
+                    projectFeedback.type === "success"
+                      ? "bg-emerald-950/40 border-emerald-700/60 text-emerald-300"
+                      : "bg-rose-950/40 border-rose-700/60 text-rose-300"
+                  }`}
+                >
+                  {projectFeedback.type === "success" ? (
+                    <Check className="size-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="size-4 text-rose-400 shrink-0" />
+                  )}
+                  <span>{projectFeedback.message}</span>
+                </div>
+              )}
+
+              {/* Existing Projects Table / List */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-200">
+                    รายการโครงการทั้งหมดในระบบ ({projects.length} โครงการ)
+                  </span>
+                  {isLoadingProjects && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-sky-400">
+                      <Loader2 className="size-3 animate-spin" />
+                      <span>กำลังซิงก์ข้อมูล...</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="divide-y divide-white/10 rounded-xl border border-white/10 bg-slate-900/60 overflow-hidden">
+                  {projects.map((proj) => {
+                    const isEditing = editingProjectId === proj.id
+                    const isBusy = projectActionId === proj.id
+                    const usage = proj.usage
+                    const totalRefs = usage?.totalReferences ?? 0
+                    const cannotDelete = proj.isDefault || totalRefs > 0
+
+                    return (
+                      <div
+                        key={proj.id}
+                        className="p-3.5 sm:p-4 flex flex-col gap-2.5 hover:bg-slate-800/40 transition-colors"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            {isEditing ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={editingProjectName}
+                                  onChange={(e) => setEditingProjectName(e.target.value)}
+                                  className="flex-1 min-w-[200px] px-3 py-1.5 rounded-lg border border-sky-500 bg-slate-950 text-xs text-white focus:outline-none"
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => handleSaveRenameProject(proj.id)}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-50"
+                                >
+                                  {isBusy ? (
+                                    <Loader2 className="size-3 animate-spin" />
+                                  ) : (
+                                    <Check className="size-3" />
+                                  )}
+                                  <span>บันทึก</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => {
+                                    setEditingProjectId(null)
+                                    setEditingProjectName("")
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-[11px] text-slate-300 cursor-pointer"
+                                >
+                                  <span>ยกเลิก</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-sm text-white">
+                                  {proj.name}
+                                </span>
+                                {proj.isDefault && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-400/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                                    <Star className="size-2.5 fill-emerald-400 text-emerald-400" />
+                                    <span>ค่าเริ่มต้น (Default)</span>
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Active Reference Breakdown */}
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+                              <span className="rounded bg-slate-800/90 border border-white/5 px-2 py-0.5">
+                                งานเคลม:{" "}
+                                <strong className="text-slate-200 tabular-nums">
+                                  {usage?.claimsCount ?? 0}
+                                </strong>
+                              </span>
+                              <span className="rounded bg-slate-800/90 border border-white/5 px-2 py-0.5">
+                                ส่งซ่อม RMA:{" "}
+                                <strong className="text-slate-200 tabular-nums">
+                                  {usage?.rmaCount ?? 0}
+                                </strong>
+                              </span>
+                              <span className="rounded bg-slate-800/90 border border-white/5 px-2 py-0.5">
+                                อุปกรณ์:{" "}
+                                <strong className="text-slate-200 tabular-nums">
+                                  {usage?.equipmentsCount ?? 0}
+                                </strong>
+                              </span>
+                              <span className="rounded bg-slate-800/90 border border-white/5 px-2 py-0.5">
+                                สถานี:{" "}
+                                <strong className="text-slate-200 tabular-nums">
+                                  {usage?.stationsCount ?? 0}
+                                </strong>
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Row Actions */}
+                          {!isEditing && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {!proj.isDefault && (
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => handleSetDefaultProject(proj.id, proj.name)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1.5 text-[11px] font-medium text-slate-200 transition-colors cursor-pointer disabled:opacity-50"
+                                  title="ตั้งเป็นโครงการเริ่มต้นของระบบ"
+                                >
+                                  <Star className="size-3 text-amber-400" />
+                                  <span>ตั้งเป็นค่าเริ่มต้น</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => {
+                                  setEditingProjectId(proj.id)
+                                  setEditingProjectName(proj.name)
+                                  setProjectFeedback(null)
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1.5 text-[11px] font-medium text-sky-300 transition-colors cursor-pointer disabled:opacity-50"
+                                title="แก้ไขชื่อโครงการ (ซิงก์อัปเดตทุกรายการที่ผูกอยู่ทันที)"
+                              >
+                                <Pencil className="size-3" />
+                                <span>แก้ไข</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={isBusy || cannotDelete}
+                                onClick={() => handleDeleteProject(proj.id, proj.name)}
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                                  cannotDelete
+                                    ? "border-slate-800 bg-slate-900/50 text-slate-600 cursor-not-allowed"
+                                    : "border-rose-800/60 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 cursor-pointer"
+                                }`}
+                                title={
+                                  proj.isDefault
+                                    ? "ไม่สามารถลบโครงการที่เป็นค่าเริ่มต้นได้"
+                                    : totalRefs > 0
+                                    ? `ไม่สามารถลบได้ เนื่องจากมีข้อมูลอ้างอิงอยู่ ${totalRefs.toLocaleString()} รายการ`
+                                    : "ลบโครงการนี้"
+                                }
+                              >
+                                {isBusy ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  <Trash2 className="size-3" />
+                                )}
+                                <span>ลบ</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <p className="text-[11px] text-slate-400">
+                  * ระบบป้องกันการลบโครงการที่เป็นค่าเริ่มต้น หรือโครงการที่ยังมีรายการงานเคลม / RMA / อุปกรณ์ / สถานีอ้างอิงอยู่ เพื่อรักษาความสมบูรณ์ของฐานข้อมูล
+                </p>
+              </div>
+            </div>
+          ) : activeTab === "smtp" ? (
             <>
               {/* Section: การแจ้งเตือนผ่านแอป (PWA 2.0.0 Push Notifications — Mandatory Always-On) */}
               <div className="p-4 rounded-xl border border-blue-500/30 bg-blue-950/30 space-y-3">

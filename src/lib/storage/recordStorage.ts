@@ -31,6 +31,8 @@ export interface StoredTicket {
   province?: string
   district?: string
   subdistrict?: string
+  projectId?: string
+  projectName?: string
   reporter?: string
   assignee?: string
   reporterName?: string
@@ -45,6 +47,8 @@ export interface StoredAsset {
   category: string
   name?: string
   description?: string
+  projectId?: string
+  projectName?: string
   stationId?: string
   stationName?: string
   status?: string
@@ -69,6 +73,8 @@ export interface StoredStation {
   lat: number
   lng: number
   category: string
+  projectId?: string
+  projectName?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -81,6 +87,8 @@ export interface StoredRma {
   serialNo: string
   vendor: string
   model: string
+  projectId?: string
+  projectName?: string
   destination?: string
   status?: string
   statusBadge?: "in_progress" | "returned"

@@ -17,7 +17,8 @@ import {
   X,
   Save,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  FolderKanban
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -30,6 +31,13 @@ import {
   toISODateString,
 } from "@/lib/utils/caseDuration"
 import { useTicketsQuery, invalidateTicketsCache, type Ticket } from "@/hooks/useTicketsQuery"
+import { useProjectsQuery } from "@/hooks/useProjectsQuery"
+import {
+  DEFAULT_PROJECT_ID,
+  DEFAULT_PROJECT_NAME,
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+} from "@/lib/projects/projectConstants"
 import type { CaimRepairOutcome, ClaimTimelineEvent } from "@/types/database"
 
 export interface TicketDetailData {
@@ -45,6 +53,8 @@ export interface TicketDetailData {
   vendor: string
   model: string
   serialNo: string
+  projectId: string
+  projectName: string
   category: string
   deviceType: string
   location: string
@@ -85,6 +95,8 @@ const EMPTY_EDIT_FORM: TicketDetailData = {
   vendor: "",
   model: "",
   serialNo: "",
+  projectId: DEFAULT_PROJECT_ID,
+  projectName: DEFAULT_PROJECT_NAME,
   category: "",
   deviceType: "",
   location: "",
@@ -231,6 +243,8 @@ function mapDbRecordToDetailData(
     vendor: t.vendor || "—",
     model: t.model || "—",
     serialNo: t.serialNo || "—",
+    projectId: resolveEntityProjectId(t),
+    projectName: resolveEntityProjectName(t),
     category: t.category && t.category.trim() ? t.category.trim() : "—",
     deviceType: t.deviceType && t.deviceType.trim() ? t.deviceType.trim() : "—",
     location: resolvedLocation,
@@ -271,6 +285,7 @@ const STAGES = [
 
 export function TicketDetailView({ ticketId }: { ticketId?: string }) {
   const { tickets, updateTicket } = useTicketsQuery()
+  const { projects, resolveProjectByIdOrName } = useProjectsQuery()
 
   const activeTicketId = decodeURIComponent(ticketId || "").trim()
 
@@ -510,6 +525,8 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
         ? editForm.deadlineDate
         : autoDeadline
 
+    const resolvedProj = resolveProjectByIdOrName(editForm.projectId, editForm.projectName)
+
     const payload = {
       uid: data.uid,
       id: data.id,
@@ -524,6 +541,8 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
       model: (editForm.model || "").trim(),
       serialNo,
       serialNumber: serialNo,
+      projectId: resolvedProj.id,
+      projectName: resolvedProj.name,
       category: (editForm.category || "").trim(),
       deviceType: (editForm.deviceType || "").trim(),
       group: (editForm.deviceType || "").trim(),
@@ -773,6 +792,10 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-900/40 rounded-md px-2 py-0.5">
                 {data.claimNumber}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-xs font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300">
+                <FolderKanban className="size-3 shrink-0" />
+                <span>{data.projectName}</span>
               </span>
               <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
                 {data.title}
@@ -1154,6 +1177,13 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                 </div>
 
                 <div className="flex flex-col text-xs divide-y divide-border/60">
+                  <div className="flex items-center justify-between py-2 gap-2">
+                    <span className="text-muted-foreground shrink-0">โครงการ</span>
+                    <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300 text-right">
+                      <FolderKanban className="size-3 shrink-0" />
+                      <span>{data.projectName}</span>
+                    </span>
+                  </div>
                   <div className="flex items-center justify-between py-2">
                     <span className="text-muted-foreground">สถานะประกัน</span>
                     <span className="font-medium text-foreground">
@@ -1390,6 +1420,30 @@ export function TicketDetailView({ ticketId }: { ticketId?: string }) {
                     <ShieldCheck className="size-3.5 text-brand" />
                     <span>ข้อมูลเคสและการติดตาม (Case Information & Timestamps)</span>
                   </h4>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="font-medium text-foreground">
+                      โครงการ (Project) <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={editForm.projectId || DEFAULT_PROJECT_ID}
+                      onChange={(e) => {
+                        const selected = resolveProjectByIdOrName(e.target.value, undefined)
+                        setEditForm({
+                          ...editForm,
+                          projectId: selected.id,
+                          projectName: selected.name,
+                        })
+                      }}
+                      className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    >
+                      {projects.map((proj) => (
+                        <option key={proj.id} value={proj.id}>
+                          {proj.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">

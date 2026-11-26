@@ -204,7 +204,9 @@
         "actualDays": 0,
         "status": "pending"
       }
-    ]
+    ],
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   },
   {
     "id": "2",
@@ -308,6 +310,8 @@
         "actualDays": 0,
         "status": "pending"
       }
-    ]
+    ],
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   }
 ]

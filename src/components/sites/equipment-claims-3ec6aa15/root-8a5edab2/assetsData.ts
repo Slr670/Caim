@@ -6,6 +6,10 @@ export interface Asset {
   category: string
   name?: string
   description?: string
+  projectId?: string
+  projectName?: string
+  stationId?: string
+  stationName?: string
 }
 
 export const ASSETS: Asset[] = [

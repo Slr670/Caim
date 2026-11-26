@@ -21,13 +21,21 @@ import {
   AlertCircle,
   Edit2,
   Trash2,
-  Loader2
+  Loader2,
+  FolderKanban
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { type Asset } from "./assetsData"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useEquipmentsQuery } from "@/hooks/useEquipmentsQuery"
+import { useProjectsQuery } from "@/hooks/useProjectsQuery"
+import {
+  DEFAULT_PROJECT_ID,
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+  matchesProjectFilter,
+} from "@/lib/projects/projectConstants"
 import { useLocale } from "@/i18n/LocaleContext"
 
 interface AssetTableRowProps {
@@ -73,6 +81,15 @@ const AssetTableRow = React.memo(function AssetTableRow({
       </td>
       <td className="py-3.5 px-4 font-medium text-slate-800 dark:text-slate-200">
         <span className="truncate max-w-[160px] sm:max-w-none block" title={item.name || "-"}>{item.name || "-"}</span>
+      </td>
+      <td className="py-3.5 px-4 whitespace-nowrap">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300 shadow-2xs max-w-[180px]"
+          title={resolveEntityProjectName(item)}
+        >
+          <FolderKanban className="size-3 shrink-0 opacity-80" />
+          <span className="truncate">{resolveEntityProjectName(item)}</span>
+        </span>
       </td>
       <td className="py-3.5 px-4">
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 ring-1 ring-blue-600/20 dark:bg-blue-950/50 dark:text-blue-300 shadow-2xs">
@@ -136,9 +153,11 @@ export function AssetsView() {
     updateEquipment,
     deleteEquipment,
   } = useEquipmentsQuery()
+  const { projects, defaultProject, resolveProjectByIdOrName } = useProjectsQuery()
 
   const [, startTransition] = React.useTransition()
   const [searchQuery, setSearchQuery] = React.useState("")
+  const [selectedProject, setSelectedProject] = React.useState<string>("all")
   const [selectedVendor, setSelectedVendor] = React.useState<string>("all")
   const [selectedCategory, setSelectedCategory] = React.useState<string>("all")
   const [pageSize, setPageSize] = React.useState<number>(25)
@@ -163,6 +182,7 @@ export function AssetsView() {
   const [newModel, setNewModel] = React.useState("")
   const [newCategory, setNewCategory] = React.useState("")
   const [newDescription, setNewDescription] = React.useState("")
+  const [newProjectId, setNewProjectId] = React.useState<string>(DEFAULT_PROJECT_ID)
   const toastTimerRef = React.useRef<NodeJS.Timeout | null>(null)
 
   const showToast = React.useCallback((msg: string) => {
@@ -200,6 +220,7 @@ export function AssetsView() {
   const filtered = React.useMemo(() => {
     const q = deferredQuery.trim().toLowerCase()
     return assetsList.filter((a) => {
+      if (!matchesProjectFilter(a, selectedProject)) return false
       if (selectedVendor !== "all" && a.vendor !== selectedVendor) return false
       if (selectedCategory !== "all" && a.category !== selectedCategory) return false
       if (q) {
@@ -209,17 +230,18 @@ export function AssetsView() {
         const matchesCategory = a.category.toLowerCase().includes(q)
         const matchesName = a.name ? a.name.toLowerCase().includes(q) : false
         const matchesDesc = a.description ? a.description.toLowerCase().includes(q) : false
-        if (!matchesSerial && !matchesVendor && !matchesModel && !matchesCategory && !matchesName && !matchesDesc) {
+        const matchesProj = resolveEntityProjectName(a).toLowerCase().includes(q)
+        if (!matchesSerial && !matchesVendor && !matchesModel && !matchesCategory && !matchesName && !matchesDesc && !matchesProj) {
           return false
         }
       }
       return true
     })
-  }, [assetsList, deferredQuery, selectedVendor, selectedCategory])
+  }, [assetsList, deferredQuery, selectedProject, selectedVendor, selectedCategory])
 
   React.useEffect(() => {
     setCurrentPage(1)
-  }, [deferredQuery, selectedVendor, selectedCategory, pageSize])
+  }, [deferredQuery, selectedProject, selectedVendor, selectedCategory, pageSize])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const paginatedAssets = React.useMemo(() => {
@@ -240,14 +262,23 @@ export function AssetsView() {
   }, [])
 
   const handleExportCSV = () => {
-    const headers = ["Serial Number", "อุปกรณ์ (Name)", "ยี่ห้อ (Vendor)", "รุ่น (Model)", "หมวดหมู่ (Category)", "รายละเอียด (Description)"]
+    const headers = [
+      "Serial Number",
+      "อุปกรณ์ (Name)",
+      "โครงการ (Project)",
+      "ยี่ห้อ (Vendor)",
+      "รุ่น (Model)",
+      "หมวดหมู่ (Category)",
+      "รายละเอียด (Description)",
+    ]
     const rows = filtered.map((item) => [
       `"${item.serial.replace(/"/g, '""')}"`,
       `"${(item.name || "").replace(/"/g, '""')}"`,
+      `"${resolveEntityProjectName(item).replace(/"/g, '""')}"`,
       `"${item.vendor.replace(/"/g, '""')}"`,
       `"${item.model.replace(/"/g, '""')}"`,
       `"${item.category.replace(/"/g, '""')}"`,
-      `"${(item.description || "").replace(/"/g, '""')}"`
+      `"${(item.description || "").replace(/"/g, '""')}"`,
     ])
 
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n")
@@ -278,6 +309,8 @@ export function AssetsView() {
       return
     }
 
+    const resolvedProject = resolveProjectByIdOrName(newProjectId, undefined)
+
     const deviceData: Asset = {
       serial: trimmedSerial,
       name: newName.trim() || undefined,
@@ -285,6 +318,8 @@ export function AssetsView() {
       model: newModel.trim() || "-",
       category: newCategory.trim() || "อื่นๆ",
       description: newDescription.trim() || undefined,
+      projectId: resolvedProject.id,
+      projectName: resolvedProject.name,
     }
 
     setIsSubmitting(true)
@@ -304,6 +339,7 @@ export function AssetsView() {
       // On new equipment creation, reset search and filters and go to page 1 so it appears at top
       if (!isEdit) {
         setSearchQuery("")
+        setSelectedProject("all")
         setSelectedVendor("all")
         setSelectedCategory("all")
         setCurrentPage(1)
@@ -347,6 +383,7 @@ export function AssetsView() {
     setNewModel(asset.model)
     setNewCategory(asset.category)
     setNewDescription(asset.description || "")
+    setNewProjectId(resolveEntityProjectId(asset))
     setErrorMessage(null)
     setIsAddModalOpen(true)
   }
@@ -359,6 +396,7 @@ export function AssetsView() {
     setNewModel("")
     setNewCategory("")
     setNewDescription("")
+    setNewProjectId(defaultProject?.id || DEFAULT_PROJECT_ID)
     setErrorMessage(null)
     setIsAddModalOpen(true)
   }
@@ -444,16 +482,34 @@ export function AssetsView() {
 
         {/* Filter Toolbar */}
         <div className="rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/95 dark:bg-[#1e293b] backdrop-blur-xs p-5 shadow-card flex flex-col gap-3 transition-all duration-300">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="relative sm:col-span-2">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input
                 placeholder="ค้นหา Serial Number, ยี่ห้อ, รุ่น, ชื่ออุปกรณ์..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 h-9 text-xs"
+                className="pl-9 h-9 text-xs bg-white text-slate-900 border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700"
               />
             </div>
+
+            <select
+              value={selectedProject}
+              onChange={(e) => {
+                const val = e.target.value
+                startTransition(() => {
+                  setSelectedProject(val)
+                })
+              }}
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <option value="all">ทุกโครงการ ({projects.length})</option>
+              {projects.map((proj) => (
+                <option key={proj.id} value={proj.id}>
+                  {proj.name}
+                </option>
+              ))}
+            </select>
 
             <select
               value={selectedVendor}
@@ -463,7 +519,7 @@ export function AssetsView() {
                   setSelectedVendor(val)
                 })
               }}
-              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             >
               <option value="all">ทุกยี่ห้อ ({vendors.length})</option>
               {vendors.map((v) => (
@@ -481,7 +537,7 @@ export function AssetsView() {
                   setSelectedCategory(val)
                 })
               }}
-              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-xs focus-visible:border-ring focus-visible:outline-none"
+              className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             >
               <option value="all">ทุกหมวดหมู่ ({categories.length})</option>
               {categories.map((c) => (
@@ -492,7 +548,7 @@ export function AssetsView() {
             </select>
           </div>
 
-          {(searchQuery || selectedVendor !== "all" || selectedCategory !== "all") && (
+          {(searchQuery || selectedProject !== "all" || selectedVendor !== "all" || selectedCategory !== "all") && (
             <div className="flex items-center justify-between border-t border-border pt-2 text-xs text-muted-foreground">
               <span>พบ {filtered.length} รายการ</span>
               <Button
@@ -501,6 +557,7 @@ export function AssetsView() {
                 onClick={() => {
                   startTransition(() => {
                     setSearchQuery("")
+                    setSelectedProject("all")
                     setSelectedVendor("all")
                     setSelectedCategory("all")
                   })
@@ -523,6 +580,7 @@ export function AssetsView() {
                   <th className="sticky left-0 z-20 py-3.5 px-4 w-16 text-center bg-slate-50 dark:bg-[#0f172a] shadow-[1px_0_0_0_rgba(226,232,240,0.8)] dark:shadow-[1px_0_0_0_rgba(255,255,255,0.08)]">{t("table.no", "ลำดับ")}</th>
                   <th className="py-3.5 px-4 min-w-40">{t("table.serialNumber", "Serial Number")}</th>
                   <th className="py-3.5 px-4 min-w-44">{t("table.equipment", "อุปกรณ์")}</th>
+                  <th className="py-3.5 px-4 min-w-[165px] whitespace-nowrap">{locale === "th" ? "โครงการ" : "Project"}</th>
                   <th className="py-3.5 px-4 w-28">{locale === "th" ? "ยี่ห้อ" : "Brand"}</th>
                   <th className="py-3.5 px-4 min-w-32">{locale === "th" ? "รุ่น" : "Model"}</th>
                   <th className="py-3.5 px-4 min-w-56">{t("table.category", "หมวดหมู่")}</th>
@@ -532,7 +590,7 @@ export function AssetsView() {
               <tbody className="divide-y divide-border">
                 {isLoading && paginatedAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                    <td colSpan={8} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Loader2 className="size-6 animate-spin text-brand" />
                         <span>กำลังโหลดข้อมูลอุปกรณ์จากฐานข้อมูลกลาง...</span>
@@ -541,7 +599,7 @@ export function AssetsView() {
                   </tr>
                 ) : paginatedAssets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                    <td colSpan={8} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <HardDrive className="size-8 text-muted-foreground/40" />
                         <span className="font-medium text-foreground">ไม่พบข้อมูลอุปกรณ์</span>
@@ -661,6 +719,24 @@ export function AssetsView() {
             )}
 
             <form onSubmit={handleSaveDevice} className="flex flex-col gap-3 py-4 text-xs">
+              <div className="flex flex-col gap-1">
+                <label className="font-medium text-foreground">
+                  โครงการ (Project) <span className="text-destructive">*</span>
+                </label>
+                <select
+                  required
+                  value={newProjectId}
+                  onChange={(e) => setNewProjectId(e.target.value)}
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  {projects.map((proj) => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <label className="font-medium text-foreground">
                   หมายเลขอุปกรณ์ (Serial Number) <span className="text-destructive">*</span>
@@ -817,6 +893,15 @@ export function AssetsView() {
             </div>
 
             <div className="divide-y divide-border/60 py-4 text-xs">
+              <div className="grid grid-cols-3 py-2 items-center">
+                <span className="font-medium text-muted-foreground">โครงการ:</span>
+                <span className="col-span-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300">
+                    <FolderKanban className="size-3 shrink-0" />
+                    <span>{resolveEntityProjectName(detailAsset)}</span>
+                  </span>
+                </span>
+              </div>
               <div className="grid grid-cols-3 py-2">
                 <span className="font-medium text-muted-foreground">Serial Number:</span>
                 <span className="col-span-2 font-mono font-semibold text-foreground">{detailAsset.serial}</span>

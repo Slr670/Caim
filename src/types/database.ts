@@ -4,6 +4,26 @@
 // Closed-case repair outcome contract shared with Stock-Flow (integration plan section 3.2)
 export type CaimRepairOutcome = "unrepairable" | "repaired" | "replaced_new" | "rejected"
 
+export interface ProjectDocument {
+  id: string // e.g. "proj-uso-shf-2"
+  name: string // e.g. "USO-SHF 2 (25310-9999)"
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProjectUsageStats {
+  claimsCount: number
+  rmaCount: number
+  equipmentsCount: number
+  stationsCount: number
+  totalReferences: number
+}
+
+export interface ProjectWithUsage extends ProjectDocument {
+  usage?: ProjectUsageStats
+}
+
 export interface StationDocument {
   id: string // e.g. "st-60-1", "st-rep-1", or custom string ID
   code: string // e.g. "GOV-03"
@@ -21,6 +41,8 @@ export interface StationDocument {
   lat: number // 16.204197
   lng: number // 99.321011
   category: string // "เสาสัญญาณหลัก 60 เมตร"
+  projectId?: string // Foreign Key -> ProjectDocument.id
+  projectName?: string // Resolved project display name
   activeClaimIds?: string[] // Relational reference: active claims at this station
   createdAt?: string
   updatedAt?: string
@@ -35,6 +57,8 @@ export interface EquipmentDocument {
   category: string // Category name
   name?: string // Device label/name
   description?: string
+  projectId?: string // Foreign Key -> ProjectDocument.id
+  projectName?: string // Resolved project display name
   stationId?: string // Foreign Key -> StationDocument.id
   stationName?: string // Cached station name for rapid search
   status?: EquipmentStatus // Current state of the equipment
@@ -105,6 +129,8 @@ export interface TicketDocument {
   province?: string
   district?: string
   subdistrict?: string
+  projectId?: string // Foreign Key -> ProjectDocument.id
+  projectName?: string // Resolved project display name
   rmaId?: string // Foreign Key -> RmaDocument.id (if dispatched overseas)
   previousId?: string // Previous Claim ID prior to automatic resequencing
   timeline?: ClaimTimelineEvent[] // Authoritative timeline events resolved from DB
@@ -157,6 +183,8 @@ export interface RmaDocument {
   serialNo: string // Foreign Key -> EquipmentDocument.serial
   vendor: string
   model: string
+  projectId?: string // Foreign Key -> ProjectDocument.id
+  projectName?: string // Resolved project display name
   destination: string
   status: string
   statusBadge?: "in_progress" | "returned"
@@ -185,6 +213,9 @@ export interface RmaDocument {
 }
 
 export type TransactionAction =
+  | "PROJECT_CREATED"
+  | "PROJECT_UPDATED"
+  | "PROJECT_DELETED"
   | "CLAIM_OPENED"
   | "CLAIM_UPDATED"
   | "CLAIM_DELETED"
@@ -201,7 +232,7 @@ export type TransactionAction =
 export interface TransactionLogDocument {
   id: string
   action: TransactionAction
-  targetType: "equipment" | "station" | "ticket" | "rma"
+  targetType: "project" | "equipment" | "station" | "ticket" | "rma"
   targetId: string
   claimId?: string // Immutable foreign key -> TicketDocument.uid
   claimUid?: string // Alias for immutable foreign key -> TicketDocument.uid
@@ -210,7 +241,7 @@ export interface TransactionLogDocument {
 }
 
 export interface RealtimeSyncPayload<T = unknown> {
-  type: "station" | "equipment" | "ticket" | "rma" | "metrics"
+  type: "project" | "station" | "equipment" | "ticket" | "rma" | "metrics"
   action: "create" | "update" | "delete" | "snapshot"
   data: T
   timestamp: string

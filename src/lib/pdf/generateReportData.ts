@@ -1,6 +1,7 @@
 import type { DashboardMetrics } from "@/lib/dashboard/calculateMetrics"
 import type { TicketDocument, RmaDocument, StationDocument } from "@/types/database"
 import { formatThaiDateTime } from "@/lib/email/templates/claimEmailTemplates"
+import { resolveEntityProjectName } from "@/lib/projects/projectConstants"
 import type {
   CaimMonthlyReportData,
   PermitWatchlistItem,
@@ -567,6 +568,7 @@ export function generateExecutiveSummaryData(options: GenerateReportOptions = {}
       id: t.id,
       title,
       symptoms,
+      projectName: resolveEntityProjectName(t),
       equipment,
       serialNo,
       status: statusLabel,

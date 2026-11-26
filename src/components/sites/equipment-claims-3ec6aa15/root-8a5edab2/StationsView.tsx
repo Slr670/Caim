@@ -25,7 +25,8 @@ import {
   Plus,
   Edit2,
   Trash2,
-  Loader2
+  Loader2,
+  FolderKanban
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -33,6 +34,13 @@ import { type Station } from "./stationsData"
 import { saveStationApi, deleteStationApi } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useStationsQuery } from "@/hooks/useStationsQuery"
+import { useProjectsQuery } from "@/hooks/useProjectsQuery"
+import {
+  DEFAULT_PROJECT_ID,
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+  matchesProjectFilter,
+} from "@/lib/projects/projectConstants"
 
 interface StationTableRowProps {
   item: Station
@@ -101,6 +109,17 @@ const StationTableRow = React.memo(function StationTableRow({
             )}
           </span>
         </div>
+      </td>
+
+      {/* Project */}
+      <td className="py-3.5 px-4 whitespace-nowrap">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300 shadow-2xs max-w-[180px]"
+          title={resolveEntityProjectName(item)}
+        >
+          <FolderKanban className="size-3 shrink-0 opacity-80" />
+          <span className="truncate">{resolveEntityProjectName(item)}</span>
+        </span>
       </td>
 
       {/* Height */}
@@ -200,9 +219,11 @@ export function StationsView() {
     isLoading,
     applyMutation: applyStationMutation,
   } = useStationsQuery()
+  const { projects, defaultProject, resolveProjectByIdOrName } = useProjectsQuery()
 
   const [, startTransition] = React.useTransition()
   const [searchQuery, setSearchQuery] = React.useState("")
+  const [selectedProject, setSelectedProject] = React.useState<string>("all")
   const [selectedHeight, setSelectedHeight] = React.useState<string>("all")
   const [selectedArea, setSelectedArea] = React.useState<string>("all")
   const [selectedProvince, setSelectedProvince] = React.useState<string>("all")
@@ -221,6 +242,7 @@ export function StationsView() {
 
   // Form states for Add/Edit
   const [formData, setFormData] = React.useState({
+    projectId: DEFAULT_PROJECT_ID,
     name: "",
     code: "",
     subdistrict: "",
@@ -298,6 +320,7 @@ export function StationsView() {
   const filtered = React.useMemo(() => {
     const q = deferredQuery.trim().toLowerCase()
     return stationsList.filter((s) => {
+      if (!matchesProjectFilter(s, selectedProject)) return false
       if (selectedHeight !== "all" && s.height !== Number(selectedHeight)) return false
       if (selectedArea !== "all" && s.area !== selectedArea) return false
       if (selectedProvince !== "all" && s.province !== selectedProvince) return false
@@ -311,6 +334,7 @@ export function StationsView() {
         const matchesZone = s.zone ? s.zone.toLowerCase().includes(q) : false
         const matchesCategory = s.category ? s.category.toLowerCase().includes(q) : false
         const matchesSiteType = s.siteType ? s.siteType.toLowerCase().includes(q) : false
+        const matchesProject = resolveEntityProjectName(s).toLowerCase().includes(q)
         if (
           !matchesName &&
           !matchesCode &&
@@ -319,19 +343,20 @@ export function StationsView() {
           !matchesSubdistrict &&
           !matchesZone &&
           !matchesCategory &&
-          !matchesSiteType
+          !matchesSiteType &&
+          !matchesProject
         ) {
           return false
         }
       }
       return true
     })
-  }, [stationsList, deferredQuery, selectedHeight, selectedArea, selectedProvince, selectedSiteType])
+  }, [stationsList, deferredQuery, selectedProject, selectedHeight, selectedArea, selectedProvince, selectedSiteType])
 
   // Reset page on filter changes
   React.useEffect(() => {
     setCurrentPage(1)
-  }, [deferredQuery, selectedHeight, selectedArea, selectedProvince, selectedSiteType, pageSize])
+  }, [deferredQuery, selectedProject, selectedHeight, selectedArea, selectedProvince, selectedSiteType, pageSize])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const paginatedStations = React.useMemo(() => {
@@ -352,6 +377,7 @@ export function StationsView() {
   const handleEdit = React.useCallback((station: Station) => {
     setEditingStation(station)
     setFormData({
+      projectId: resolveEntityProjectId(station),
       name: station.name,
       code: station.code,
       subdistrict: station.subdistrict,
@@ -403,9 +429,17 @@ export function StationsView() {
     })
   }, [])
 
+  const handleProjectChange = React.useCallback((val: string) => {
+    startTransition(() => {
+      setSelectedProject(val)
+      setCurrentPage(1)
+    })
+  }, [])
+
   const handleResetFilters = React.useCallback(() => {
     startTransition(() => {
       setSearchQuery("")
+      setSelectedProject("all")
       setSelectedHeight("all")
       setSelectedArea("all")
       setSelectedProvince("all")
@@ -431,6 +465,7 @@ export function StationsView() {
     const headers = [
       "รหัสสถานี (Code)",
       "ชื่อสถานี (Station Name)",
+      "โครงการ (Project)",
       "ประเภทสถานที่ (Site Type)",
       "ความสูงเสา (Height m)",
       "ชนิดเสา (Tower Type)",
@@ -448,6 +483,7 @@ export function StationsView() {
     const rows = filtered.map((item) => [
       `"${item.code}"`,
       `"${item.name.replace(/"/g, '""')}"`,
+      `"${resolveEntityProjectName(item).replace(/"/g, '""')}"`,
       `"${item.siteType}"`,
       item.height,
       `"${item.towerType || ""}"`,
@@ -480,6 +516,7 @@ export function StationsView() {
 
     setIsSubmitting(true)
     const isEdit = Boolean(editingStation)
+    const resolvedProject = resolveProjectByIdOrName(formData.projectId, undefined)
     const payload = {
       id: editingStation ? editingStation.id : `st-${Date.now()}`,
       code: formData.code.trim() || `ST-${String(Math.floor(Math.random() * 900 + 100))}`,
@@ -497,6 +534,8 @@ export function StationsView() {
       lat: Number(formData.lat) || 0,
       lng: Number(formData.lng) || 0,
       category: formData.category.trim(),
+      projectId: resolvedProject.id,
+      projectName: resolvedProject.name,
     }
 
     const res = await saveStationApi(payload, isEdit)
@@ -531,6 +570,7 @@ export function StationsView() {
   const openAddModal = () => {
     setEditingStation(null)
     setFormData({
+      projectId: defaultProject?.id || DEFAULT_PROJECT_ID,
       name: "",
       code: `ST-${String(Math.floor(Math.random() * 900 + 100))}`,
       subdistrict: "",
@@ -557,6 +597,7 @@ export function StationsView() {
 
   const hasActiveFilters =
     searchQuery.trim() !== "" ||
+    selectedProject !== "all" ||
     selectedHeight !== "all" ||
     selectedArea !== "all" ||
     selectedProvince !== "all" ||
@@ -690,7 +731,7 @@ export function StationsView() {
 
         {/* Filter Toolbar */}
         <div className="rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/95 dark:bg-[#1e293b] backdrop-blur-xs p-5 shadow-card flex flex-col gap-3.5 transition-all duration-300">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
             {/* Search Input */}
             <div className="relative sm:col-span-2">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 dark:text-slate-500" />
@@ -698,9 +739,23 @@ export function StationsView() {
                 placeholder="ค้นหาชื่อสถานี, รหัส, จังหวัด, อำเภอ, ตำบล..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 h-9.5 rounded-xl border border-slate-200/80 dark:border-white/10 bg-slate-50/50 dark:bg-[#0f172a] text-slate-800 dark:text-slate-100 text-xs shadow-2xs focus-visible:ring-1 focus-visible:ring-blue-500 focus-visible:bg-white dark:focus-visible:bg-[#0f172a]"
+                className="pl-9 h-9.5 rounded-xl border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 text-xs shadow-2xs focus-visible:ring-1 focus-visible:ring-blue-500"
               />
             </div>
+
+            {/* Project Filter */}
+            <select
+              value={selectedProject}
+              onChange={(e) => handleProjectChange(e.target.value)}
+              className="h-9.5 rounded-xl border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 shadow-2xs focus-visible:border-blue-500 focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <option value="all">ทุกโครงการ ({projects.length})</option>
+              {projects.map((proj) => (
+                <option key={proj.id} value={proj.id}>
+                  {proj.name}
+                </option>
+              ))}
+            </select>
 
             {/* Province Filter */}
             <select
@@ -785,6 +840,7 @@ export function StationsView() {
                   <th className="sticky left-0 z-20 py-3 px-4 w-16 text-center bg-slate-50 dark:bg-[#0f172a] shadow-[1px_0_0_0_rgba(226,232,240,0.8)] dark:shadow-[1px_0_0_0_rgba(255,255,255,0.08)]">ลำดับ</th>
                   <th className="py-3 px-4 w-28">รหัสสถานี</th>
                   <th className="py-3 px-4 min-w-56">ชื่อสถานี / สถานที่ติดตั้ง</th>
+                  <th className="py-3 px-4 min-w-[165px] whitespace-nowrap">โครงการ</th>
                   <th className="py-3 px-4 text-center">ความสูงเสา</th>
                   <th className="py-3 px-4 min-w-36">ตำบล / อำเภอ</th>
                   <th className="py-3 px-4 min-w-36">จังหวัด / เขต</th>
@@ -795,7 +851,7 @@ export function StationsView() {
               <tbody className="divide-y divide-border">
                 {isLoading && paginatedStations.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                    <td colSpan={9} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Loader2 className="size-6 animate-spin text-brand" />
                         <span>กำลังโหลดข้อมูลสถานีจากฐานข้อมูลกลาง...</span>
@@ -804,7 +860,7 @@ export function StationsView() {
                   </tr>
                 ) : paginatedStations.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-muted-foreground">
+                    <td colSpan={9} className="py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <MapPin className="size-8 text-muted-foreground/40" />
                         <span className="font-medium text-foreground">ไม่พบข้อมูลสถานีที่ค้นหา</span>
@@ -920,6 +976,24 @@ export function StationsView() {
 
             <form onSubmit={handleSaveStation} className="flex flex-col gap-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5 col-span-2">
+                  <label className="font-medium text-foreground">
+                    โครงการ (Project) <span className="text-destructive">*</span>
+                  </label>
+                  <select
+                    required
+                    value={formData.projectId}
+                    onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
+                    className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    {projects.map((proj) => (
+                      <option key={proj.id} value={proj.id}>
+                        {proj.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="flex flex-col gap-1.5 col-span-2">
                   <label className="font-medium text-foreground">
                     ชื่อสถานี / จุดติดตั้ง <span className="text-destructive">*</span>
@@ -1109,6 +1183,14 @@ export function StationsView() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
+              <div className="col-span-2 rounded-lg border border-indigo-200/70 bg-indigo-50/50 dark:border-indigo-500/20 dark:bg-indigo-950/30 p-3 flex items-center justify-between">
+                <span className="text-[11px] font-medium text-muted-foreground">โครงการที่สังกัด</span>
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300">
+                  <FolderKanban className="size-3.5 shrink-0" />
+                  <span>{resolveEntityProjectName(detailStation)}</span>
+                </span>
+              </div>
+
               <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
                 <span className="text-[11px] font-medium text-muted-foreground">รหัสสถานี</span>
                 <p className="mt-0.5 font-mono text-sm font-bold text-foreground">

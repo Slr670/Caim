@@ -146,6 +146,16 @@ function initGlobalSSE() {
       stopFallbackPolling()
     })
 
+    globalEventSource.addEventListener("project", (e) => {
+      try {
+        const payload = JSON.parse(e.data)
+        if (payload?.timestamp) lastSyncTimestamp = payload.timestamp
+        window.dispatchEvent(new CustomEvent("caim:realtime:project", { detail: payload }))
+      } catch {
+        // ignore
+      }
+    })
+
     globalEventSource.addEventListener("station", (e) => {
       try {
         const payload = JSON.parse(e.data)

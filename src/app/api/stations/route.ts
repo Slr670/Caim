@@ -1,12 +1,43 @@
+import fs from "fs"
+import path from "path"
 import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { StationDocument } from "@/types/database"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
-import { NO_CACHE_HEADERS, STATIC_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
+import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
+import {
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+  matchesProjectFilter,
+} from "@/lib/projects/projectConstants"
+import { resolveProjectAssignment } from "@/lib/projects/projectService"
 
 export const dynamic = "force-dynamic"
-export const revalidate = 60
+export const revalidate = 0
 export const maxDuration = 10
+
+function enrichStation(doc: StationDocument): StationDocument {
+  const clean = { ...(doc as StationDocument & { _id?: unknown }) }
+  delete clean._id
+  return {
+    ...clean,
+    projectId: resolveEntityProjectId(clean),
+    projectName: resolveEntityProjectName(clean),
+  }
+}
+
+function loadLocalStationsJson(): StationDocument[] {
+  try {
+    const filePath = path.join(process.cwd(), "src", "data", "stations.json")
+    if (fs.existsSync(filePath)) {
+      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"))
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch {
+    // ignore
+  }
+  return []
+}
 
 // Runtime in-memory fallback store (strictly dynamic - zero mock data)
 const fallbackStations: StationDocument[] = []
@@ -22,6 +53,7 @@ export async function GET(request: NextRequest) {
     const height = searchParams.get("height")
     const area = searchParams.get("area")
     const siteType = searchParams.get("siteType")
+    const projectFilter = searchParams.get("projectId") || searchParams.get("project") || "all"
 
     if (isMongoConfigured()) {
       const db = await getDb()
@@ -32,8 +64,8 @@ export async function GET(request: NextRequest) {
           const station = await collection.findOne({ id })
           if (station) {
             return NextResponse.json(
-              { success: true, station, source: "mongodb" },
-              { headers: STATIC_CACHE_HEADERS }
+              { success: true, station: enrichStation(station), source: "mongodb" },
+              { headers: NO_CACHE_HEADERS }
             )
           }
         }
@@ -57,7 +89,10 @@ export async function GET(request: NextRequest) {
           ]
         }
 
-        const stations = await collection.find(query).sort({ id: 1 }).toArray()
+        const rawStations = await collection.find(query).sort({ id: 1 }).toArray()
+        const stations = rawStations
+          .map((s) => enrichStation(s))
+          .filter((s) => matchesProjectFilter(s, projectFilter))
         return NextResponse.json(
           {
             success: true,
@@ -65,18 +100,21 @@ export async function GET(request: NextRequest) {
             total: stations.length,
             stations,
           },
-          { headers: STATIC_CACHE_HEADERS }
+          { headers: NO_CACHE_HEADERS }
         )
       }
     }
 
     // Fallback if DB is unavailable
-    let list = fallbackStations.filter((s) => !deletedStationIds.has(s.id))
+    const baseStations = fallbackStations.length > 0 ? fallbackStations : loadLocalStationsJson()
+    let list = baseStations
+      .filter((s) => !deletedStationIds.has(s.id))
+      .map((s) => enrichStation(s))
     if (id) {
       const found = list.find((s) => s.id === id)
       return NextResponse.json(
         { success: true, station: found || null, source: "local" },
-        { headers: STATIC_CACHE_HEADERS }
+        { headers: NO_CACHE_HEADERS }
       )
     }
 
@@ -85,6 +123,9 @@ export async function GET(request: NextRequest) {
     if (area && area !== "all") list = list.filter((s) => s.area === area)
     if (siteType && siteType !== "all") list = list.filter((s) => s.siteType === siteType)
     if (height && height !== "all") list = list.filter((s) => s.height === Number(height))
+    if (projectFilter && projectFilter !== "all") {
+      list = list.filter((s) => matchesProjectFilter(s, projectFilter))
+    }
     if (search) {
       list = list.filter(
         (s) =>
@@ -102,7 +143,7 @@ export async function GET(request: NextRequest) {
         total: list.length,
         stations: list,
       },
-      { headers: STATIC_CACHE_HEADERS }
+      { headers: NO_CACHE_HEADERS }
     )
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch stations"
@@ -123,6 +164,10 @@ export async function POST(request: NextRequest) {
     const id = body.id || `st-custom-${Date.now()}`
     const code = body.code || `ST-${String(Math.floor(Math.random() * 900 + 100))}`
     const nowIso = new Date().toISOString()
+    const resolvedProject = await resolveProjectAssignment({
+      projectId: body.projectId,
+      projectName: body.projectName,
+    })
 
     const newStation: StationDocument = {
       id,
@@ -141,6 +186,8 @@ export async function POST(request: NextRequest) {
       lat: Number(body.lat) || 0,
       lng: Number(body.lng) || 0,
       category: String(body.category || "เสาสัญญาณ").trim(),
+      projectId: resolvedProject.projectId,
+      projectName: resolvedProject.projectName,
       createdAt: nowIso,
       updatedAt: nowIso,
     }
@@ -206,6 +253,14 @@ export async function PUT(request: NextRequest) {
     }
 
     const nowIso = new Date().toISOString()
+    if (updates.projectId !== undefined || updates.projectName !== undefined) {
+      const resolvedProj = await resolveProjectAssignment({
+        projectId: updates.projectId,
+        projectName: updates.projectName,
+      })
+      updates.projectId = resolvedProj.projectId
+      updates.projectName = resolvedProj.projectName
+    }
     const setFields = { ...updates, updatedAt: nowIso }
 
     let updatedInMongo = false

@@ -14,6 +14,7 @@ export const realtimeEmitter: RealtimeEventEmitter =
 global._realtimeEventEmitter = realtimeEmitter
 
 export const REALTIME_EVENTS = {
+  PROJECTS_CHANGED: "projects_changed",
   STATIONS_CHANGED: "stations_changed",
   EQUIPMENTS_CHANGED: "equipments_changed",
   TICKETS_CHANGED: "tickets_changed",
@@ -23,6 +24,9 @@ export const REALTIME_EVENTS = {
 
 export function broadcastRealtimeChange(payload: RealtimeSyncPayload) {
   switch (payload.type) {
+    case "project":
+      realtimeEmitter.emit(REALTIME_EVENTS.PROJECTS_CHANGED, payload)
+      break
     case "station":
       realtimeEmitter.emit(REALTIME_EVENTS.STATIONS_CHANGED, payload)
       break

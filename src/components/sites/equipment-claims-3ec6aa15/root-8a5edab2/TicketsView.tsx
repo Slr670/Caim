@@ -19,13 +19,21 @@ import {
   RotateCcw,
   Trash2,
   Loader2,
-  Plus
+  Plus,
+  FolderKanban
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useTicketsQuery, invalidateTicketsCache, type Ticket } from "@/hooks/useTicketsQuery"
 import { useStationsQuery } from "@/hooks/useStationsQuery"
+import { useProjectsQuery } from "@/hooks/useProjectsQuery"
+import {
+  DEFAULT_PROJECT_ID,
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+  matchesProjectFilter,
+} from "@/lib/projects/projectConstants"
 import { calculateCaseDuration, formatDisplayThaiDate } from "@/lib/utils/caseDuration"
 import { TableActionCell } from "./TableActionCell"
 import { useLocale } from "@/i18n/LocaleContext"
@@ -281,6 +289,17 @@ const TicketTableRow = React.memo(function TicketTableRow({
         </div>
       </td>
 
+      {/* โครงการ (Project Badge — inserted directly between อุปกรณ์ and สถานะ) */}
+      <td className="px-4 py-3.5 whitespace-nowrap">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300 shadow-2xs max-w-[180px]"
+          title={resolveEntityProjectName(item)}
+        >
+          <FolderKanban className="size-3 shrink-0 opacity-80" />
+          <span className="truncate">{resolveEntityProjectName(item)}</span>
+        </span>
+      </td>
+
       {/* สถานะ (Status Pill Badges with Pastel Background & Ring with Interactive Dropdown) */}
       <td className="px-4 py-3.5 whitespace-nowrap">
         <TableStatusBadgeDropdown item={item} onStatusChange={onStatusChange} />
@@ -327,6 +346,7 @@ const TicketTableRow = React.memo(function TicketTableRow({
  */
 export interface ClaimFilterParams {
   status?: string
+  project?: string
   caseNo?: string
   sn?: string
   vendor?: string
@@ -341,6 +361,7 @@ export interface ClaimFilterParams {
 export function buildClaimFiltersQuery(filters: ClaimFilterParams): URLSearchParams {
   const params = new URLSearchParams()
   if (filters.status && filters.status !== "all") params.set("status", filters.status)
+  if (filters.project && filters.project !== "all") params.set("project", filters.project)
   if (filters.caseNo) params.set("caseNo", filters.caseNo)
   if (filters.sn) params.set("sn", filters.sn)
   if (filters.vendor && filters.vendor !== "all") params.set("vendor", filters.vendor)
@@ -358,6 +379,7 @@ export function TicketsView() {
   const { t } = useLocale()
   const { tickets, deleteTicket, updateTicket } = useTicketsQuery()
   const { stations: stationsList } = useStationsQuery()
+  const { projects, resolveProjectByIdOrName } = useProjectsQuery()
   const [, startTransition] = React.useTransition()
 
   // Pagination States
@@ -393,6 +415,7 @@ export function TicketsView() {
 
   // Filter Form States
   const [statusFilter, setStatusFilter] = React.useState("all")
+  const [projectFilter, setProjectFilter] = React.useState("all")
   const [caseNoFilter, setCaseNoFilter] = React.useState("")
   const [snFilter, setSnFilter] = React.useState("")
   const [categoryFilter, setCategoryFilter] = React.useState("all")
@@ -406,6 +429,7 @@ export function TicketsView() {
   // Applied Filter States (triggered on 'ค้นหา' click)
   const [appliedFilters, setAppliedFilters] = React.useState({
     status: "all",
+    project: "all",
     caseNo: "",
     sn: "",
     vendor: "all",
@@ -558,6 +582,7 @@ export function TicketsView() {
     if (!searchParams) return
 
     const rawStatus = searchParams.get("status") || searchParams.get("stage")
+    const rawProject = searchParams.get("project") || searchParams.get("projectId")
     const rawOverdue = searchParams.get("overdue") || searchParams.get("onlyOverdue")
     const rawVendor = searchParams.get("vendor")
     const rawCategory = searchParams.get("category")
@@ -588,6 +613,7 @@ export function TicketsView() {
     const isOnTimeParam = rawOnTime === "true" || rawOnTime === "1"
 
     if (resolvedStatus !== undefined) setStatusFilter(resolvedStatus)
+    if (rawProject) setProjectFilter(rawProject)
     if (isOverdueParam) setOnlyOverdue(true)
     if (rawVendor) setVendorFilter(rawVendor)
     if (rawCategory) setCategoryFilter(rawCategory)
@@ -600,6 +626,7 @@ export function TicketsView() {
 
     if (
       resolvedStatus !== undefined ||
+      rawProject ||
       isOverdueParam ||
       rawVendor ||
       rawCategory ||
@@ -616,6 +643,7 @@ export function TicketsView() {
       setAppliedFilters((prev) => ({
         ...prev,
         status: resolvedStatus !== undefined ? resolvedStatus : prev.status,
+        project: rawProject || prev.project,
         onlyOverdue: isOverdueParam ? true : prev.onlyOverdue,
         vendor: rawVendor || prev.vendor,
         category: rawCategory || prev.category,
@@ -638,6 +666,7 @@ export function TicketsView() {
 
       setAppliedFilters({
         status: statusFilter,
+        project: projectFilter,
         caseNo: caseNoFilter.trim(),
         sn: snFilter.trim(),
         vendor: vendorFilter,
@@ -652,6 +681,7 @@ export function TicketsView() {
     })
   }, [
     statusFilter,
+    projectFilter,
     caseNoFilter,
     snFilter,
     vendorFilter,
@@ -667,6 +697,7 @@ export function TicketsView() {
     startTransition(() => {
       // 1. Reset all input fields and dropdowns back to their default empty/placeholder states
       setStatusFilter("all")
+      setProjectFilter("all")
       setCaseNoFilter("")
       setSnFilter("")
       setCategoryFilter("all")
@@ -684,6 +715,7 @@ export function TicketsView() {
 
       setAppliedFilters({
         status: "all",
+        project: "all",
         caseNo: "",
         sn: "",
         vendor: "all",
@@ -750,6 +782,9 @@ export function TicketsView() {
     }
 
     return tickets.filter((t) => {
+      if (!matchesProjectFilter(t, appliedFilters.project)) {
+        return false
+      }
       if (appliedFilters.status !== "all") {
         if (appliedFilters.status === "in_progress") {
           // In-progress: stages 1 to 4 (not closed and not rejected)
@@ -949,6 +984,8 @@ export function TicketsView() {
         vendor: ticket.vendor || "",
         model: ticket.model || "",
         serialNo: ticket.serialNo || "",
+        projectId: resolveEntityProjectId(ticket),
+        projectName: resolveEntityProjectName(ticket),
         statusCode: code,
         status: label,
       })
@@ -1006,6 +1043,7 @@ export function TicketsView() {
 
       // Transactional Database Update & Realtime Propagation via useTicketsQuery
       try {
+        const resolvedProj = resolveProjectByIdOrName(editForm.projectId, editForm.projectName)
         const payload = {
           id: editForm.id,
           title,
@@ -1018,6 +1056,8 @@ export function TicketsView() {
           model: (editForm.model || "").trim(),
           serialNo,
           serialNumber: serialNo,
+          projectId: resolvedProj.id,
+          projectName: resolvedProj.name,
           status: editForm.status,
           statusCode: editForm.statusCode,
           date: editForm.date,
@@ -1061,7 +1101,7 @@ export function TicketsView() {
         setIsSaving(false)
       }
     },
-    [editForm, isSaving, updateTicket, showToast, handleCloseModal]
+    [editForm, isSaving, updateTicket, showToast, handleCloseModal, resolveProjectByIdOrName]
   )
 
   return (
@@ -1120,8 +1160,28 @@ export function TicketsView() {
             2. FILTER CARD (2 Rows + Aligned Search Action)
            ========================================================================= */}
         <div className="rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/95 dark:bg-[#1e293b] backdrop-blur-xs p-5 shadow-card sm:p-6 transition-all duration-300">
-          {/* Row 1: 5 Columns */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {/* Row 1: 6 Columns (including โครงการ filter) */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            {/* โครงการ */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-normal text-slate-700 dark:text-slate-300">โครงการ</label>
+              <div className="relative">
+                <select
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                  className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <option value="all">ทุกโครงการ</option>
+                  {projects.map((proj) => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+              </div>
+            </div>
+
             {/* สถานะ */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-normal text-slate-700 dark:text-slate-300">สถานะ</label>
@@ -1428,6 +1488,7 @@ export function TicketsView() {
                   <th className="px-4 py-3.5 min-w-[130px] whitespace-nowrap">{t("table.claimNo", "เลขที่เคลม")}</th>
                   <th className="px-4 py-3.5 min-w-[240px]">{t("table.claimTitle", "หัวข้อเคลม")}</th>
                   <th className="px-4 py-3.5 min-w-[160px]">{t("table.equipment", "อุปกรณ์")}</th>
+                  <th className="px-4 py-3.5 min-w-[165px] whitespace-nowrap">{t("table.project", "โครงการ")}</th>
                   <th className="px-4 py-3.5 min-w-[120px]">{t("table.status", "สถานะ")}</th>
                   <th className="px-4 py-3.5 min-w-[110px]">{t("table.reportedDate", "รับแจ้ง")}</th>
                   <th className="px-4 py-3.5 min-w-[130px]">{t("table.age", "อายุงาน")}</th>
@@ -1437,7 +1498,7 @@ export function TicketsView() {
               <tbody className="divide-y divide-slate-100/90 dark:divide-white/10">
                 {filteredTickets.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-14 text-center">
+                    <td colSpan={9} className="py-14 text-center">
                       {isTableCleared ? (
                         <div className="flex flex-col items-center justify-center gap-2.5">
                           <div className="flex size-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
@@ -1648,6 +1709,16 @@ export function TicketsView() {
                     </div>
                   </div>
 
+                  <div className="border-t border-slate-100 dark:border-white/10 pt-3">
+                    <p className="text-slate-500 dark:text-slate-400 font-medium">โครงการ</p>
+                    <p className="mt-1">
+                      <span className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300">
+                        <FolderKanban className="size-3 shrink-0" />
+                        <span>{resolveEntityProjectName(selectedTicket)}</span>
+                      </span>
+                    </p>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4 border-t border-slate-100 dark:border-white/10 pt-3">
                     <div>
                       <p className="text-slate-500 dark:text-slate-400 font-medium">วันที่รับแจ้ง</p>
@@ -1772,6 +1843,35 @@ export function TicketsView() {
                             className="mt-1 h-9 text-xs"
                           />
                         </div>
+                      </div>
+
+                      <div>
+                        <label className="font-medium text-slate-700 dark:text-slate-300">
+                          โครงการ (Project) <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          required
+                          value={editForm.projectId || DEFAULT_PROJECT_ID}
+                          onChange={(e) => {
+                            const selected = resolveProjectByIdOrName(e.target.value, undefined)
+                            setEditForm((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    projectId: selected.id,
+                                    projectName: selected.name,
+                                  }
+                                : null
+                            )
+                          }}
+                          className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          {projects.map((proj) => (
+                            <option key={proj.id} value={proj.id}>
+                              {proj.name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div>

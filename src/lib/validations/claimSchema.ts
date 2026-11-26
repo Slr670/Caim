@@ -46,6 +46,14 @@ export const claimFormSchema = z.object({
   selectedStationId: z
     .string()
     .optional(),
+  projectId: z
+    .string()
+    .trim()
+    .optional(),
+  projectName: z
+    .string()
+    .trim()
+    .optional(),
 
   // ผู้เกี่ยวข้อง (Stakeholders & Personnel)
   reporterName: z
@@ -93,6 +101,8 @@ export const claimPayloadSchema = z.object({
   province: z.string().optional(),
   district: z.string().optional(),
   subdistrict: z.string().optional(),
+  projectId: z.string().optional(),
+  projectName: z.string().optional(),
 
   // Stakeholders & Personnel fields
   reporterName: z.string().optional(),

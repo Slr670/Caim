@@ -61,7 +61,9 @@
     },
     "symptoms": "Base DIB-R5 Outdoor ไม่สามารถทำงานได้ บอร์ดเสีย",
     "claimNumber": "CLM-2026-001",
-    "uid": "95bd4522-dc6d-4b79-a27e-dea1b314b04a"
+    "uid": "95bd4522-dc6d-4b79-a27e-dea1b314b04a",
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   },
   {
     "id": "CLM-2026-002",
@@ -127,7 +129,9 @@
       "targetRecipient": "dopa-only-tm@forth.co.th"
     },
     "claimNumber": "CLM-2026-002",
-    "uid": "924ab486-bc5c-465e-a78d-5382b5174fec"
+    "uid": "924ab486-bc5c-465e-a78d-5382b5174fec",
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   },
   {
     "id": "CLM-2026-003",
@@ -180,7 +184,9 @@
     "closedBy": "อนุศักดิ์",
     "repairOutcome": "repaired",
     "claimNumber": "CLM-2026-003",
-    "uid": "cb725859-8175-413e-ac5e-e04d3d4651a6"
+    "uid": "cb725859-8175-413e-ac5e-e04d3d4651a6",
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   },
   {
     "id": "CLM-2026-004",
@@ -233,7 +239,9 @@
     "vendor": "Syndome",
     "warrantyStatus": "อยู่ในประกัน",
     "claimNumber": "CLM-2026-004",
-    "uid": "96223464-1391-4db2-a001-a0b5c93a1263"
+    "uid": "96223464-1391-4db2-a001-a0b5c93a1263",
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   },
   {
     "id": "CLM-2026-005",
@@ -286,7 +294,9 @@
     "closedBy": "ศักดิภัช",
     "repairOutcome": "repaired",
     "claimNumber": "CLM-2026-005",
-    "uid": "5a567036-8ac5-444a-a58b-efb7897f10e9"
+    "uid": "5a567036-8ac5-444a-a58b-efb7897f10e9",
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   },
   {
     "id": "CLM-2026-006",
@@ -339,7 +349,9 @@
     "closedBy": "ศักดิภัช",
     "repairOutcome": "repaired",
     "claimNumber": "CLM-2026-006",
-    "uid": "bbf66c6f-162f-4911-afe6-45ed27877a30"
+    "uid": "bbf66c6f-162f-4911-afe6-45ed27877a30",
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   },
   {
     "id": "CLM-2026-007",
@@ -369,6 +381,8 @@
     "createdAt": "2026-11-25T07:25:16.561Z",
     "updatedAt": "2026-11-25T07:25:16.561Z",
     "claimNumber": "CLM-2026-007",
-    "uid": "4f89598b-5d86-467b-a8af-8dfbdcd3eaf1"
+    "uid": "4f89598b-5d86-467b-a8af-8dfbdcd3eaf1",
+    "projectId": "proj-uso-shf-2",
+    "projectName": "USO-SHF 2 (25310-9999)"
   }
 ]

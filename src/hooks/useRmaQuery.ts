@@ -14,6 +14,8 @@ export interface RmaItem {
   serialNo: string
   vendor: string
   model: string
+  projectId?: string
+  projectName?: string
   destination?: string
   currentStageNumber: number
   totalStages: number

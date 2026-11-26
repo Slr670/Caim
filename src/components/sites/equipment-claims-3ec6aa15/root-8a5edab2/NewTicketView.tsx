@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   RotateCcw,
   Lock,
+  FolderKanban,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,6 +30,11 @@ import { type Station } from "./stationsData"
 import { StoredTicket } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useEquipmentsQuery } from "@/hooks/useEquipmentsQuery"
+import { useProjectsQuery } from "@/hooks/useProjectsQuery"
+import {
+  DEFAULT_PROJECT_ID,
+  resolveEntityProjectName,
+} from "@/lib/projects/projectConstants"
 import { invalidateTicketsCache } from "@/hooks/useTicketsQuery"
 import { invalidateGlobalDashboardCache } from "@/hooks/useRealtimeDashboard"
 import { calculateCaseDuration } from "@/lib/utils/caseDuration"
@@ -41,9 +47,12 @@ export function NewTicketView() {
   const initialSerial = searchParams.get("serial") || ""
   const initialStation = searchParams.get("station") || ""
 
-  // Database-backed states with unified equipment query cache
+  // Database-backed states with unified equipment & project query caches
   const { equipments } = useEquipmentsQuery()
+  const { projects, defaultProject, resolveProjectByIdOrName } = useProjectsQuery()
   const [stations, setStations] = React.useState<Station[]>([])
+  const [selectedProjectId, setSelectedProjectId] = React.useState<string>(DEFAULT_PROJECT_ID)
+  const [hasManualProjectOverride, setHasManualProjectOverride] = React.useState<boolean>(false)
 
   const [selectedSerial, setSelectedSerial] = React.useState<string>(initialSerial)
   const [deviceSearch, setDeviceSearch] = React.useState<string>("")
@@ -146,10 +155,26 @@ export function NewTicketView() {
     loadStations()
   }, [])
 
+  // Sync default project id once loaded if not overridden
+  React.useEffect(() => {
+    if (!hasManualProjectOverride && !selectedSerial && !selectedStationId && defaultProject?.id) {
+      setSelectedProjectId(defaultProject.id)
+    }
+  }, [defaultProject?.id, hasManualProjectOverride, selectedSerial, selectedStationId])
+
   // Auto-populate initial serial or station if query param present
   React.useEffect(() => {
-    if (initialSerial) setSelectedSerial(initialSerial)
-  }, [initialSerial])
+    if (initialSerial) {
+      setSelectedSerial(initialSerial)
+      const matchedAsset = equipments.find(
+        (a) => a.serial.toUpperCase() === initialSerial.toUpperCase()
+      )
+      if (matchedAsset && (matchedAsset.projectId || matchedAsset.projectName)) {
+        const proj = resolveProjectByIdOrName(matchedAsset.projectId, matchedAsset.projectName)
+        setSelectedProjectId(proj.id)
+      }
+    }
+  }, [initialSerial, equipments, resolveProjectByIdOrName])
 
   React.useEffect(() => {
     if (initialStation && stations.length > 0) {
@@ -158,9 +183,13 @@ export function NewTicketView() {
         setSelectedProvince(match.province)
         setSelectedDistrict(match.district)
         setSelectedStationId(match.id)
+        if (match.projectId || match.projectName) {
+          const proj = resolveProjectByIdOrName(match.projectId, match.projectName)
+          setSelectedProjectId(proj.id)
+        }
       }
     }
-  }, [initialStation, stations])
+  }, [initialStation, stations, resolveProjectByIdOrName])
 
   // Find selected asset
   const selectedAsset = React.useMemo(() => {
@@ -226,7 +255,11 @@ export function NewTicketView() {
   const handleSelectDevice = React.useCallback(
     (asset: Asset) => {
       setSelectedSerial(asset.serial)
-      const linkedStationId = (asset as { stationId?: string })?.stationId
+      if (asset.projectId || asset.projectName) {
+        const proj = resolveProjectByIdOrName(asset.projectId, asset.projectName)
+        setSelectedProjectId(proj.id)
+      }
+      const linkedStationId = asset.stationId
       if (linkedStationId) {
         const match = stations.find((s) => s.id === linkedStationId)
         if (match) {
@@ -237,7 +270,7 @@ export function NewTicketView() {
       }
       setIsRegistryModalOpen(false)
     },
-    [stations]
+    [stations, resolveProjectByIdOrName]
   )
 
   // Cascading Location Dropdowns
@@ -278,11 +311,17 @@ export function NewTicketView() {
     if (st) {
       setSelectedProvince(st.province)
       setSelectedDistrict(st.district)
+      if (!hasManualProjectOverride && (st.projectId || st.projectName)) {
+        const proj = resolveProjectByIdOrName(st.projectId, st.projectName)
+        setSelectedProjectId(proj.id)
+      }
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    const resolvedProject = resolveProjectByIdOrName(selectedProjectId, undefined)
 
     // Form Validation with Zod Schema
     const validationResult = claimFormSchema.safeParse({
@@ -298,6 +337,8 @@ export function NewTicketView() {
       selectedProvince,
       selectedDistrict,
       selectedStationId,
+      projectId: resolvedProject.id,
+      projectName: resolvedProject.name,
       reporterName,
       assigneeName,
       remarks,
@@ -351,6 +392,8 @@ export function NewTicketView() {
       province: selectedStation?.province || selectedProvince || "",
       district: selectedStation?.district || selectedDistrict || "",
       subdistrict: selectedStation?.subdistrict || "",
+      projectId: resolvedProject.id,
+      projectName: resolvedProject.name,
       reporter: reporterName.trim() || undefined,
       assignee: assigneeName.trim() || undefined,
       reporterName: reporterName.trim() || undefined,
@@ -529,12 +572,18 @@ export function NewTicketView() {
                     const val = e.target.value
                     setSelectedSerial(val)
                     const found = equipments.find((a) => a.serial === val)
-                    if (found && (found as { stationId?: string }).stationId) {
-                      const match = stations.find((s) => s.id === (found as { stationId?: string }).stationId)
-                      if (match) {
-                        setSelectedProvince(match.province)
-                        setSelectedDistrict(match.district)
-                        setSelectedStationId(match.id)
+                    if (found) {
+                      if (found.projectId || found.projectName) {
+                        const proj = resolveProjectByIdOrName(found.projectId, found.projectName)
+                        setSelectedProjectId(proj.id)
+                      }
+                      if (found.stationId) {
+                        const match = stations.find((s) => s.id === found.stationId)
+                        if (match) {
+                          setSelectedProvince(match.province)
+                          setSelectedDistrict(match.district)
+                          setSelectedStationId(match.id)
+                        }
                       }
                     }
                   }}
@@ -565,12 +614,16 @@ export function NewTicketView() {
                 <div className="flex items-start gap-2.5">
                   <HardDrive className="size-4 text-brand mt-0.5 shrink-0" />
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono font-bold text-brand">{selectedAsset.serial}</span>
                       <span className="rounded bg-brand-navy/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand-navy dark:text-blue-300">
                         {selectedAsset.vendor}
                       </span>
                       <span className="font-medium text-foreground">{selectedAsset.model}</span>
+                      <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300">
+                        <FolderKanban className="size-2.5 shrink-0" />
+                        <span>{resolveEntityProjectName(selectedAsset)}</span>
+                      </span>
                     </div>
                     {selectedAsset.name && (
                       <p className="text-[11px] font-medium text-foreground mt-0.5">
@@ -742,7 +795,30 @@ export function NewTicketView() {
                 />
               </div>
 
-              <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground flex items-center gap-1.5">
+                  <FolderKanban className="size-3.5 text-brand" />
+                  <span>โครงการ (Project) <span className="text-destructive">*</span></span>
+                </label>
+                <select
+                  required
+                  value={selectedProjectId}
+                  onChange={(e) => {
+                    setSelectedProjectId(e.target.value)
+                    setHasManualProjectOverride(true)
+                    clearError("projectId")
+                  }}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs text-slate-900 focus-visible:border-ring focus-visible:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  {projects.map((proj) => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
                 <label className="font-medium text-foreground">สถานะการรับประกัน</label>
                 <select
                   value={warranty}

@@ -1,20 +1,20 @@
 {
   "summary": {
-    "total": 7,
-    "inProgress": 1,
-    "inProgressPct": 14,
+    "total": 6,
+    "inProgress": 0,
+    "inProgressPct": 0,
     "closed": 6,
-    "closedPct": 86,
+    "closedPct": 100,
     "rejected": 0,
     "rejectedPct": 0
   },
   "kpi": {
     "pendingMedianDays": 0,
-    "pendingCount": 1,
+    "pendingCount": 0,
     "overdueCount": 0,
     "overduePct": 0,
     "closedOnTimeText": "0 เคส",
-    "closedMedianDays": 48.5,
+    "closedMedianDays": 49.5,
     "closedCount": 6
   },
   "workStatus": [
@@ -22,8 +22,8 @@
       "code": 1,
       "name": "รับแจ้ง/รอตรวจสภาพ",
       "color": "#0d9488",
-      "count": 1,
-      "pct": 14
+      "count": 0,
+      "pct": 0
     },
     {
       "code": 2,
@@ -51,7 +51,7 @@
       "name": "ปิดเคส (รับคืนเรียบร้อย)",
       "color": "#16a34a",
       "count": 6,
-      "pct": 86,
+      "pct": 100,
       "isClosedGroup": true
     },
     {
@@ -64,15 +64,11 @@
     }
   ],
   "weekly": {
-    "thisWeekCount": 1,
+    "thisWeekCount": 0,
     "lastWeekCount": 0,
-    "trendPct": 100,
+    "trendPct": 0,
     "isPositiveTrend": true,
     "daysBreakdown": [
-      {
-        "day": "พฤ.",
-        "count": 0
-      },
       {
         "day": "ศ.",
         "count": 0
@@ -96,9 +92,13 @@
       {
         "day": "พ.",
         "count": 0
+      },
+      {
+        "day": "พฤ.",
+        "count": 0
       }
     ],
-    "boxReceived": 1,
+    "boxReceived": 0,
     "boxRepaired": 0,
     "boxClosed": 0
   },
@@ -109,7 +109,7 @@
       "color": "#0d9488",
       "completedText": "1 วัน n=6",
       "completedDays": 1,
-      "pendingCount": 1,
+      "pendingCount": 0,
       "pendingDays": 0,
       "maxDays": 0
     },
@@ -146,14 +146,6 @@
   ],
   "serviceCenters": [
     {
-      "vendor": "SINCLAIR",
-      "totalCases": 1,
-      "atCenterNow": 0,
-      "avgDaysText": "— ยังไม่เคยเข้าขั้นส่งศูนย์",
-      "maxDaysText": "—",
-      "overdueCount": 0
-    },
-    {
       "vendor": "Syndome",
       "totalCases": 3,
       "atCenterNow": 0,
@@ -178,5 +170,5 @@
       "overdueCount": 0
     }
   ],
-  "lastCalculated": "2026-11-25T08:28:16.890Z"
+  "lastCalculated": "2026-11-26T04:41:12.103Z"
 }

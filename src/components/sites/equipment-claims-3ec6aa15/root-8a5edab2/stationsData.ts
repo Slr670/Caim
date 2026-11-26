@@ -16,6 +16,8 @@ export interface Station {
   lat: number
   lng: number
   category: string
+  projectId?: string
+  projectName?: string
 }
 
 export const STATIONS: Station[] = [

@@ -26,6 +26,7 @@ import {
   ArrowLeftRight,
   ShieldCheck,
   Lock,
+  FolderKanban,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,6 +34,13 @@ import { type Asset } from "./assetsData"
 import { saveRmaApi } from "@/lib/storage/recordStorage"
 import { useRealtimeSync } from "@/hooks/useRealtimeSync"
 import { useRmaQuery, applyRmaMutation, invalidateRmaCache, type RmaItem } from "@/hooks/useRmaQuery"
+import { useProjectsQuery } from "@/hooks/useProjectsQuery"
+import {
+  DEFAULT_PROJECT_ID,
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+  matchesProjectFilter,
+} from "@/lib/projects/projectConstants"
 import { invalidateGlobalDashboardCache } from "@/hooks/useRealtimeDashboard"
 import {
   calculateRmaMetrics,
@@ -58,6 +66,8 @@ interface ClaimCaseOption {
   vendor: string
   model: string
   status: string
+  projectId?: string
+  projectName?: string
 }
 
 export interface StageHistoryItem {
@@ -136,6 +146,7 @@ function getInitialDateTime() {
 
 export function OverseasView() {
   const { rmaList, deleteRma, updateRma, refetch: refetchRma } = useRmaQuery()
+  const { projects, defaultProject, resolveProjectByIdOrName } = useProjectsQuery()
 
   // Empty Table State flag on filter reset
   const [isTableCleared, setIsTableCleared] = React.useState(false)
@@ -177,7 +188,7 @@ export function OverseasView() {
         .then((res) => res.json())
         .then((data) => {
           if (data && data.success && Array.isArray(data.tickets) && data.tickets.length > 0) {
-            const mappedCases: ClaimCaseOption[] = data.tickets.map((t: { id: string; title?: string; problemDesc?: string; serialNo?: string; vendor?: string; model?: string; status?: string }) => ({
+            const mappedCases: ClaimCaseOption[] = data.tickets.map((t: { id: string; title?: string; problemDesc?: string; serialNo?: string; vendor?: string; model?: string; status?: string; projectId?: string; projectName?: string }) => ({
               id: t.id,
               caseNo: t.title || t.id,
               title: t.problemDesc || t.title,
@@ -185,6 +196,8 @@ export function OverseasView() {
               vendor: t.vendor,
               model: t.model,
               status: t.status,
+              projectId: t.projectId,
+              projectName: t.projectName,
             }))
             setAvailableCases(mappedCases)
           }
@@ -205,6 +218,7 @@ export function OverseasView() {
 
   // Filters
   const [searchQuery, setSearchQuery] = React.useState("")
+  const [projectFilter, setProjectFilter] = React.useState("all")
   const [stageFilter, setStageFilter] = React.useState("all")
   const [statusFilter, setStatusFilter] = React.useState("all")
   const [vendorFilter, setVendorFilter] = React.useState("all")
@@ -213,6 +227,7 @@ export function OverseasView() {
   // Applied Filter
   const [appliedFilters, setAppliedFilters] = React.useState({
     query: "",
+    project: "all",
     stage: "all",
     status: "all",
     vendor: "all",
@@ -632,6 +647,7 @@ export function OverseasView() {
   const [newRmaForm, setNewRmaForm] = React.useState({
     rmaNo: "",
     status: "in_progress",
+    projectId: DEFAULT_PROJECT_ID,
     selectedAssetSerial: "",
     linkedCaseId: "",
     serviceCenter: "",
@@ -735,6 +751,10 @@ export function OverseasView() {
       if (caseId && caseId !== "none") {
         const foundCase = availableCases.find((c) => c.id === caseId)
         if (foundCase) {
+          if (foundCase.projectId || foundCase.projectName) {
+            const proj = resolveProjectByIdOrName(foundCase.projectId, foundCase.projectName)
+            updated.projectId = proj.id
+          }
           if (!prev.serviceCenter) {
             updated.serviceCenter = foundCase.vendor
           }
@@ -755,6 +775,10 @@ export function OverseasView() {
       if (serial) {
         const foundAsset = equipmentsData.find((a) => a.serial === serial)
         if (foundAsset) {
+          if (foundAsset.projectId || foundAsset.projectName) {
+            const proj = resolveProjectByIdOrName(foundAsset.projectId, foundAsset.projectName)
+            updated.projectId = proj.id
+          }
           if (!prev.serviceCenter && foundAsset.vendor) {
             updated.serviceCenter = foundAsset.vendor
           }
@@ -778,16 +802,18 @@ export function OverseasView() {
 
     setAppliedFilters({
       query: searchQuery.trim(),
+      project: projectFilter,
       stage: stageFilter,
       status: statusFilter,
       vendor: vendorFilter,
       onlyOverdue: onlyOverduePenalty,
     })
-  }, [searchQuery, stageFilter, statusFilter, vendorFilter, onlyOverduePenalty])
+  }, [searchQuery, projectFilter, stageFilter, statusFilter, vendorFilter, onlyOverduePenalty])
 
   const handleResetFilters = React.useCallback(() => {
     // 1. Reset all inputs to default empty/placeholder states
     setSearchQuery("")
+    setProjectFilter("all")
     setStageFilter("all")
     setStatusFilter("all")
     setVendorFilter("all")
@@ -798,6 +824,7 @@ export function OverseasView() {
 
     setAppliedFilters({
       query: "",
+      project: "all",
       stage: "all",
       status: "all",
       vendor: "all",
@@ -838,13 +865,17 @@ export function OverseasView() {
     }
 
     return rmaList.filter((item) => {
+      if (!matchesProjectFilter(item, appliedFilters.project)) {
+        return false
+      }
       if (appliedFilters.query) {
         const q = appliedFilters.query.toLowerCase()
         const match =
           item.rmaNo.toLowerCase().includes(q) ||
           item.caseName.toLowerCase().includes(q) ||
           item.serialNo.toLowerCase().includes(q) ||
-          item.vendor.toLowerCase().includes(q)
+          item.vendor.toLowerCase().includes(q) ||
+          resolveEntityProjectName(item).toLowerCase().includes(q)
         if (!match) return false
       }
       if (appliedFilters.stage !== "all" && String(item.currentStageNumber) !== appliedFilters.stage) {
@@ -931,6 +962,8 @@ export function OverseasView() {
       currentStageNumber: 1,
     })
 
+    const resolvedProject = resolveProjectByIdOrName(newRmaForm.projectId, undefined)
+
     const newItem: RmaItem = {
       id: String(Date.now()),
       rmaNo: generatedRmaNo,
@@ -938,6 +971,8 @@ export function OverseasView() {
       serialNo: resolvedSerial,
       vendor: resolvedVendor,
       model: resolvedModel,
+      projectId: resolvedProject.id,
+      projectName: resolvedProject.name,
       currentStageNumber: 1,
       totalStages: 8,
       currentStageName: "1. ระบบใบ RMA",
@@ -961,6 +996,8 @@ export function OverseasView() {
       serialNo: newItem.serialNo,
       vendor: newItem.vendor,
       model: newItem.model,
+      projectId: newItem.projectId,
+      projectName: newItem.projectName,
       destination: newRmaForm.destination || "ต่างประเทศ",
       status: newRmaForm.status,
       statusBadge: newItem.statusBadge,
@@ -986,6 +1023,7 @@ export function OverseasView() {
     setNewRmaForm({
       rmaNo: "",
       status: "in_progress",
+      projectId: defaultProject?.id || DEFAULT_PROJECT_ID,
       selectedAssetSerial: "",
       linkedCaseId: "",
       serviceCenter: "",
@@ -1060,7 +1098,12 @@ export function OverseasView() {
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingItem) return
-    updateRma(editingItem)
+    const resolvedProj = resolveProjectByIdOrName(editingItem.projectId, editingItem.projectName)
+    updateRma({
+      ...editingItem,
+      projectId: resolvedProj.id,
+      projectName: resolvedProj.name,
+    })
     setEditingItem(null)
     showToast("บันทึกข้อมูลใบส่งซ่อมลงฐานข้อมูลเรียบร้อยแล้ว")
   }
@@ -1143,7 +1186,7 @@ export function OverseasView() {
             2. FILTER & SEARCH PANEL
            ========================================================================= */}
         <div className="rounded-2xl border border-slate-200/70 dark:border-white/10 bg-white/95 dark:bg-[#1e293b] backdrop-blur-xs p-5 shadow-card sm:p-6 transition-all duration-300">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             {/* ค้นหา */}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-normal text-slate-700 dark:text-slate-300">ค้นหา</label>
@@ -1153,6 +1196,26 @@ export function OverseasView() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-9 rounded-lg border-slate-200/80 dark:border-white/10 bg-slate-50/50 dark:bg-[#0f172a] text-xs text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-none focus-visible:ring-1 focus-visible:ring-blue-500"
               />
+            </div>
+
+            {/* โครงการ */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-normal text-slate-700 dark:text-slate-300">โครงการ</label>
+              <div className="relative">
+                <select
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                  className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <option value="all">ทุกโครงการ</option>
+                  {projects.map((proj) => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+              </div>
             </div>
 
             {/* ขั้นตอน */}
@@ -1259,6 +1322,7 @@ export function OverseasView() {
                 <tr>
                   <th className="sticky left-0 z-20 px-5 py-3.5 font-medium bg-slate-50 dark:bg-[#0f172a] shadow-[1px_0_0_0_rgba(226,232,240,0.8)] dark:shadow-[1px_0_0_0_rgba(255,255,255,0.08)]">ใบ RMA / เคส</th>
                   <th className="px-4 py-3.5 font-medium min-w-[140px]">อุปกรณ์</th>
+                  <th className="px-4 py-3.5 font-medium min-w-[165px] whitespace-nowrap">โครงการ</th>
                   <th className="px-4 py-3.5 font-medium min-w-[200px]">ขั้นตอนปัจจุบัน</th>
                   <th className="px-4 py-3.5 font-medium min-w-[100px]">เปิดใบ</th>
                   <th className="px-4 py-3.5 font-medium min-w-[110px]">รวม</th>
@@ -1269,7 +1333,7 @@ export function OverseasView() {
               <tbody className="divide-y divide-slate-100/90 dark:divide-white/10">
                 {filteredItems.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-14 text-center">
+                    <td colSpan={8} className="py-14 text-center">
                       {isTableCleared ? (
                         <div className="flex flex-col items-center justify-center gap-2.5">
                           <div className="flex size-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
@@ -1363,6 +1427,17 @@ export function OverseasView() {
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate max-w-[140px] sm:max-w-none" title={`${item.vendor} / ${item.model}`}>
                             {item.vendor} / {item.model}
                           </p>
+                        </td>
+
+                        {/* โครงการ (Project Badge — inserted next to อุปกรณ์) */}
+                        <td className="px-4 py-3.5 whitespace-nowrap">
+                          <span
+                            className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200/80 bg-indigo-50/80 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-950/50 dark:text-indigo-300 shadow-2xs max-w-[180px]"
+                            title={resolveEntityProjectName(item)}
+                          >
+                            <FolderKanban className="size-3 shrink-0 opacity-80" />
+                            <span className="truncate">{resolveEntityProjectName(item)}</span>
+                          </span>
                         </td>
 
                         {/* ขั้นตอนปัจจุบัน (Segmented Progress Bars) */}
@@ -1531,7 +1606,7 @@ export function OverseasView() {
                       )}
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      S/N {timelineItem.serialNo} · เคส {timelineItem.caseName} · {timelineItem.vendor} Hongkong
+                      S/N {timelineItem.serialNo} · เคส {timelineItem.caseName} · โครงการ {resolveEntityProjectName(timelineItem)}
                     </p>
                   </div>
                   <button
@@ -3026,6 +3101,30 @@ export function OverseasView() {
                   </div>
                 </div>
 
+                {/* โครงการ (Project) Dropdown — auto-populated from linked claim or equipment */}
+                <div>
+                  <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    โครงการ (Project) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      required
+                      value={newRmaForm.projectId || DEFAULT_PROJECT_ID}
+                      onChange={(e) =>
+                        setNewRmaForm((prev) => ({ ...prev, projectId: e.target.value }))
+                      }
+                      className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    >
+                      {projects.map((proj) => (
+                        <option key={proj.id} value={proj.id}>
+                          {proj.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                  </div>
+                </div>
+
                 {/* Row 2: อุปกรณ์ที่ส่งไปซ่อม */}
                 <div>
                   <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">อุปกรณ์ที่ส่งไปซ่อม</label>
@@ -3258,6 +3357,38 @@ export function OverseasView() {
                     <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none">
                       <Lock className="size-3.5" />
                     </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-medium text-slate-700 dark:text-slate-300">
+                    โครงการ (Project) <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative mt-1">
+                    <select
+                      required
+                      value={resolveEntityProjectId(editingItem)}
+                      onChange={(e) => {
+                        const selected = resolveProjectByIdOrName(e.target.value, undefined)
+                        setEditingItem((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                projectId: selected.id,
+                                projectName: selected.name,
+                              }
+                            : null
+                        )
+                      }}
+                      className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-8 text-xs text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    >
+                      {projects.map((proj) => (
+                        <option key={proj.id} value={proj.id}>
+                          {proj.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                   </div>
                 </div>
 

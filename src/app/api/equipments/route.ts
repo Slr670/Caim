@@ -2,16 +2,32 @@ import { NextRequest, NextResponse } from "next/server"
 import { getDb, isMongoConfigured } from "@/lib/mongodb"
 import { EquipmentDocument } from "@/types/database"
 import { realtimeEmitter, REALTIME_EVENTS } from "@/lib/events/realtimeEmitter"
-import { NO_CACHE_HEADERS, STATIC_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
+import { NO_CACHE_HEADERS } from "@/lib/constants/httpHeaders"
 import {
   getPersistentEquipments,
   savePersistentEquipment,
   deletePersistentEquipment,
 } from "@/lib/storage/serverEquipmentStorage"
+import {
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+  matchesProjectFilter,
+} from "@/lib/projects/projectConstants"
+import { resolveProjectAssignment } from "@/lib/projects/projectService"
 
 export const dynamic = "force-dynamic"
-export const revalidate = 60
+export const revalidate = 0
 export const maxDuration = 10
+
+function enrichEquipment(doc: EquipmentDocument): EquipmentDocument {
+  const clean = { ...(doc as EquipmentDocument & { _id?: unknown }) }
+  delete clean._id
+  return {
+    ...clean,
+    projectId: resolveEntityProjectId(clean),
+    projectName: resolveEntityProjectName(clean),
+  }
+}
 
 const deletedSerials = new Set<string>()
 
@@ -23,6 +39,7 @@ export async function GET(request: NextRequest) {
     const vendor = searchParams.get("vendor")
     const category = searchParams.get("category")
     const status = searchParams.get("status")
+    const projectFilter = searchParams.get("projectId") || searchParams.get("project") || "all"
 
     const persistentCustom = getPersistentEquipments()
 
@@ -38,7 +55,7 @@ export async function GET(request: NextRequest) {
             })
             if (item) {
               return NextResponse.json(
-                { success: true, equipment: item, source: "mongodb" },
+                { success: true, equipment: enrichEquipment(item), source: "mongodb" },
                 { headers: NO_CACHE_HEADERS }
               )
             }
@@ -78,15 +95,19 @@ export async function GET(request: NextRequest) {
             }
           }
 
+          const enrichedMongo = mongoEquipments
+            .map((e) => enrichEquipment(e))
+            .filter((e) => matchesProjectFilter(e, projectFilter))
+
           return NextResponse.json(
             {
               success: true,
               source: "mongodb",
-              total: mongoEquipments.length,
-              equipments: mongoEquipments,
+              total: enrichedMongo.length,
+              equipments: enrichedMongo,
             },
             {
-              headers: STATIC_CACHE_HEADERS,
+              headers: NO_CACHE_HEADERS,
             }
           )
         }
@@ -96,7 +117,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Fallback: persistent disk store (strictly dynamic - zero mock data)
-    let list = persistentCustom.filter((e) => !deletedSerials.has(e.serial.toUpperCase()))
+    let list = persistentCustom
+      .filter((e) => !deletedSerials.has(e.serial.toUpperCase()))
+      .map((e) => enrichEquipment(e))
 
     if (serial) {
       const found = list.find((e) => e.serial.toUpperCase() === serial.toUpperCase())
@@ -109,6 +132,9 @@ export async function GET(request: NextRequest) {
     if (vendor && vendor !== "all") list = list.filter((e) => e.vendor === vendor)
     if (category && category !== "all") list = list.filter((e) => e.category === category)
     if (status && status !== "all") list = list.filter((e) => e.status === status)
+    if (projectFilter && projectFilter !== "all") {
+      list = list.filter((e) => matchesProjectFilter(e, projectFilter))
+    }
     if (search) {
       list = list.filter(
         (e) =>
@@ -129,7 +155,7 @@ export async function GET(request: NextRequest) {
         equipments: list,
       },
       {
-        headers: STATIC_CACHE_HEADERS,
+        headers: NO_CACHE_HEADERS,
       }
     )
   } catch (error: unknown) {
@@ -173,6 +199,10 @@ export async function POST(request: NextRequest) {
     )
 
     const nowIso = new Date().toISOString()
+    const resolvedProject = await resolveProjectAssignment({
+      projectId: body.projectId,
+      projectName: body.projectName,
+    })
     const equipmentDoc: EquipmentDocument = {
       serial,
       vendor,
@@ -180,6 +210,8 @@ export async function POST(request: NextRequest) {
       category,
       name,
       description,
+      projectId: resolvedProject.projectId,
+      projectName: resolvedProject.projectName,
       stationId,
       stationName,
       status: body.status || "active",
@@ -290,6 +322,14 @@ export async function PUT(request: NextRequest) {
 
     const trimmedSerial = String(serial).trim()
     const nowIso = new Date().toISOString()
+    if (updates.projectId !== undefined || updates.projectName !== undefined) {
+      const resolvedProj = await resolveProjectAssignment({
+        projectId: updates.projectId,
+        projectName: updates.projectName,
+      })
+      updates.projectId = resolvedProj.projectId
+      updates.projectName = resolvedProj.projectName
+    }
     const setFields = { ...updates, updatedAt: nowIso }
 
     let updatedInMongo = false

@@ -874,11 +874,14 @@ export function CaimExecutiveSummaryPDF({ data }: CaimExecutiveSummaryPDFProps) 
                     { backgroundColor: isEven ? "#ffffff" : "#f8fafc" },
                   ]}
                 >
-                  {/* Claim No */}
+                  {/* Claim No & Project */}
                   <View style={styles.colClaimNo}>
                     <Text style={[styles.tableCellText, { fontFamily: "THSarabunNew", fontWeight: "bold" }]}>
                       {row.id}
                     </Text>
+                    {row.projectName ? (
+                      <Text style={styles.tableCellSubtext}>{row.projectName}</Text>
+                    ) : null}
                   </View>
 
                   {/* Title & Symptoms */}

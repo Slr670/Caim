@@ -38,6 +38,10 @@ export async function GET(req: NextRequest) {
       }
 
       // 2. Local in-process event listeners for immediate zero-latency dispatch
+      const onProjectChanged = (payload: unknown) => {
+        safeEnqueue(`event: project\ndata: ${JSON.stringify(payload)}\n\n`)
+      }
+
       const onStationChanged = (payload: unknown) => {
         safeEnqueue(`event: station\ndata: ${JSON.stringify(payload)}\n\n`)
       }
@@ -75,6 +79,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      realtimeEmitter.on(REALTIME_EVENTS.PROJECTS_CHANGED, onProjectChanged)
       realtimeEmitter.on(REALTIME_EVENTS.STATIONS_CHANGED, onStationChanged)
       realtimeEmitter.on(REALTIME_EVENTS.EQUIPMENTS_CHANGED, onEquipmentChanged)
       realtimeEmitter.on(REALTIME_EVENTS.TICKETS_CHANGED, onTicketChanged)
@@ -189,6 +194,7 @@ export async function GET(req: NextRequest) {
       const cleanup = () => {
         if (isClosed) return
         isClosed = true
+        realtimeEmitter.off(REALTIME_EVENTS.PROJECTS_CHANGED, onProjectChanged)
         realtimeEmitter.off(REALTIME_EVENTS.STATIONS_CHANGED, onStationChanged)
         realtimeEmitter.off(REALTIME_EVENTS.EQUIPMENTS_CHANGED, onEquipmentChanged)
         realtimeEmitter.off(REALTIME_EVENTS.TICKETS_CHANGED, onTicketChanged)

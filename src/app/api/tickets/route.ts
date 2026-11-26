@@ -32,6 +32,12 @@ import {
   buildAuthoritativeTimeline,
   reconcileClaimTimelineLogs,
 } from "@/lib/claims/claimTimeline"
+import {
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+  matchesProjectFilter,
+} from "@/lib/projects/projectConstants"
+import { resolveProjectAssignment } from "@/lib/projects/projectService"
 
 function sortTicketsByClaimId(list: TicketDocument[]): TicketDocument[] {
   return [...list].sort((a, b) =>
@@ -54,6 +60,8 @@ function enrichTicket(
     ...rawClean,
     uid,
     claimNumber: rawClean.id,
+    projectId: resolveEntityProjectId(rawClean),
+    projectName: resolveEntityProjectName(rawClean),
   }
   const duration = calculateCaseDuration(withUid)
   const defaultDeadline = calculateDueDate(withUid.date, 60).dueDateStr
@@ -102,6 +110,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
+    const projectFilter = searchParams.get("projectId") || searchParams.get("project") || "all"
 
     if (isMongoConfigured()) {
       try {
@@ -198,9 +207,9 @@ export async function GET(request: NextRequest) {
               )
             }
 
-            const filteredTickets = sortTicketsByClaimId(activeMongoTickets).map((t) =>
-              enrichTicket(t)
-            )
+            const filteredTickets = sortTicketsByClaimId(activeMongoTickets)
+              .map((t) => enrichTicket(t))
+              .filter((t) => matchesProjectFilter(t, projectFilter))
             return NextResponse.json(
               {
                 success: true,
@@ -226,7 +235,9 @@ export async function GET(request: NextRequest) {
       await migrateClaimSequences()
       rawDiskTickets = getPersistentTickets()
     }
-    const diskTickets = sortTicketsByClaimId(rawDiskTickets).map((t) => enrichTicket(t))
+    const diskTickets = sortTicketsByClaimId(rawDiskTickets)
+      .map((t) => enrichTicket(t))
+      .filter((t) => (id ? true : matchesProjectFilter(t, projectFilter)))
     const activeDeletedIds = getPersistentDeletedTicketIds()
 
     if (id) {
@@ -415,6 +426,14 @@ export async function PUT(request: NextRequest) {
       const asn = String(updates.assignee !== undefined ? updates.assignee : updates.assigneeName).trim()
       setFields.assignee = asn
       setFields.assigneeName = asn
+    }
+    if (updates.projectId !== undefined || updates.projectName !== undefined) {
+      const resolvedProj = await resolveProjectAssignment({
+        projectId: updates.projectId,
+        projectName: updates.projectName,
+      })
+      setFields.projectId = resolvedProj.projectId
+      setFields.projectName = resolvedProj.projectName
     }
 
     // Determine current record from disk or mongo (by immutable uid first, then exact id)

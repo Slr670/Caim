@@ -6,7 +6,7 @@ import { Key, ShieldAlert, X, Lock } from "lucide-react"
 export interface SettingsPasswordDialogProps {
   isOpen: boolean
   onClose: () => void
-  onSuccess: () => void
+  onSuccess: (verifiedPasscode: string) => void
 }
 
 const REQUIRED_PASSCODE = "258025"
@@ -46,7 +46,7 @@ export function SettingsPasswordDialog({
     if (password === REQUIRED_PASSCODE) {
       setErrorMsg(null)
       setIsSubmitting(false)
-      onSuccess()
+      onSuccess(password)
     } else {
       setIsSubmitting(false)
       setErrorMsg("รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง")

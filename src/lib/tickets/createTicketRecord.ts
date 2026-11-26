@@ -10,6 +10,7 @@ import { generateNextClaimNumber } from "@/lib/sequences/claimSequence"
 import { migrateClaimSequences } from "@/lib/sequences/migrateClaimSequences"
 import { invalidateDashboardMetrics } from "@/lib/dashboard/dashboardStatsService"
 import { notifyNewClaimCreated } from "@/lib/email/claimNotificationService"
+import { resolveProjectAssignment } from "@/lib/projects/projectService"
 
 /**
  * Claim/ticket creation shared by the portal endpoint (POST /api/claims) and the
@@ -69,6 +70,8 @@ export async function createTicketRecord(request: NextRequest) {
     let province = body.province ? String(body.province).trim() : undefined
     let district = body.district ? String(body.district).trim() : undefined
     let subdistrict = body.subdistrict ? String(body.subdistrict).trim() : undefined
+    let candidateProjectId = body.projectId ? String(body.projectId).trim() : undefined
+    let candidateProjectName = body.projectName ? String(body.projectName).trim() : undefined
 
     if (isMongoConfigured()) {
       const db = await getDb()
@@ -83,6 +86,10 @@ export async function createTicketRecord(request: NextRequest) {
             province = province || foundStation.province
             district = district || foundStation.district
             subdistrict = subdistrict || foundStation.subdistrict
+            if (!candidateProjectId && foundStation.projectId) {
+              candidateProjectId = foundStation.projectId
+              candidateProjectName = foundStation.projectName
+            }
           }
         } else if (stationId && !stationName) {
           const foundStation = await db.collection<StationDocument>("stations").findOne({ id: stationId })
@@ -91,14 +98,26 @@ export async function createTicketRecord(request: NextRequest) {
             province = province || foundStation.province
             district = district || foundStation.district
             subdistrict = subdistrict || foundStation.subdistrict
+            if (!candidateProjectId && foundStation.projectId) {
+              candidateProjectId = foundStation.projectId
+              candidateProjectName = foundStation.projectName
+            }
           }
         }
 
         // 2. Validate and Update Equipment Reference
         if (serialNo && serialNo !== "-") {
           const equipCol = db.collection<EquipmentDocument>("equipments")
+          const serialRegex = { $regex: new RegExp(`^${serialNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }
+          if (!candidateProjectId) {
+            const matchedEquip = await equipCol.findOne({ serial: serialRegex })
+            if (matchedEquip?.projectId) {
+              candidateProjectId = matchedEquip.projectId
+              candidateProjectName = matchedEquip.projectName
+            }
+          }
           await equipCol.updateOne(
-            { serial: { $regex: new RegExp(`^${serialNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") } },
+            { serial: serialRegex },
             {
               $set: {
                 status: "in_claim",
@@ -110,6 +129,11 @@ export async function createTicketRecord(request: NextRequest) {
             }
           )
         }
+
+        const resolvedProject = await resolveProjectAssignment({
+          projectId: candidateProjectId,
+          projectName: candidateProjectName,
+        })
 
         const reportedDateStr = body.date || new Date().toLocaleDateString("th-TH", {
           day: "numeric",
@@ -148,6 +172,8 @@ export async function createTicketRecord(request: NextRequest) {
           province,
           district,
           subdistrict,
+          projectId: resolvedProject.projectId,
+          projectName: resolvedProject.projectName,
           reporter: body.reporter || body.reporterName || undefined,
           assignee: body.assignee || body.assigneeName || undefined,
           reporterName: body.reporterName || body.reporter || undefined,
@@ -240,6 +266,11 @@ export async function createTicketRecord(request: NextRequest) {
       overdueText: body.overdueText,
     })
 
+    const fallbackProject = await resolveProjectAssignment({
+      projectId: candidateProjectId,
+      projectName: candidateProjectName,
+    })
+
     // Fallback store
     const fallbackDoc: TicketDocument = {
       uid: claimUid,
@@ -262,6 +293,8 @@ export async function createTicketRecord(request: NextRequest) {
       province,
       district,
       subdistrict,
+      projectId: fallbackProject.projectId,
+      projectName: fallbackProject.projectName,
       reporter: body.reporter || body.reporterName || undefined,
       assignee: body.assignee || body.assigneeName || undefined,
       reporterName: body.reporterName || body.reporter || undefined,

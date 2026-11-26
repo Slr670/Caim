@@ -55,6 +55,7 @@ export function AppShell({ children }: AppShellProps) {
   const [session, setSession] = React.useState<UserSession>(DEFAULT_USER_SESSION)
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = React.useState(false)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = React.useState(false)
+  const [verifiedSettingsPasscode, setVerifiedSettingsPasscode] = React.useState("")
   const { theme, toggleTheme, mounted } = useTheme()
   const { t } = useLocale()
 
@@ -462,7 +463,8 @@ export function AppShell({ children }: AppShellProps) {
         <SettingsPasswordDialog
           isOpen={isPasswordDialogOpen}
           onClose={() => setIsPasswordDialogOpen(false)}
-          onSuccess={() => {
+          onSuccess={(passcode) => {
+            setVerifiedSettingsPasscode(passcode)
             setIsPasswordDialogOpen(false)
             setIsSettingsModalOpen(true)
           }}
@@ -471,7 +473,11 @@ export function AppShell({ children }: AppShellProps) {
         {/* System Settings & SMTP Modal */}
         <SystemSettingsModal
           isOpen={isSettingsModalOpen}
-          onClose={() => setIsSettingsModalOpen(false)}
+          passcode={verifiedSettingsPasscode}
+          onClose={() => {
+            setIsSettingsModalOpen(false)
+            setVerifiedSettingsPasscode("")
+          }}
         />
       </div>
     </div>

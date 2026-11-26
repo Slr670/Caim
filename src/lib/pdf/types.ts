@@ -121,6 +121,7 @@ export interface ExecutiveClaimInventoryItem {
   id: string
   title: string
   symptoms?: string
+  projectName?: string
   equipment: string
   serialNo: string
   status: string

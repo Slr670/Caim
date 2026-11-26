@@ -17,6 +17,12 @@ import {
 import { invalidateDashboardMetrics } from "@/lib/dashboard/dashboardStatsService"
 import { notifyRmaStageUpdated } from "@/lib/email/claimNotificationService"
 import { getPersistentTickets } from "@/lib/storage/serverTicketStorage"
+import {
+  resolveEntityProjectId,
+  resolveEntityProjectName,
+  matchesProjectFilter,
+} from "@/lib/projects/projectConstants"
+import { resolveProjectAssignment } from "@/lib/projects/projectService"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -24,10 +30,14 @@ export const fetchCache = "force-no-store"
 export const maxDuration = 10
 
 function enrichRma(doc: RmaDocument): RmaDocument {
-  const resolvedStage = resolveRmaStageNumber(doc.currentStageName || doc.status, doc.currentStageNumber)
+  const cleanDoc = { ...(doc as RmaDocument & { _id?: unknown }) }
+  delete cleanDoc._id
+  const resolvedStage = resolveRmaStageNumber(cleanDoc.currentStageName || cleanDoc.status, cleanDoc.currentStageNumber)
   const normalizedDoc: RmaDocument = {
-    ...doc,
+    ...cleanDoc,
     currentStageNumber: resolvedStage,
+    projectId: resolveEntityProjectId(cleanDoc),
+    projectName: resolveEntityProjectName(cleanDoc),
   }
   const metrics = calculateRmaMetrics(normalizedDoc)
   const stageDuration = calculateCurrentStageDuration(normalizedDoc)
@@ -47,6 +57,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
+    const projectFilter = searchParams.get("projectId") || searchParams.get("project") || "all"
     const persistentDeletedIds = getPersistentDeletedRmaIds()
     const deletedSet = new Set(persistentDeletedIds)
 
@@ -68,7 +79,10 @@ export async function GET(request: NextRequest) {
           )
         }
         const list = await collection.find({}).sort({ createdAt: -1 }).toArray()
-        const filteredList = list.filter((r) => !deletedSet.has(r.id)).map(enrichRma)
+        const filteredList = list
+          .filter((r) => !deletedSet.has(r.id))
+          .map(enrichRma)
+          .filter((r) => matchesProjectFilter(r, projectFilter))
         return NextResponse.json(
           {
             success: true,
@@ -96,7 +110,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const enrichedDisk = diskRma.map(enrichRma)
+    const enrichedDisk = diskRma
+      .map(enrichRma)
+      .filter((r) => matchesProjectFilter(r, projectFilter))
     return NextResponse.json(
       {
         success: true,
@@ -140,6 +156,11 @@ export async function POST(request: NextRequest) {
       stageHistory: body.stageHistory,
     })
 
+    const resolvedProject = await resolveProjectAssignment({
+      projectId: body.projectId,
+      projectName: body.projectName,
+    })
+
     const newRma: RmaDocument = {
       id: rmaId,
       rmaNo: body.rmaNo,
@@ -148,6 +169,8 @@ export async function POST(request: NextRequest) {
       serialNo,
       vendor: body.vendor || "N/A",
       model: body.model || "-",
+      projectId: resolvedProject.projectId,
+      projectName: resolvedProject.projectName,
       destination: body.destination || "ต่างประเทศ",
       status: body.status || "กำลังดำเนินการ",
       statusBadge: metrics.total.statusBadge,
@@ -257,6 +280,14 @@ export async function PUT(request: NextRequest) {
     }
 
     const nowIso = new Date().toISOString()
+    if (updates.projectId !== undefined || updates.projectName !== undefined) {
+      const resolvedProj = await resolveProjectAssignment({
+        projectId: updates.projectId,
+        projectName: updates.projectName,
+      })
+      updates.projectId = resolvedProj.projectId
+      updates.projectName = resolvedProj.projectName
+    }
     const diskItems = getPersistentRma()
     const foundItem = diskItems.find((r) => r.id === id)
     let previousRma: RmaDocument | null = foundItem ? { ...foundItem } : null
